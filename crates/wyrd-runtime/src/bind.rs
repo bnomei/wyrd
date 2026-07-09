@@ -48,6 +48,11 @@ pub struct Runtime {
     pub(crate) flag: Vec<bool>,
     pub(crate) timer_left: Vec<u16>,
     pub(crate) on_start_done: Vec<bool>,
+    /// Delay ring: flat buffer + per-knot (offset, len, head).
+    pub(crate) delay_buf: Vec<Signal>,
+    pub(crate) delay_off: Vec<u16>,
+    pub(crate) delay_len: Vec<u16>,
+    pub(crate) delay_head: Vec<u16>,
     out_signals: Vec<SignalOutSample>,
     out_emits: Vec<Emit>,
     tick: u64,
@@ -115,6 +120,21 @@ impl Runtime {
         let topo = topo_order(knots.len(), &threads)?;
 
         let n = knots.len();
+        let mut delay_buf = Vec::new();
+        let mut delay_off = vec![0u16; n];
+        let mut delay_len = vec![0u16; n];
+        let delay_head = vec![0u16; n];
+        for (i, k) in knots.iter().enumerate() {
+            if let KnotKind::Delay { ticks } = k.kind {
+                let len = ticks as usize;
+                if len > 0 {
+                    delay_off[i] = delay_buf.len() as u16;
+                    delay_len[i] = ticks;
+                    delay_buf.resize(delay_buf.len() + len, ZERO);
+                }
+            }
+        }
+
         Ok(Runtime {
             knots,
             name_to_id,
@@ -132,6 +152,10 @@ impl Runtime {
             flag: vec![false; n],
             timer_left: vec![0; n],
             on_start_done: vec![false; n],
+            delay_buf,
+            delay_off,
+            delay_len,
+            delay_head,
             out_signals: Vec::new(),
             out_emits: Vec::new(),
             tick: 0,

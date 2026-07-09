@@ -220,13 +220,18 @@ impl Runtime {
                 }
             },
             KnotKind::Delay { ticks } => {
-                // Minimal delay: 1-tick if ticks>=1 using prev_in as single stage
                 let i = self.get_port(kid, PortSlot(0));
                 if ticks == 0 {
                     self.set_port(kid, PortSlot(1), i);
                 } else {
-                    let o = self.prev_in[ki];
-                    self.prev_in[ki] = i;
+                    let len = self.delay_len[ki] as usize;
+                    let off = self.delay_off[ki] as usize;
+                    let head = self.delay_head[ki] as usize;
+                    // Output sample from `ticks` looms ago (ring slot at head).
+                    let o = self.delay_buf[off + head];
+                    self.delay_buf[off + head] = i;
+                    let next = head + 1;
+                    self.delay_head[ki] = if next >= len { 0 } else { next as u16 };
                     self.set_port(kid, PortSlot(1), o);
                 }
             }
