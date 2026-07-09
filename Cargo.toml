@@ -4,6 +4,7 @@ members = [
     "crates/wyrd-core",
     "crates/wyrd-graph",
     "crates/wyrd-runtime",
+    "crates/wyrd-bevy",
 ]
 default-members = [
     "crates/wyrd-core",

@@ -11,6 +11,7 @@ A small Rust library for composing game behavior from typed signal graphs, using
 | [`wyrd-core`](crates/wyrd-core) | `Signal`, dense ids, closed port tables, `KnotKind` |
 | [`wyrd-graph`](crates/wyrd-graph) | Author `Weave`, builder, validate |
 | [`wyrd-runtime`](crates/wyrd-runtime) | Bind → sample → loom → outbox |
+| [`wyrd-bevy`](crates/wyrd-bevy) | Thin Bevy 0.18 adapter (`WyrdPlugin`, dense bindings) |
 
 ## Quick taste
 
@@ -52,6 +53,8 @@ Enable exactly one of `signal-f32` / `signal-i32`.
 cargo test --workspace
 cargo test -p wyrd-graph --features serde-ron
 cargo bench -p wyrd-runtime --bench settle
+cargo test -p wyrd-bevy
+cargo run -p wyrd-bevy --example and_door
 ```
 
 ## Docs (local / gitignored)
