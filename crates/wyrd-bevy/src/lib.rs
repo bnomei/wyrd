@@ -78,7 +78,12 @@ pub fn loom_all(mut world: ResMut<WyrdWorld>) {
         inst.runtime.begin_frame(HostTime { tick: inst.tick });
         if let Err(e) = inst.runtime.loom(&inst.weave) {
             // Settle should not fail on a validated weave; surface if it does.
+            #[cfg(feature = "bevy_log")]
             bevy::log::error!("wyrd loom failed ({}): {e}", inst.label);
+            #[cfg(not(feature = "bevy_log"))]
+            {
+                let _ = (&inst.label, &e);
+            }
             debug_assert!(false, "wyrd loom failed: {e}");
         }
     }
