@@ -8,7 +8,8 @@ description = "Thin Bevy adapter for Wyrd Weaves (sample → loom → apply)"
 readme = "README.md"
 
 [features]
-default = ["bevy_log"]
+default = []
+# Enable for loom error logs via bevy::log
 bevy_log = ["bevy/bevy_log"]
 
 [dependencies]

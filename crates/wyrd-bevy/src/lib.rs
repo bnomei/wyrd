@@ -47,7 +47,8 @@ pub struct WyrdWorld {
     pub instances: Vec<WyrdInstance>,
 }
 
-/// Pre-resolved handles for a classic and-door host (no string poke in Update).
+/// Demo/test binding for the and-door sample (not a general host primitive).
+/// Resolve your own `KnotId` / `HostPathId` fields at setup for production games.
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct AndDoorBinding {
     pub plate_a: KnotId,
@@ -75,7 +76,11 @@ pub fn loom_all(mut world: ResMut<WyrdWorld>) {
     for inst in world.instances.iter_mut() {
         inst.tick = inst.tick.wrapping_add(1);
         inst.runtime.begin_frame(HostTime { tick: inst.tick });
-        let _ = inst.runtime.loom(&inst.weave);
+        if let Err(e) = inst.runtime.loom(&inst.weave) {
+            // Settle should not fail on a validated weave; surface if it does.
+            bevy::log::error!("wyrd loom failed ({}): {e}", inst.label);
+            debug_assert!(false, "wyrd loom failed: {e}");
+        }
     }
 }
 
