@@ -1,0 +1,19 @@
+[package]
+name = "wyrd-graph"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Wyrd Weave authoring: knots, threads, validate, builder"
+readme = "README.md"
+
+[features]
+default = ["std", "signal-f32"]
+std = ["no-std-compat/std", "wyrd-core/std"]
+signal-f32 = ["wyrd-core/signal-f32"]
+signal-i32 = ["wyrd-core/signal-i32"]
+alloc = ["no-std-compat/alloc", "wyrd-core/alloc"]
+
+[dependencies]
+wyrd-core = { workspace = true, default-features = false }
+no-std-compat = { workspace = true, features = ["alloc"] }

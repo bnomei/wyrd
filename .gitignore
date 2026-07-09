@@ -1,0 +1,7 @@
+# Local vision / notes (not tracked)
+docs/
+
+# Rust
+/target/
+**/*.rs.bk
+

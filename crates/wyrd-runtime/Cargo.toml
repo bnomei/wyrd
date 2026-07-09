@@ -1,0 +1,20 @@
+[package]
+name = "wyrd-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Wyrd loom: bind, settle, outbox"
+readme = "README.md"
+
+[features]
+default = ["std", "signal-f32"]
+std = ["no-std-compat/std", "wyrd-core/std", "wyrd-graph/std"]
+signal-f32 = ["wyrd-core/signal-f32", "wyrd-graph/signal-f32"]
+signal-i32 = ["wyrd-core/signal-i32", "wyrd-graph/signal-i32"]
+alloc = ["no-std-compat/alloc", "wyrd-core/alloc", "wyrd-graph/alloc"]
+
+[dependencies]
+wyrd-core = { workspace = true, default-features = false }
+wyrd-graph = { workspace = true, default-features = false }
+no-std-compat = { workspace = true, features = ["alloc"] }
