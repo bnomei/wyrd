@@ -87,19 +87,12 @@ pub fn validate(weave: &Weave, budget: &Budget) -> Result<()> {
         edges.push((fi, ti));
     }
 
-    // Required inputs connected (with Compare rhs_const exception)
+    // Required inputs connected (Compare `rhs` optional when `rhs_const` is set).
     for (ti, k) in weave.knots.iter().enumerate() {
         for p in ports_of(&k.kind) {
-            if p.dir != PortDir::In || !p.required {
-                // Compare rhs special-case
-                if let KnotKind::Compare { rhs_const, .. } = &k.kind {
-                    if p.name == "rhs" && rhs_const.is_some() {
-                        continue;
-                    }
-                }
+            if p.dir != PortDir::In {
                 continue;
             }
-            // required flag on PortInfo
             let need = if let KnotKind::Compare { rhs_const, .. } = &k.kind {
                 if p.name == "rhs" {
                     rhs_const.is_none()
@@ -158,7 +151,8 @@ pub fn validate(weave: &Weave, budget: &Budget) -> Result<()> {
 mod tests {
     use super::*;
     use crate::Weave;
-    use wyrd_core::{KnotKind, ONE};
+    use std::vec;
+    use wyrd_core::{KnotKind, NumericPath, ONE};
 
     #[test]
     fn hello_ok() {
@@ -202,5 +196,178 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::UnknownPort));
+    }
+
+    #[test]
+    fn empty_weave_rejects() {
+        let w = Weave {
+            id: "e".into(),
+            knots: vec![],
+            threads: vec![],
+            numeric: NumericPath::compiled(),
+        };
+        assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::Empty));
+    }
+
+    #[test]
+    fn budget_knots_and_threads() {
+        let (b, _) = Weave::builder("b")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let w = b.build().unwrap();
+        let tight = Budget {
+            max_knots: 0,
+            max_threads: 512,
+        };
+        assert_eq!(validate(&w, &tight), Err(WyrdError::Budget));
+
+        let (b, _) = Weave::builder("b2")
+            .knot("a", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, _) = b.knot("n", KnotKind::not()).unwrap();
+        let w = b.wire_named("a", "out", "n", "in").build().unwrap();
+        let tight_t = Budget {
+            max_knots: 256,
+            max_threads: 0,
+        };
+        assert_eq!(validate(&w, &tight_t), Err(WyrdError::Budget));
+    }
+
+    #[test]
+    fn numeric_mismatch_rejects() {
+        let (b, _) = Weave::builder("n")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let mut w = b.build().unwrap();
+        #[cfg(feature = "signal-f32")]
+        {
+            w.numeric = NumericPath::I32Q16;
+        }
+        #[cfg(feature = "signal-i32")]
+        {
+            w.numeric = NumericPath::F32;
+        }
+        assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::NumericMismatch));
+    }
+
+    #[test]
+    fn duplicate_knot_id_rejects() {
+        use crate::weave::KnotDef;
+        let w = Weave {
+            id: "d".into(),
+            knots: vec![
+                KnotDef {
+                    id: "a".into(),
+                    kind: KnotKind::constant(ONE),
+                },
+                KnotDef {
+                    id: "a".into(),
+                    kind: KnotKind::constant(ONE),
+                },
+            ],
+            threads: vec![],
+            numeric: NumericPath::compiled(),
+        };
+        assert_eq!(
+            validate(&w, &Budget::default()),
+            Err(WyrdError::DuplicateKnotId)
+        );
+    }
+
+    #[test]
+    fn unsupported_arity_rejects() {
+        let (b, _) = Weave::builder("a")
+            .knot("x", KnotKind::And { arity: 5 })
+            .unwrap();
+        let w = b.build().unwrap();
+        assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::UnknownPort));
+    }
+
+    #[test]
+    fn wrong_port_direction_rejects() {
+        // Wire in → in (not Out→In).
+        let (b, _) = Weave::builder("d")
+            .knot("a", KnotKind::signal_in())
+            .unwrap();
+        let (b, _) = b.knot("n", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("m", KnotKind::not()).unwrap();
+        // valid wire a.out→n.in, then n.in→m.in is wrong dir on from (in is In)
+        let w = b
+            .wire_named("a", "out", "n", "in")
+            .wire_named("n", "in", "m", "in")
+            .build()
+            .unwrap();
+        assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::UnknownPort));
+    }
+
+    #[test]
+    fn unconnected_required_rejects() {
+        let (b, _) = Weave::builder("u")
+            .knot("n", KnotKind::not())
+            .unwrap();
+        let w = b.build().unwrap();
+        assert_eq!(
+            validate(&w, &Budget::default()),
+            Err(WyrdError::UnconnectedRequired)
+        );
+    }
+
+    #[test]
+    fn self_loop_and_multi_cycle() {
+        let (b, _) = Weave::builder("c")
+            .knot("n", KnotKind::not())
+            .unwrap();
+        let w = b.wire_named("n", "out", "n", "in").build().unwrap();
+        assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::Cycle));
+
+        let (b, _) = Weave::builder("c2")
+            .knot("a", KnotKind::not())
+            .unwrap();
+        let (b, _) = b.knot("b", KnotKind::not()).unwrap();
+        let w = b
+            .wire_named("a", "out", "b", "in")
+            .wire_named("b", "out", "a", "in")
+            .build()
+            .unwrap();
+        assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::Cycle));
+    }
+
+    #[test]
+    fn compare_rhs_const_skips_required_wire() {
+        use wyrd_core::CompareOp;
+        let (b, _) = Weave::builder("cmp")
+            .knot("l", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, _) = b
+            .knot("c", KnotKind::compare(CompareOp::Eq, Some(1)))
+            .unwrap();
+        let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
+        let w = b
+            .wire_named("l", "out", "c", "lhs")
+            // rhs not wired — allowed when rhs_const is Some
+            .wire_named("c", "out", "o", "in")
+            .build()
+            .unwrap();
+        validate(&w, &Budget::default()).unwrap();
+    }
+
+    #[test]
+    fn compare_rhs_wired_required_when_no_const() {
+        use wyrd_core::CompareOp;
+        let (b, _) = Weave::builder("cmp")
+            .knot("l", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, _) = b.knot("c", KnotKind::compare(CompareOp::Eq, None)).unwrap();
+        let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
+        let w = b
+            .wire_named("l", "out", "c", "lhs")
+            .wire_named("c", "out", "o", "in")
+            .build()
+            .unwrap();
+        // rhs required and missing
+        assert_eq!(
+            validate(&w, &Budget::default()),
+            Err(WyrdError::UnconnectedRequired)
+        );
     }
 }

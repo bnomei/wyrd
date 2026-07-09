@@ -42,3 +42,25 @@ impl PortWriter<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wyrd_core::{KnotKind, ONE};
+    use wyrd_graph::Weave;
+
+    use crate::bind::{BindOpts, Runtime};
+
+    #[test]
+    fn set_sense_oob_is_noop() {
+        let (b, _) = Weave::builder("x")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let weave = b.build().unwrap();
+        let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        // OOB sense id: no panic, no write.
+        rt.port_writer().set_sense(KnotId(999), ONE);
+        assert!(rt.outbox().signals().is_empty());
+        assert!(rt.outbox().emits().is_empty());
+    }
+}

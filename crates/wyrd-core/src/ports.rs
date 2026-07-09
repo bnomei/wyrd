@@ -17,92 +17,82 @@ pub struct PortInfo {
     pub required: bool,
 }
 
-macro_rules! p {
-    ($slot:expr, $name:expr, In, $req:expr) => {
-        PortInfo {
-            slot: PortSlot($slot),
-            dir: PortDir::In,
-            name: $name,
-            required: $req,
-        }
-    };
-    ($slot:expr, $name:expr, Out) => {
-        PortInfo {
-            slot: PortSlot($slot),
-            dir: PortDir::Out,
-            name: $name,
-            required: false,
-        }
-    };
+const fn pin(slot: u8, name: &'static str, required: bool) -> PortInfo {
+    PortInfo {
+        slot: PortSlot(slot),
+        dir: PortDir::In,
+        name,
+        required,
+    }
 }
 
-const OUT_ONLY: &[PortInfo] = &[p!(0, "out", Out)];
-const IN_OUT: &[PortInfo] = &[p!(0, "in", In, true), p!(1, "out", Out)];
+const fn pout(slot: u8, name: &'static str) -> PortInfo {
+    PortInfo {
+        slot: PortSlot(slot),
+        dir: PortDir::Out,
+        name,
+        required: false,
+    }
+}
+
+const OUT_ONLY: &[PortInfo] = &[pout(0, "out")];
+const IN_OUT: &[PortInfo] = &[pin(0, "in", true), pout(1, "out")];
 const COMPARE: &[PortInfo] = &[
-    p!(0, "lhs", In, true),
-    p!(1, "rhs", In, false), // required unless rhs_const
-    p!(2, "out", Out),
+    pin(0, "lhs", true),
+    // Catalog-required; validate relaxes when `rhs_const` is Some.
+    pin(1, "rhs", true),
+    pout(2, "out"),
 ];
 const FLAG: &[PortInfo] = &[
-    p!(0, "set", In, false),
-    p!(1, "reset", In, false),
-    p!(2, "toggle", In, false),
-    p!(3, "out", Out),
+    pin(0, "set", false),
+    pin(1, "reset", false),
+    pin(2, "toggle", false),
+    pout(3, "out"),
 ];
 const COUNTER: &[PortInfo] = &[
-    p!(0, "inc", In, false),
-    p!(1, "dec", In, false),
-    p!(2, "reset", In, false),
-    p!(3, "count", Out),
+    pin(0, "inc", false),
+    pin(1, "dec", false),
+    pin(2, "reset", false),
+    pout(3, "count"),
 ];
-const TIMER_PULSE: &[PortInfo] = &[p!(0, "start", In, true), p!(1, "active", Out)];
-const TIMER_FED: &[PortInfo] = &[p!(0, "feed", In, true), p!(1, "active", Out)];
-const CALC: &[PortInfo] = &[
-    p!(0, "a", In, true),
-    p!(1, "b", In, true),
-    p!(2, "out", Out),
-];
-const MAP_LIKE: &[PortInfo] = &[p!(0, "in", In, true), p!(1, "out", Out)];
-const SIGNAL_OUT: &[PortInfo] = &[p!(0, "in", In, true)];
+const TIMER_PULSE: &[PortInfo] = &[pin(0, "start", true), pout(1, "active")];
+const TIMER_FED: &[PortInfo] = &[pin(0, "feed", true), pout(1, "active")];
+const CALC: &[PortInfo] = &[pin(0, "a", true), pin(1, "b", true), pout(2, "out")];
+const MAP_LIKE: &[PortInfo] = &[pin(0, "in", true), pout(1, "out")];
+const SIGNAL_OUT: &[PortInfo] = &[pin(0, "in", true)];
 const EMIT: &[PortInfo] = &[
-    p!(0, "trigger", In, true),
-    p!(1, "enable", In, false),
-    p!(2, "payload", In, false),
+    pin(0, "trigger", true),
+    pin(1, "enable", false),
+    pin(2, "payload", false),
 ];
 
-// Precomputed And/Or arities 1..=8
-const AND1: &[PortInfo] = &[p!(0, "in_0", In, true), p!(1, "out", Out)];
-const AND2: &[PortInfo] = &[
-    p!(0, "in_0", In, true),
-    p!(1, "in_1", In, true),
-    p!(2, "out", Out),
-];
+// Precomputed And/Or arities 1..=4
+const AND1: &[PortInfo] = &[pin(0, "in_0", true), pout(1, "out")];
+const AND2: &[PortInfo] = &[pin(0, "in_0", true), pin(1, "in_1", true), pout(2, "out")];
 const AND3: &[PortInfo] = &[
-    p!(0, "in_0", In, true),
-    p!(1, "in_1", In, true),
-    p!(2, "in_2", In, true),
-    p!(3, "out", Out),
+    pin(0, "in_0", true),
+    pin(1, "in_1", true),
+    pin(2, "in_2", true),
+    pout(3, "out"),
 ];
 const AND4: &[PortInfo] = &[
-    p!(0, "in_0", In, true),
-    p!(1, "in_1", In, true),
-    p!(2, "in_2", In, true),
-    p!(3, "in_3", In, true),
-    p!(4, "out", Out),
+    pin(0, "in_0", true),
+    pin(1, "in_1", true),
+    pin(2, "in_2", true),
+    pin(3, "in_3", true),
+    pout(4, "out"),
 ];
 
 /// Static port table for a kind. Empty for unsupported arity.
 pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
     match kind {
-        KnotKind::Constant { .. } | KnotKind::SignalIn | KnotKind::OnStart => OUT_ONLY,
-        KnotKind::Not | KnotKind::RisingFromZero => IN_OUT,
-        KnotKind::And { arity } | KnotKind::Or { arity } => match *arity {
-            1 => AND1,
-            2 => AND2,
-            3 => AND3,
-            4 => AND4,
-            _ => &[], // validate will reject unsupported arity for now
-        },
+        KnotKind::Constant { .. } => OUT_ONLY,
+        KnotKind::SignalIn => OUT_ONLY,
+        KnotKind::OnStart => OUT_ONLY,
+        KnotKind::Not => IN_OUT,
+        KnotKind::RisingFromZero => IN_OUT,
+        KnotKind::And { arity } => and_or_ports(*arity),
+        KnotKind::Or { arity } => and_or_ports(*arity),
         KnotKind::Compare { .. } => COMPARE,
         KnotKind::Flag { .. } => FLAG,
         KnotKind::Counter => COUNTER,
@@ -112,9 +102,21 @@ pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
         },
         KnotKind::Delay { .. } => IN_OUT,
         KnotKind::Calc { .. } => CALC,
-        KnotKind::Map { .. } | KnotKind::Abs | KnotKind::Neg => MAP_LIKE,
+        KnotKind::Map { .. } => MAP_LIKE,
+        KnotKind::Abs => MAP_LIKE,
+        KnotKind::Neg => MAP_LIKE,
         KnotKind::SignalOut { .. } => SIGNAL_OUT,
         KnotKind::EmitCommand { .. } => EMIT,
+    }
+}
+
+fn and_or_ports(arity: u8) -> &'static [PortInfo] {
+    match arity {
+        1 => AND1,
+        2 => AND2,
+        3 => AND3,
+        4 => AND4,
+        _ => &[], // validate will reject unsupported arity for now
     }
 }
 
@@ -129,6 +131,7 @@ pub fn port_slot(kind: &KnotKind, name: &str) -> Option<PortSlot> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kind::TimerMode;
 
     #[test]
     fn and2_ports() {
@@ -144,5 +147,48 @@ mod tests {
         let k = KnotKind::emit_command("x");
         assert_eq!(port_slot(&k, "trigger"), Some(PortSlot(0)));
         assert_eq!(port_slot(&k, "in"), None);
+    }
+
+    #[test]
+    fn all_arity_and_timer_tables() {
+        assert_eq!(ports_of(&KnotKind::And { arity: 1 }).len(), 2);
+        assert_eq!(ports_of(&KnotKind::And { arity: 3 }).len(), 4);
+        assert_eq!(ports_of(&KnotKind::Or { arity: 4 }).len(), 5);
+        assert!(ports_of(&KnotKind::And { arity: 5 }).is_empty());
+        assert!(ports_of(&KnotKind::Or { arity: 9 }).is_empty());
+        assert_eq!(
+            ports_of(&KnotKind::timer(TimerMode::FedCountdown, 1))[0].name,
+            "feed"
+        );
+        assert_eq!(
+            ports_of(&KnotKind::timer(TimerMode::PulseHold, 1))[0].name,
+            "start"
+        );
+        assert_eq!(
+            ports_of(&KnotKind::Map {
+                in_min: crate::ZERO,
+                in_max: crate::ONE,
+                out_min: crate::ZERO,
+                out_max: crate::ONE,
+            })[0]
+            .name,
+            "in"
+        );
+        assert_eq!(ports_of(&KnotKind::Abs)[1].name, "out");
+        assert_eq!(ports_of(&KnotKind::Neg)[0].name, "in");
+        assert_eq!(ports_of(&KnotKind::constant(crate::ONE))[0].name, "out");
+        assert_eq!(ports_of(&KnotKind::signal_in())[0].name, "out");
+        assert_eq!(ports_of(&KnotKind::OnStart)[0].name, "out");
+        assert_eq!(ports_of(&KnotKind::not())[0].name, "in");
+        assert_eq!(ports_of(&KnotKind::rising_from_zero())[0].name, "in");
+        // Touch PortDir / PortInfo fields + runtime const-fn paths (coverage).
+        let p = &ports_of(&KnotKind::not())[0];
+        assert_eq!(p.dir, PortDir::In);
+        assert!(p.required);
+        assert_eq!(p.slot, PortSlot(0));
+        let _in = pin(0, "x", true);
+        let _out = pout(1, "y");
+        assert_eq!(_out.dir, PortDir::Out);
+        assert_eq!(_in.name, "x");
     }
 }

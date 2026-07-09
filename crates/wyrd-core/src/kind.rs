@@ -174,8 +174,42 @@ impl KnotKind {
 
     pub fn arity(&self) -> Option<u8> {
         match self {
-            KnotKind::And { arity } | KnotKind::Or { arity } => Some(*arity),
+            KnotKind::And { arity } => Some(*arity),
+            KnotKind::Or { arity } => Some(*arity),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::signal::{from_count, ONE};
+
+    #[test]
+    fn helpers_and_arity() {
+        assert!(matches!(KnotKind::or2(), KnotKind::Or { arity: 2 }));
+        assert!(matches!(KnotKind::not(), KnotKind::Not));
+        assert!(matches!(
+            KnotKind::constant_count(7),
+            KnotKind::Constant { value } if value == from_count(7)
+        ));
+        assert!(matches!(
+            KnotKind::emit_command("go"),
+            KnotKind::EmitCommand { name } if name == "go"
+        ));
+        assert_eq!(KnotKind::and2().arity(), Some(2));
+        assert_eq!(KnotKind::or2().arity(), Some(2));
+        assert_eq!(KnotKind::not().arity(), None);
+        assert_eq!(NumericPath::compiled(), NumericPath::compiled());
+        let _ = ONE;
+        let _ = KnotKind::signal_in();
+        let _ = KnotKind::signal_out("p");
+        let _ = KnotKind::rising_from_zero();
+        let _ = KnotKind::compare(CompareOp::Eq, None);
+        let _ = KnotKind::counter();
+        let _ = KnotKind::timer(TimerMode::PulseHold, 1);
+        let _ = KnotKind::flag(FlagPriority::SetWins, false);
+        let _ = KnotKind::constant(ONE);
     }
 }

@@ -286,10 +286,14 @@ mod tests {
         let (b, _) = Weave::builder("p").knot("a", KnotKind::signal_in()).unwrap();
         let mut parent = b.build().unwrap();
         let mut p2 = p;
-        p2.inner.numeric = match parent.numeric {
-            NumericPath::F32 => NumericPath::I32Q16,
-            NumericPath::I32Q16 => NumericPath::F32,
-        };
+        #[cfg(feature = "signal-f32")]
+        {
+            p2.inner.numeric = NumericPath::I32Q16;
+        }
+        #[cfg(feature = "signal-i32")]
+        {
+            p2.inner.numeric = NumericPath::F32;
+        }
         assert!(matches!(
             merge_expanded(&mut parent, "h", &p2),
             Err(WyrdError::NumericMismatch)
@@ -305,6 +309,99 @@ mod tests {
         assert!(matches!(
             merge_expanded(&mut parent, "hold1", &p),
             Err(WyrdError::DuplicateKnotId)
+        ));
+    }
+
+    #[test]
+    fn instance_id_and_empty_pattern() {
+        let p = monostable_pattern();
+        let (_, _, exp) = expand_pattern("hold1", &p).unwrap();
+        assert_eq!(exp.instance_id(), "hold1");
+
+        let empty = Pattern {
+            id: "e".into(),
+            inner: Weave {
+                id: "e".into(),
+                knots: vec![],
+                threads: vec![],
+                numeric: NumericPath::compiled(),
+            },
+            exports_in: vec![],
+            exports_out: vec![],
+        };
+        assert!(matches!(expand_pattern("x", &empty), Err(WyrdError::Empty)));
+    }
+
+    #[test]
+    fn slash_in_instance_or_inner_id() {
+        let p = monostable_pattern();
+        assert!(matches!(
+            expand_pattern("a/b", &p),
+            Err(WyrdError::InvalidPatternId)
+        ));
+        let mut p = monostable_pattern();
+        p.inner.knots[0].id = "bad/id".into();
+        assert!(matches!(
+            expand_pattern("ok", &p),
+            Err(WyrdError::InvalidPatternId)
+        ));
+    }
+
+    #[test]
+    fn duplicate_inner_knot_and_bad_threads() {
+        use crate::weave::{KnotDef, ThreadDef};
+        let mut p = monostable_pattern();
+        p.inner.knots.push(KnotDef {
+            id: "edge".into(),
+            kind: KnotKind::rising_from_zero(),
+        });
+        assert!(matches!(
+            expand_pattern("x", &p),
+            Err(WyrdError::DuplicateKnotId)
+        ));
+
+        let mut p = monostable_pattern();
+        p.inner.threads.push(ThreadDef {
+            from: PortRefAuthor::new("nope", "out"),
+            to: PortRefAuthor::new("t", "start"),
+        });
+        assert!(matches!(
+            expand_pattern("x", &p),
+            Err(WyrdError::UnknownKnot)
+        ));
+
+        let mut p = monostable_pattern();
+        p.inner.threads[0].from.port = "nope".into();
+        assert!(matches!(
+            expand_pattern("x", &p),
+            Err(WyrdError::UnknownPort)
+        ));
+    }
+
+    #[test]
+    fn duplicate_exports_and_wrong_out_dir() {
+        let mut p = monostable_pattern();
+        p.exports_in
+            .push(("start".into(), "edge".into(), "in".into()));
+        assert!(matches!(
+            expand_pattern("x", &p),
+            Err(WyrdError::DuplicateKnotId)
+        ));
+
+        let mut p = monostable_pattern();
+        p.exports_out
+            .push(("active".into(), "t".into(), "active".into()));
+        assert!(matches!(
+            expand_pattern("x", &p),
+            Err(WyrdError::DuplicateKnotId)
+        ));
+
+        // export_out pointing at an In port
+        let mut p = monostable_pattern();
+        p.exports_out = vec![("active".into(), "edge".into(), "in".into())];
+        assert!(matches!(
+            expand_pattern("x", &p),
+            Err(WyrdError::UnknownPort)
         ));
     }
 }

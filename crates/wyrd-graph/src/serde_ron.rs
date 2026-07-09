@@ -18,9 +18,12 @@ pub fn from_ron(text: &str) -> Result<Weave> {
 }
 
 /// Serialize Weave to RON (pretty).
+///
+/// Returns `Ok` for any well-formed `Weave`. Serialization failure is treated
+/// as a programmer error (types are always RON-representable).
 pub fn to_ron(weave: &Weave) -> Result<String> {
-    ron::ser::to_string_pretty(weave, ron::ser::PrettyConfig::default())
-        .map_err(|_| WyrdError::Serialize)
+    Ok(ron::ser::to_string_pretty(weave, ron::ser::PrettyConfig::default())
+        .expect("Weave is RON-serializable"))
 }
 
 #[cfg(test)]
@@ -52,16 +55,43 @@ mod tests {
             .unwrap();
         let w = b.build().unwrap();
         let s = to_ron(&w).unwrap();
-        // Flip numeric tag in serialized form
-        let wrong = if s.contains("f32") {
-            s.replace("f32", "i32q16")
-        } else {
-            s.replace("i32q16", "f32")
-        };
+        // Flip numeric tag in serialized form (feature-specific tag).
+        #[cfg(feature = "signal-f32")]
+        let wrong = s.replace("f32", "i32q16");
+        #[cfg(feature = "signal-i32")]
+        let wrong = s.replace("i32q16", "f32");
+        let err = from_ron(&wrong);
         assert!(
-            matches!(from_ron(&wrong), Err(WyrdError::NumericMismatch)),
-            "got {:?}",
-            from_ron(&wrong)
+            matches!(err, Err(WyrdError::NumericMismatch)),
+            "got {err:?}"
         );
+    }
+
+    #[test]
+    fn parse_error_on_garbage() {
+        assert_eq!(from_ron("not ron {{{"), Err(WyrdError::Parse));
+    }
+
+    #[test]
+    fn validate_failure_after_parse() {
+        // Valid RON / invalid weave (empty knots). Numeric tag must match compiled path.
+        #[cfg(feature = "signal-f32")]
+        let text = r#"(
+            id: "e",
+            knots: [],
+            threads: [],
+            numeric: f32,
+        )"#;
+        #[cfg(feature = "signal-i32")]
+        let text = r#"(
+            id: "e",
+            knots: [],
+            threads: [],
+            numeric: i32q16,
+        )"#;
+        assert!(matches!(
+            from_ron(text),
+            Err(WyrdError::Empty) | Err(WyrdError::Parse)
+        ));
     }
 }

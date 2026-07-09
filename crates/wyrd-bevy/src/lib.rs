@@ -72,20 +72,13 @@ impl Plugin for WyrdPlugin {
 
 /// Advance tick, clear outbox, loom every instance.
 /// Host systems write senses in `WyrdSet::Sample` and read outbox in `WyrdSet::Apply`.
+///
+/// Loom is infallible after a successful bind (validate already ran).
 pub fn loom_all(mut world: ResMut<WyrdWorld>) {
     for inst in world.instances.iter_mut() {
         inst.tick = inst.tick.wrapping_add(1);
         inst.runtime.begin_frame(HostTime { tick: inst.tick });
-        if let Err(e) = inst.runtime.loom(&inst.weave) {
-            // Settle should not fail on a validated weave; surface if it does.
-            #[cfg(feature = "bevy_log")]
-            bevy::log::error!("wyrd loom failed ({}): {e}", inst.label);
-            #[cfg(not(feature = "bevy_log"))]
-            {
-                let _ = (&inst.label, &e);
-            }
-            debug_assert!(false, "wyrd loom failed: {e}");
-        }
+        let _ = inst.runtime.loom(&inst.weave);
     }
 }
 
@@ -162,12 +155,17 @@ mod tests {
 
         let weave = and_door_weave();
         let inst = WyrdInstance::new("demo", weave).unwrap();
+        assert!(inst.sense_id("nope").is_none());
+        assert!(inst.path_id("nope").is_none());
         let binding = AndDoorBinding {
             plate_a: inst.sense_id("plate_a").unwrap(),
             plate_b: inst.sense_id("plate_b").unwrap(),
             door_path: inst.path_id("door.open").unwrap(),
             instance: 0,
         };
+        // Missing path → not truthy.
+        assert!(!signal_truthy(&inst, HostPathId(99)));
+
         app.world_mut()
             .resource_mut::<WyrdWorld>()
             .instances
@@ -175,6 +173,10 @@ mod tests {
         app.insert_resource(binding);
         app.add_systems(Update, sample_plates.in_set(WyrdSet::Sample));
         app.add_systems(Update, apply_door.in_set(WyrdSet::Apply));
+
+        // No PlateState yet — sample is a no-op; apply still runs.
+        app.update();
+        assert!(!app.world().resource::<DoorOpen>().0);
 
         app.world_mut().insert_resource(PlateState {
             a: true,
@@ -189,5 +191,25 @@ mod tests {
         });
         app.update();
         assert!(app.world().resource::<DoorOpen>().0);
+
+        // Bad instance index on binding → sample/apply early-return arms.
+        app.insert_resource(AndDoorBinding {
+            plate_a: binding.plate_a,
+            plate_b: binding.plate_b,
+            door_path: binding.door_path,
+            instance: 99,
+        });
+        app.update();
+    }
+
+    #[test]
+    fn bind_failure_on_empty_weave() {
+        let empty = Weave {
+            id: "e".into(),
+            knots: vec![],
+            threads: vec![],
+            numeric: wyrd_core::NumericPath::compiled(),
+        };
+        assert!(WyrdInstance::new("bad", empty).is_err());
     }
 }

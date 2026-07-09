@@ -59,7 +59,7 @@ jobs:
             --features "alloc,signal-i32"
 
   coverage:
-    name: coverage (llvm-cov)
+    name: coverage (llvm-cov 100%)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,19 +68,35 @@ jobs:
           components: llvm-tools-preview
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Coverage summary (f32 core suite)
+      - name: Coverage f32 core suite (fail-under 100)
         run: |
           cargo llvm-cov --workspace --exclude wyrd-bevy \
-            --lcov --output-path lcov.info \
-            --fail-under-lines 80
-      - name: Coverage summary (i32)
+            --lcov --output-path lcov-f32.info \
+            --fail-under-lines 100
+      - name: Coverage i32 core suite (fail-under 100)
         run: |
           cargo llvm-cov clean --workspace
           cargo llvm-cov -p wyrd-core -p wyrd-graph -p wyrd-runtime \
             --no-default-features --features "std,signal-i32" \
-            --summary-only
+            --lcov --output-path lcov-i32.info \
+            --fail-under-lines 100
+      - name: Coverage serde-ron f32 (fail-under 100)
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov -p wyrd-graph \
+            --no-default-features --features "std,signal-f32,serde-ron" \
+            --fail-under-lines 100 --summary-only
+      - name: Coverage bevy f32 (fail-under 100)
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov -p wyrd-bevy \
+            --lcov --output-path lcov-bevy.info \
+            --fail-under-lines 100
       - name: Upload lcov
         uses: actions/upload-artifact@v4
         with:
           name: lcov
-          path: lcov.info
+          path: |
+            lcov-f32.info
+            lcov-i32.info
+            lcov-bevy.info

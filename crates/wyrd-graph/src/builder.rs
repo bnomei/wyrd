@@ -145,3 +145,116 @@ fn port_name(kind: &KnotKind, slot: PortSlot) -> Option<&'static str> {
 pub fn slot_of(kind: &KnotKind, name: &str) -> Result<PortSlot> {
     port_slot(kind, name).ok_or(WyrdError::UnknownPort)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pattern::Pattern;
+    use crate::weave::PortRefAuthor;
+    use std::vec;
+    use wyrd_core::{KnotKind, NumericPath, ONE, ZERO};
+
+    #[test]
+    fn numeric_and_empty_build() {
+        let b = WeaveBuilder::new("x").numeric(NumericPath::compiled());
+        assert_eq!(b.build(), Err(WyrdError::Empty));
+    }
+
+    #[test]
+    fn duplicate_knot_on_builder() {
+        let (b, _) = WeaveBuilder::new("x")
+            .knot("a", KnotKind::constant(ONE))
+            .unwrap();
+        assert_eq!(
+            b.knot("a", KnotKind::constant(ZERO)).map(|_| ()),
+            Err(WyrdError::DuplicateKnotId)
+        );
+    }
+
+    #[test]
+    fn wire_unknown_knot_and_port() {
+        let (b, a) = WeaveBuilder::new("x")
+            .knot("a", KnotKind::constant(ONE))
+            .unwrap();
+        let bad = KnotId(99);
+        assert_eq!(
+            b.wire((bad, PortSlot(0)), (a, PortSlot(0))).map(|_| ()),
+            Err(WyrdError::UnknownKnot)
+        );
+
+        let (b, a) = WeaveBuilder::new("x2")
+            .knot("a", KnotKind::constant(ONE))
+            .unwrap();
+        let bad = KnotId(99);
+        assert_eq!(
+            b.wire((a, PortSlot(0)), (bad, PortSlot(0))).map(|_| ()),
+            Err(WyrdError::UnknownKnot)
+        );
+
+        let (b, a) = WeaveBuilder::new("y")
+            .knot("a", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, n) = b.knot("n", KnotKind::not()).unwrap();
+        assert_eq!(
+            b.wire((a, PortSlot(7)), (n, PortSlot(0))).map(|_| ()),
+            Err(WyrdError::UnknownPort)
+        );
+    }
+
+    #[test]
+    fn and2_and_slot_of() {
+        let (b, a) = WeaveBuilder::new("d")
+            .knot("a", KnotKind::signal_in())
+            .unwrap();
+        let (b, pb) = b.knot("b", KnotKind::signal_in()).unwrap();
+        let (b, both) = b.and2("both", a, pb).unwrap();
+        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let w = b
+            .wire_named("both", "out", "out", "in")
+            .build()
+            .unwrap();
+        assert_eq!(w.knots.len(), 4);
+        let _ = both;
+        assert_eq!(slot_of(&KnotKind::not(), "in").unwrap(), PortSlot(0));
+        assert_eq!(slot_of(&KnotKind::not(), "nope"), Err(WyrdError::UnknownPort));
+    }
+
+    #[test]
+    fn include_numeric_mismatch_and_dup() {
+        let (b, _) = Weave::builder("pat")
+            .knot("edge", KnotKind::rising_from_zero())
+            .unwrap();
+        let inner = b.build().unwrap();
+        let mut pat = Pattern {
+            id: "p".into(),
+            inner,
+            exports_in: vec![("start".into(), "edge".into(), "in".into())],
+            exports_out: vec![("out".into(), "edge".into(), "out".into())],
+        };
+        #[cfg(feature = "signal-f32")]
+        {
+            pat.inner.numeric = NumericPath::I32Q16;
+        }
+        #[cfg(feature = "signal-i32")]
+        {
+            pat.inner.numeric = NumericPath::F32;
+        }
+        let b = WeaveBuilder::new("host").knot("x", KnotKind::signal_in()).unwrap().0;
+        assert_eq!(
+            b.include("i1", &pat).map(|_| ()),
+            Err(WyrdError::NumericMismatch)
+        );
+
+        // restore numeric, then collide with existing id after first include
+        pat.inner.numeric = NumericPath::compiled();
+        let (b, _) = WeaveBuilder::new("host2")
+            .knot("i1/edge", KnotKind::signal_in())
+            .unwrap();
+        assert_eq!(
+            b.include("i1", &pat).map(|_| ()),
+            Err(WyrdError::DuplicateKnotId)
+        );
+
+        let _ = PortRefAuthor::new("a", "b");
+    }
+}

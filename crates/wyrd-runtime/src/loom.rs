@@ -1,6 +1,6 @@
 use wyrd_core::{
-    is_truthy, CalcOp, CompareOp, FlagPriority, HostTime, KnotId, KnotKind, PortSlot, Result,
-    Signal, TimerMode, ONE, ZERO,
+    is_truthy, CalcOp, CompareOp, FlagPriority, KnotId, KnotKind, PortSlot, Result, Signal,
+    TimerMode, ONE, ZERO,
 };
 use wyrd_graph::Weave;
 
@@ -394,9 +394,4 @@ fn map_linear(i: Signal, in_min: Signal, in_max: Signal, out_min: Signal, out_ma
         let span = (out_max as i64) - (out_min as i64);
         (out_min as i64 + t * span / den) as i32
     }
-}
-
-#[allow(dead_code)]
-fn _tick(t: HostTime) -> u64 {
-    t.tick
 }

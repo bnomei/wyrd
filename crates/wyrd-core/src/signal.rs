@@ -138,4 +138,57 @@ mod tests {
         #[cfg(feature = "signal-i32")]
         assert_eq!(c, 3);
     }
+
+    #[test]
+    fn from_level_and_ops() {
+        let half = from_level(0.5);
+        assert!(is_truthy(half));
+        #[cfg(feature = "signal-f32")]
+        assert_eq!(half, 0.5);
+        #[cfg(feature = "signal-i32")]
+        {
+            assert_eq!(half, ONE / 2);
+            let neg = from_level(-0.5);
+            assert!(neg < 0);
+        }
+
+        let two = from_count(2);
+        let three = from_count(3);
+        let p = mul(two, three);
+        #[cfg(feature = "signal-f32")]
+        assert_eq!(p, 6.0);
+        #[cfg(feature = "signal-i32")]
+        {
+            // Whole-count Q-mul shifts away the product (2*3 >> 16 = 0).
+            assert_eq!(p, 0);
+            // Level-scale Q-mul: 1.0 * 1.0 stays ONE.
+            assert_eq!(mul(ONE, ONE), ONE);
+        }
+
+        #[cfg(feature = "signal-f32")]
+        {
+            assert_eq!(div(from_count(6), from_count(2)), from_count(3));
+            assert_eq!(div(from_count(6), ZERO), ZERO);
+            assert_eq!(sat_add(from_count(1), from_count(2)), from_count(3));
+            assert_eq!(sat_sub(from_count(5), from_count(2)), from_count(3));
+        }
+        #[cfg(feature = "signal-i32")]
+        {
+            // Q-div: levels in ONE units (not whole-count integers).
+            assert_eq!(div(ONE * 2, ONE), ONE * 2); // 2.0 / 1.0
+            assert_eq!(div(ONE, ZERO), ZERO);
+            assert_eq!(sat_add(from_count(1), from_count(2)), from_count(3));
+            assert_eq!(sat_sub(from_count(5), from_count(2)), from_count(3));
+            assert_eq!(sat_add(i32::MAX, 1), i32::MAX);
+            assert_eq!(sat_sub(i32::MIN, 1), i32::MIN);
+            // clamp path in mul/div
+            let big = mul(i32::MAX, i32::MAX);
+            assert!(big <= i32::MAX);
+            let d = div(i32::MAX, 1);
+            let _ = d;
+            // from_level negative branch
+            let neg = from_level(-0.25);
+            assert!(neg < 0);
+        }
+    }
 }

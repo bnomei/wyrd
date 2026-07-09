@@ -43,3 +43,39 @@ impl fmt::Display for WyrdError {
 }
 
 pub type Result<T> = core::result::Result<T, WyrdError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::fmt::Write;
+    use std::string::String;
+
+    fn disp(e: &WyrdError) -> String {
+        let mut s = String::new();
+        write!(&mut s, "{e}").unwrap();
+        s
+    }
+
+    #[test]
+    fn display_all_variants() {
+        let cases: &[(WyrdError, &str)] = &[
+            (WyrdError::Msg("x"), "x"),
+            (WyrdError::UnknownKnot, "unknown knot"),
+            (WyrdError::UnknownPort, "unknown port"),
+            (WyrdError::UnknownPath, "unknown host path"),
+            (WyrdError::DuplicateKnotId, "duplicate knot id"),
+            (WyrdError::Cycle, "cycle in weave"),
+            (WyrdError::FanIn, "fan-in > 1 on input port"),
+            (WyrdError::UnconnectedRequired, "required port unconnected"),
+            (WyrdError::Budget, "budget exceeded"),
+            (WyrdError::NumericMismatch, "numeric path mismatch"),
+            (WyrdError::Empty, "empty weave"),
+            (WyrdError::InvalidPatternId, "invalid pattern instance id"),
+            (WyrdError::Parse, "parse error"),
+            (WyrdError::Serialize, "serialize error"),
+        ];
+        for (err, msg) in cases {
+            assert_eq!(disp(err), *msg);
+        }
+    }
+}

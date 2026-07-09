@@ -30,10 +30,12 @@ pub struct Runtime {
     /// Author name → KnotId
     name_to_id: BTreeMap<String, KnotId>,
     /// KnotId → author name
+    #[allow(dead_code)]
     id_to_name: Vec<String>,
     path_names: Vec<String>,
     cmd_names: Vec<String>,
     /// Threads: (from_knot, from_slot, to_knot, to_slot) — retained for debug; loom uses `inbound`.
+    #[allow(dead_code)]
     pub(crate) threads: Vec<(KnotId, PortSlot, KnotId, PortSlot)>,
     /// Per-knot inbound edges: (from, from_slot, to_slot). Built at bind for O(edges) gather.
     pub(crate) inbound: Vec<Vec<(KnotId, PortSlot, PortSlot)>>,
@@ -293,4 +295,62 @@ fn topo_order(
         return Err(WyrdError::Cycle);
     }
     Ok(order)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wyrd_core::{FlagPriority, KnotKind, ONE};
+    use wyrd_graph::Weave;
+
+    #[test]
+    fn cmd_name_and_path_name_lookup() {
+        let (b, _) = Weave::builder("e")
+            .knot("btn", KnotKind::signal_in())
+            .unwrap();
+        let (b, _) = b.knot("em", KnotKind::emit_command("fire")).unwrap();
+        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let weave = b
+            .wire_named("btn", "out", "em", "trigger")
+            .wire_named("btn", "out", "out", "in")
+            .build()
+            .unwrap();
+        let rt = Runtime::bind(
+            &weave,
+            BindOpts {
+                seed: Some(Seed(1)),
+            },
+        )
+        .unwrap();
+        let cmd = CmdId(0);
+        assert_eq!(rt.cmd_name(cmd), "fire");
+        assert_eq!(rt.cmd_name(CmdId(99)), "");
+        assert_eq!(rt.path_name(HostPathId(0)), "y");
+        assert_eq!(rt.path_name(HostPathId(99)), "");
+    }
+
+    #[test]
+    fn topo_order_detects_cycle() {
+        // Defensive path: validate normally rejects cycles before bind.
+        let a = KnotId(0);
+        let b = KnotId(1);
+        let threads = [
+            (a, PortSlot(1), b, PortSlot(0)),
+            (b, PortSlot(1), a, PortSlot(0)),
+        ];
+        assert_eq!(topo_order(2, &threads), Err(WyrdError::Cycle));
+    }
+
+    #[test]
+    fn get_set_port_oob_is_safe() {
+        let (b, _) = Weave::builder("x")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let weave = b.build().unwrap();
+        let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        let far = KnotId(999);
+        assert_eq!(rt.get_port(far, PortSlot(0)), ZERO);
+        rt.set_port(far, PortSlot(0), ONE); // no panic
+        let _ = FlagPriority::SetWins;
+    }
 }
