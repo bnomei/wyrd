@@ -5,42 +5,26 @@ use wyrd_core::{HostTime, KnotKind, ONE};
 use wyrd_graph::Weave;
 use wyrd_runtime::{BindOpts, Runtime};
 
+/// Constant → Not × n → SignalOut
 fn chain_not(n: usize) -> (Weave, Runtime) {
-    let mut b = Weave::builder("chain");
-    let (b2, mut prev) = b.knot("c0", KnotKind::constant(ONE)).unwrap();
-    b = b2;
+    let (mut b, _) = Weave::builder("chain")
+        .knot("c0", KnotKind::constant(ONE))
+        .unwrap();
+    let mut prev = "c0".to_string();
     for i in 0..n {
         let id = format!("n{i}");
-        let (b2, kid) = b.knot(&id, KnotKind::not()).unwrap();
-        b = b2;
-        let prev_name = if i == 0 {
-            "c0".to_string()
-        } else {
-            format!("n{}", i - 1)
-        };
-        let port = if i == 0 { "out" } else { "out" };
-        // Not: in/out — Constant out → first not in
-        let from_port = if i == 0 { "out" } else { "out" };
-        b = b.wire_named(&prev_name, from_port, &id, "in");
-        let _ = (kid, port);
-        prev = kid;
+        let (b2, _) = b.knot(&id, KnotKind::not()).unwrap();
+        b = b2.wire_named(&prev, "out", &id, "in");
+        prev = id;
     }
-    let (b2, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let last = if n == 0 {
-        "c0".to_string()
-    } else {
-        format!("n{}", n - 1)
-    };
-    let weave = b2
-        .wire_named(&last, "out", "out", "in")
-        .build()
-        .unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
     let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
-    let _ = prev;
     (weave, rt)
 }
 
-#[divan::bench(args = [16, 64, 256])]
+// Budget hard max knots is 256 (constant + n Nots + out).
+#[divan::bench(args = [16, 64, 128])]
 fn settle_not_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_not(n);
     bencher.bench_local(|| {
