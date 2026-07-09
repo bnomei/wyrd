@@ -2,9 +2,15 @@
 
 use crate::signal::Signal;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum NumericPath {
+    #[cfg_attr(feature = "serde", serde(rename = "f32"))]
     F32,
+    #[cfg_attr(feature = "serde", serde(rename = "i32q16"))]
     I32Q16,
 }
 
@@ -22,6 +28,7 @@ impl NumericPath {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CompareOp {
     Eq,
     Ne,
@@ -32,12 +39,14 @@ pub enum CompareOp {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TimerMode {
     FedCountdown,
     PulseHold,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CalcOp {
     Add,
     Sub,
@@ -46,6 +55,7 @@ pub enum CalcOp {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum FlagPriority {
     ResetWins,
     SetWins,
@@ -53,6 +63,7 @@ pub enum FlagPriority {
 
 /// Author / asset form. HostPath and Emit names stay open strings until bind.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum KnotKind {
     Constant {
         value: Signal,

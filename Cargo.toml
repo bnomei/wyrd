@@ -23,6 +23,8 @@ wyrd-core = { path = "crates/wyrd-core", version = "0.1.0", default-features = f
 wyrd-graph = { path = "crates/wyrd-graph", version = "0.1.0", default-features = false }
 wyrd-runtime = { path = "crates/wyrd-runtime", version = "0.1.0", default-features = false }
 no-std-compat = { version = "0.4", default-features = false }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+ron = { version = "0.8", default-features = false }
 
 [profile.release]
 lto = true

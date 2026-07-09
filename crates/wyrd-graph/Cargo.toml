@@ -13,7 +13,11 @@ std = ["no-std-compat/std", "wyrd-core/std"]
 signal-f32 = ["wyrd-core/signal-f32"]
 signal-i32 = ["wyrd-core/signal-i32"]
 alloc = ["no-std-compat/alloc", "wyrd-core/alloc"]
+serde = ["dep:serde", "wyrd-core/serde"]
+serde-ron = ["serde", "dep:ron", "std"]
 
 [dependencies]
 wyrd-core = { workspace = true, default-features = false }
 no-std-compat = { workspace = true, features = ["alloc"] }
+serde = { workspace = true, optional = true }
+ron = { workspace = true, optional = true }

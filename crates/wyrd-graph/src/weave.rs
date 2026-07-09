@@ -3,8 +3,12 @@ use std::vec::Vec;
 
 use wyrd_core::{KnotKind, NumericPath};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 /// Author-facing port ref (strings → PortSlot at validate).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PortRefAuthor {
     pub knot: String,
     pub port: String,
@@ -20,12 +24,14 @@ impl PortRefAuthor {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct KnotDef {
     pub id: String,
     pub kind: KnotKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ThreadDef {
     pub from: PortRefAuthor,
     pub to: PortRefAuthor,
@@ -33,6 +39,7 @@ pub struct ThreadDef {
 
 /// Stringy author Weave (asset / builder product).
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Weave {
     pub id: String,
     pub knots: Vec<KnotDef>,
