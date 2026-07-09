@@ -4,8 +4,8 @@ use std::vec;
 use std::vec::Vec;
 
 use wyrd_core::{
-    port_slot, CmdId, HostPathId, HostTime, KnotId, KnotKind, PortSlot, Result, Seed, Signal,
-    WyrdError, ZERO,
+    port_slot, ports_of, CmdId, HostPathId, HostTime, KnotId, KnotKind, PortDir, PortSlot, Result,
+    Seed, Signal, WyrdError, ZERO,
 };
 use wyrd_graph::{validate, Budget, Weave};
 
@@ -33,8 +33,12 @@ pub struct Runtime {
     id_to_name: Vec<String>,
     path_names: Vec<String>,
     cmd_names: Vec<String>,
-    /// Threads: (from_knot, from_slot, to_knot, to_slot)
+    /// Threads: (from_knot, from_slot, to_knot, to_slot) — retained for debug; loom uses `inbound`.
     pub(crate) threads: Vec<(KnotId, PortSlot, KnotId, PortSlot)>,
+    /// Per-knot inbound edges: (from, from_slot, to_slot). Built at bind for O(edges) gather.
+    pub(crate) inbound: Vec<Vec<(KnotId, PortSlot, PortSlot)>>,
+    /// Input slots to clear each loom (no ports_of scan required for zeroing).
+    pub(crate) input_slots: Vec<Vec<PortSlot>>,
     pub(crate) topo: Vec<KnotId>,
     /// Host-fed sense outputs (SignalIn).
     pub(crate) sense_values: Vec<Signal>,
@@ -120,6 +124,28 @@ impl Runtime {
         let topo = topo_order(knots.len(), &threads)?;
 
         let n = knots.len();
+        let mut inbound: Vec<Vec<(KnotId, PortSlot, PortSlot)>> = vec![Vec::new(); n];
+        for &(f, fs, t, ts) in &threads {
+            inbound[t.0 as usize].push((f, fs, ts));
+        }
+        let mut input_slots: Vec<Vec<PortSlot>> = Vec::with_capacity(n);
+        let mut act_signals = 0usize;
+        let mut act_emits = 0usize;
+        for k in &knots {
+            let mut slots = Vec::new();
+            for p in ports_of(&k.kind) {
+                if p.dir == PortDir::In {
+                    slots.push(p.slot);
+                }
+            }
+            input_slots.push(slots);
+            match &k.kind {
+                KnotKind::SignalOut { .. } => act_signals += 1,
+                KnotKind::EmitCommand { .. } => act_emits += 1,
+                _ => {}
+            }
+        }
+
         let mut delay_buf = Vec::new();
         let mut delay_off = vec![0u16; n];
         let mut delay_len = vec![0u16; n];
@@ -135,6 +161,11 @@ impl Runtime {
             }
         }
 
+        let mut out_signals = Vec::new();
+        out_signals.reserve(act_signals);
+        let mut out_emits = Vec::new();
+        out_emits.reserve(act_emits);
+
         Ok(Runtime {
             knots,
             name_to_id,
@@ -142,6 +173,8 @@ impl Runtime {
             path_names,
             cmd_names,
             threads,
+            inbound,
+            input_slots,
             topo,
             sense_values: vec![ZERO; n],
             port_vals: vec![ZERO; n * MAX_PORTS],
@@ -156,8 +189,8 @@ impl Runtime {
             delay_off,
             delay_len,
             delay_head,
-            out_signals: Vec::new(),
-            out_emits: Vec::new(),
+            out_signals,
+            out_emits,
             tick: 0,
             seed: opts.seed,
         })

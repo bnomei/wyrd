@@ -1,34 +1,34 @@
-use std::vec::Vec;
-
 use wyrd_core::{
-    is_truthy, ports_of, CalcOp, CompareOp, FlagPriority, HostTime, KnotId, KnotKind, PortDir,
-    PortSlot, Result, Signal, TimerMode, ONE, ZERO,
+    is_truthy, CalcOp, CompareOp, FlagPriority, HostTime, KnotId, KnotKind, PortSlot, Result,
+    Signal, TimerMode, ONE, ZERO,
 };
 use wyrd_graph::Weave;
 
 use crate::bind::Runtime;
 
 impl Runtime {
-    /// One settle pass. Never panics. Zero alloc after bind (outbox may grow once reserved).
+    /// One settle pass. Never panics. No topology alloc after bind.
     pub fn loom(&mut self, _weave: &Weave) -> Result<()> {
-        // Snapshot kinds so we can mutably write ports.
-        let kinds: Vec<KnotKind> = self.knots.iter().map(|k| k.kind.clone()).collect();
+        let n = self.knots.len();
 
-        // 1. Zero input ports (keep outputs until written)
-        for (ki, kind) in kinds.iter().enumerate() {
-            for p in ports_of(kind) {
-                if p.dir == PortDir::In {
-                    self.set_port(KnotId(ki as u16), p.slot, ZERO);
-                }
+        // 1. Zero input ports using precomputed slot lists.
+        for ki in 0..n {
+            let id = KnotId(ki as u16);
+            // input_slots[ki] is stable; clear without holding borrow across set_port
+            let slot_count = self.input_slots[ki].len();
+            for si in 0..slot_count {
+                let slot = self.input_slots[ki][si];
+                self.set_port(id, slot, ZERO);
             }
         }
 
-        // 2. Seed Sense: Constant / SignalIn / OnStart write `out`
-        for (ki, kind) in kinds.iter().enumerate() {
+        // 2. Seed Sense outputs.
+        for ki in 0..n {
             let id = KnotId(ki as u16);
-            match kind {
+            match &self.knots[ki].kind {
                 KnotKind::Constant { value } => {
-                    self.set_port(id, PortSlot(0), *value);
+                    let v = *value;
+                    self.set_port(id, PortSlot(0), v);
                 }
                 KnotKind::SignalIn => {
                     let v = self.sense_values[ki];
@@ -47,9 +47,10 @@ impl Runtime {
             }
         }
 
-        // 3. Eval in topo order; before each knot, gather inbound Threads into its inputs
-        let topo = self.topo.clone();
-        for &kid in &topo {
+        // 3. Topo eval (topo is &self.topo — no clone).
+        let topo_len = self.topo.len();
+        for ti in 0..topo_len {
+            let kid = self.topo[ti];
             self.gather_inputs(kid);
             self.eval_knot(kid);
         }
@@ -58,27 +59,31 @@ impl Runtime {
     }
 
     fn gather_inputs(&mut self, kid: KnotId) {
-        // copy from upstream outputs into this knot's input slots
-        let threads = self.threads.clone();
-        for (f, fs, t, ts) in threads {
-            if t == kid {
-                let v = self.get_port(f, fs);
-                self.set_port(t, ts, v);
-            }
+        let ki = kid.0 as usize;
+        // Stack buffer: max ports per knot is 8.
+        let mut tmp: [(PortSlot, Signal); 8] = [(PortSlot(0), ZERO); 8];
+        let n = self.inbound[ki].len().min(8);
+        for i in 0..n {
+            let (f, fs, ts) = self.inbound[ki][i];
+            tmp[i] = (ts, self.get_port(f, fs));
+        }
+        for i in 0..n {
+            self.set_port(kid, tmp[i].0, tmp[i].1);
         }
     }
 
     fn eval_knot(&mut self, kid: KnotId) {
         let ki = kid.0 as usize;
-        let kind = self.knots[ki].kind.clone();
-        match kind {
-            KnotKind::Constant { .. } | KnotKind::SignalIn | KnotKind::OnStart => {}
-            KnotKind::Not => {
+        // Copy discriminant data without cloning String-bearing variants.
+        let tag = KindTag::from_kind(&self.knots[ki].kind);
+        match tag {
+            KindTag::Sense => {}
+            KindTag::Not => {
                 let i = self.get_port(kid, PortSlot(0));
                 let o = if is_truthy(i) { ZERO } else { ONE };
                 self.set_port(kid, PortSlot(1), o);
             }
-            KnotKind::And { arity } => {
+            KindTag::And { arity } => {
                 let mut ok = true;
                 for s in 0..arity {
                     if !is_truthy(self.get_port(kid, PortSlot(s))) {
@@ -88,7 +93,7 @@ impl Runtime {
                 }
                 self.set_port(kid, PortSlot(arity), if ok { ONE } else { ZERO });
             }
-            KnotKind::Or { arity } => {
+            KindTag::Or { arity } => {
                 let mut ok = false;
                 for s in 0..arity {
                     if is_truthy(self.get_port(kid, PortSlot(s))) {
@@ -98,7 +103,7 @@ impl Runtime {
                 }
                 self.set_port(kid, PortSlot(arity), if ok { ONE } else { ZERO });
             }
-            KnotKind::RisingFromZero => {
+            KindTag::RisingFromZero => {
                 let i = self.get_port(kid, PortSlot(0));
                 let prev = self.prev_in[ki];
                 let o = if !is_truthy(prev) && is_truthy(i) {
@@ -109,7 +114,7 @@ impl Runtime {
                 self.prev_in[ki] = i;
                 self.set_port(kid, PortSlot(1), o);
             }
-            KnotKind::Compare { op, rhs_const } => {
+            KindTag::Compare { op, rhs_const } => {
                 let lhs = self.get_port(kid, PortSlot(0));
                 let rhs = if let Some(c) = rhs_const {
                     crate::from_count(c)
@@ -119,7 +124,7 @@ impl Runtime {
                 let o = if compare(op, lhs, rhs) { ONE } else { ZERO };
                 self.set_port(kid, PortSlot(2), o);
             }
-            KnotKind::Flag {
+            KindTag::Flag {
                 priority,
                 enable_toggle,
             } => {
@@ -128,10 +133,8 @@ impl Runtime {
                 let toggle_l = self.get_port(kid, PortSlot(2));
                 let set = is_truthy(set_l);
                 let reset = is_truthy(reset_l);
-                // Toggle is rising-edge so held toggle does not flip every loom.
-                let toggle = enable_toggle
-                    && !is_truthy(self.prev_in[ki])
-                    && is_truthy(toggle_l);
+                let toggle =
+                    enable_toggle && !is_truthy(self.prev_in[ki]) && is_truthy(toggle_l);
                 let mut st = self.flag[ki];
                 match priority {
                     FlagPriority::ResetWins => {
@@ -157,8 +160,7 @@ impl Runtime {
                 self.flag[ki] = st;
                 self.set_port(kid, PortSlot(3), if st { ONE } else { ZERO });
             }
-            KnotKind::Counter => {
-                // Same-tick: reset level first, then rising-edge inc/dec (D-counter-edge).
+            KindTag::Counter => {
                 let inc = self.get_port(kid, PortSlot(0));
                 let dec = self.get_port(kid, PortSlot(1));
                 let reset = self.get_port(kid, PortSlot(2));
@@ -175,49 +177,43 @@ impl Runtime {
                 self.prev_dec[ki] = dec;
                 self.set_port(kid, PortSlot(3), crate::from_count(self.counter[ki]));
             }
-            KnotKind::Timer { mode, ticks } => match mode {
-                // Rising edge on `start` loads `ticks`. Each loom while remaining > 0:
-                // active=ONE and remaining--. Held start does not re-arm.
-                TimerMode::PulseHold => {
-                    let start = self.get_port(kid, PortSlot(0));
-                    let prev = self.prev_in[ki];
-                    if !is_truthy(prev) && is_truthy(start) {
+            KindTag::TimerPulseHold { ticks } => {
+                let start = self.get_port(kid, PortSlot(0));
+                let prev = self.prev_in[ki];
+                if !is_truthy(prev) && is_truthy(start) {
+                    self.timer_left[ki] = ticks;
+                }
+                self.prev_in[ki] = start;
+                if self.timer_left[ki] > 0 {
+                    self.set_port(kid, PortSlot(1), ONE);
+                    self.timer_left[ki] -= 1;
+                } else {
+                    self.set_port(kid, PortSlot(1), ZERO);
+                }
+            }
+            KindTag::TimerFedCountdown { ticks } => {
+                let feed = self.get_port(kid, PortSlot(0));
+                let prev = self.prev_in[ki];
+                if is_truthy(feed) {
+                    if !is_truthy(prev) {
                         self.timer_left[ki] = ticks;
                     }
-                    self.prev_in[ki] = start;
                     if self.timer_left[ki] > 0 {
-                        self.set_port(kid, PortSlot(1), ONE);
                         self.timer_left[ki] -= 1;
-                    } else {
-                        self.set_port(kid, PortSlot(1), ZERO);
                     }
-                }
-                // While `feed` truthy: arm on rising feed, count down each tick;
-                // active only when countdown finished and still fed. Drop feed → reset.
-                TimerMode::FedCountdown => {
-                    let feed = self.get_port(kid, PortSlot(0));
-                    let prev = self.prev_in[ki];
-                    if is_truthy(feed) {
-                        if !is_truthy(prev) {
-                            self.timer_left[ki] = ticks;
-                        }
-                        if self.timer_left[ki] > 0 {
-                            self.timer_left[ki] -= 1;
-                        }
-                        let active = if self.timer_left[ki] == 0 {
-                            ONE
-                        } else {
-                            ZERO
-                        };
-                        self.set_port(kid, PortSlot(1), active);
+                    let active = if self.timer_left[ki] == 0 {
+                        ONE
                     } else {
-                        self.timer_left[ki] = 0;
-                        self.set_port(kid, PortSlot(1), ZERO);
-                    }
-                    self.prev_in[ki] = feed;
+                        ZERO
+                    };
+                    self.set_port(kid, PortSlot(1), active);
+                } else {
+                    self.timer_left[ki] = 0;
+                    self.set_port(kid, PortSlot(1), ZERO);
                 }
-            },
-            KnotKind::Delay { ticks } => {
+                self.prev_in[ki] = feed;
+            }
+            KindTag::Delay { ticks } => {
                 let i = self.get_port(kid, PortSlot(0));
                 if ticks == 0 {
                     self.set_port(kid, PortSlot(1), i);
@@ -225,7 +221,6 @@ impl Runtime {
                     let len = self.delay_len[ki] as usize;
                     let off = self.delay_off[ki] as usize;
                     let head = self.delay_head[ki] as usize;
-                    // Output sample from `ticks` looms ago (ring slot at head).
                     let o = self.delay_buf[off + head];
                     self.delay_buf[off + head] = i;
                     let next = head + 1;
@@ -233,7 +228,7 @@ impl Runtime {
                     self.set_port(kid, PortSlot(1), o);
                 }
             }
-            KnotKind::Calc { op } => {
+            KindTag::Calc { op } => {
                 let a = self.get_port(kid, PortSlot(0));
                 let b = self.get_port(kid, PortSlot(1));
                 let o = match op {
@@ -244,7 +239,7 @@ impl Runtime {
                 };
                 self.set_port(kid, PortSlot(2), o);
             }
-            KnotKind::Abs => {
+            KindTag::Abs => {
                 let i = self.get_port(kid, PortSlot(0));
                 #[cfg(feature = "signal-f32")]
                 let o = if i < 0.0 { -i } else { i };
@@ -252,7 +247,7 @@ impl Runtime {
                 let o = i.saturating_abs();
                 self.set_port(kid, PortSlot(1), o);
             }
-            KnotKind::Neg => {
+            KindTag::Neg => {
                 let i = self.get_port(kid, PortSlot(0));
                 #[cfg(feature = "signal-f32")]
                 let o = -i;
@@ -260,7 +255,7 @@ impl Runtime {
                 let o = i.saturating_neg();
                 self.set_port(kid, PortSlot(1), o);
             }
-            KnotKind::Map {
+            KindTag::Map {
                 in_min,
                 in_max,
                 out_min,
@@ -270,14 +265,13 @@ impl Runtime {
                 let o = map_linear(i, in_min, in_max, out_min, out_max);
                 self.set_port(kid, PortSlot(1), o);
             }
-            KnotKind::SignalOut { .. } => {
+            KindTag::SignalOut => {
                 let v = self.get_port(kid, PortSlot(0));
                 if let Some(path) = self.knots[ki].path {
                     self.push_signal_out(path, v);
                 }
             }
-            KnotKind::EmitCommand { .. } => {
-                // Rising edge on `trigger` only (held level must not spam).
+            KindTag::EmitCommand => {
                 let trig = self.get_port(kid, PortSlot(0));
                 let payload = self.get_port(kid, PortSlot(2));
                 let prev = self.prev_in[ki];
@@ -288,6 +282,84 @@ impl Runtime {
                 }
                 self.prev_in[ki] = trig;
             }
+        }
+    }
+}
+
+/// Copyable dispatch tag — avoids cloning KnotKind Strings each loom.
+#[derive(Clone, Copy)]
+enum KindTag {
+    Sense,
+    Not,
+    And { arity: u8 },
+    Or { arity: u8 },
+    RisingFromZero,
+    Compare {
+        op: CompareOp,
+        rhs_const: Option<i32>,
+    },
+    Flag {
+        priority: FlagPriority,
+        enable_toggle: bool,
+    },
+    Counter,
+    TimerPulseHold { ticks: u16 },
+    TimerFedCountdown { ticks: u16 },
+    Delay { ticks: u16 },
+    Calc { op: CalcOp },
+    Abs,
+    Neg,
+    Map {
+        in_min: Signal,
+        in_max: Signal,
+        out_min: Signal,
+        out_max: Signal,
+    },
+    SignalOut,
+    EmitCommand,
+}
+
+impl KindTag {
+    fn from_kind(k: &KnotKind) -> Self {
+        match k {
+            KnotKind::Constant { .. } | KnotKind::SignalIn | KnotKind::OnStart => KindTag::Sense,
+            KnotKind::Not => KindTag::Not,
+            KnotKind::And { arity } => KindTag::And { arity: *arity },
+            KnotKind::Or { arity } => KindTag::Or { arity: *arity },
+            KnotKind::RisingFromZero => KindTag::RisingFromZero,
+            KnotKind::Compare { op, rhs_const } => KindTag::Compare {
+                op: *op,
+                rhs_const: *rhs_const,
+            },
+            KnotKind::Flag {
+                priority,
+                enable_toggle,
+            } => KindTag::Flag {
+                priority: *priority,
+                enable_toggle: *enable_toggle,
+            },
+            KnotKind::Counter => KindTag::Counter,
+            KnotKind::Timer { mode, ticks } => match mode {
+                TimerMode::PulseHold => KindTag::TimerPulseHold { ticks: *ticks },
+                TimerMode::FedCountdown => KindTag::TimerFedCountdown { ticks: *ticks },
+            },
+            KnotKind::Delay { ticks } => KindTag::Delay { ticks: *ticks },
+            KnotKind::Calc { op } => KindTag::Calc { op: *op },
+            KnotKind::Abs => KindTag::Abs,
+            KnotKind::Neg => KindTag::Neg,
+            KnotKind::Map {
+                in_min,
+                in_max,
+                out_min,
+                out_max,
+            } => KindTag::Map {
+                in_min: *in_min,
+                in_max: *in_max,
+                out_min: *out_min,
+                out_max: *out_max,
+            },
+            KnotKind::SignalOut { .. } => KindTag::SignalOut,
+            KnotKind::EmitCommand { .. } => KindTag::EmitCommand,
         }
     }
 }
@@ -324,7 +396,6 @@ fn map_linear(i: Signal, in_min: Signal, in_max: Signal, out_min: Signal, out_ma
     }
 }
 
-// silence unused HostTime in this module
 #[allow(dead_code)]
 fn _tick(t: HostTime) -> u64 {
     t.tick
