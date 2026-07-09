@@ -99,3 +99,58 @@ fn fed_countdown_active_after_n_feed_ticks() {
     loom_tick(&mut rt, &weave, 4, "plate", ZERO);
     assert!(!signal_out_truthy(&rt, "active"));
 }
+
+#[test]
+fn pulse_hold_ticks_one_and_survives_release() {
+    let (b, _) = Weave::builder("ph1")
+        .knot("btn", KnotKind::signal_in())
+        .unwrap();
+    let (b, _) = b
+        .knot("t", KnotKind::timer(TimerMode::PulseHold, 2))
+        .unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("active")).unwrap();
+    let weave = b
+        .wire_named("btn", "out", "t", "start")
+        .wire_named("t", "active", "out", "in")
+        .build()
+        .unwrap();
+    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+
+    loom_tick(&mut rt, &weave, 0, "btn", ONE);
+    assert!(signal_out_truthy(&rt, "active"));
+    // release mid-window — monostable continues
+    loom_tick(&mut rt, &weave, 1, "btn", ZERO);
+    assert!(signal_out_truthy(&rt, "active"));
+    loom_tick(&mut rt, &weave, 2, "btn", ZERO);
+    assert!(!signal_out_truthy(&rt, "active"));
+}
+
+#[test]
+fn fed_countdown_drop_mid_count_resets() {
+    let (b, _) = Weave::builder("fc_drop")
+        .knot("plate", KnotKind::signal_in())
+        .unwrap();
+    let (b, _) = b
+        .knot("t", KnotKind::timer(TimerMode::FedCountdown, 4))
+        .unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("active")).unwrap();
+    let weave = b
+        .wire_named("plate", "out", "t", "feed")
+        .wire_named("t", "active", "out", "in")
+        .build()
+        .unwrap();
+    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+
+    loom_tick(&mut rt, &weave, 0, "plate", ONE);
+    loom_tick(&mut rt, &weave, 1, "plate", ONE);
+    assert!(!signal_out_truthy(&rt, "active"));
+    loom_tick(&mut rt, &weave, 2, "plate", ZERO);
+    assert!(!signal_out_truthy(&rt, "active"));
+    // re-feed must re-arm full countdown
+    loom_tick(&mut rt, &weave, 3, "plate", ONE);
+    assert!(!signal_out_truthy(&rt, "active"));
+    loom_tick(&mut rt, &weave, 4, "plate", ONE);
+    loom_tick(&mut rt, &weave, 5, "plate", ONE);
+    loom_tick(&mut rt, &weave, 6, "plate", ONE);
+    assert!(signal_out_truthy(&rt, "active"));
+}
