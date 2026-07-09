@@ -3,6 +3,7 @@ use std::vec::Vec;
 
 use wyrd_core::{port_slot, KnotId, KnotKind, NumericPath, PortSlot, Result, WyrdError};
 
+use crate::pattern::{expand_pattern, Pattern, PatternExports};
 use crate::weave::{KnotDef, PortRefAuthor, ThreadDef, Weave};
 
 /// Rustic builder. Records wires; validate is the loud phase.
@@ -90,6 +91,28 @@ impl WeaveBuilder {
         let bld = bld.wire((a, PortSlot(0)), (and_id, PortSlot(0)))?; // a out → in_0
         let bld = bld.wire((b, PortSlot(0)), (and_id, PortSlot(1)))?;
         Ok((bld, and_id))
+    }
+
+    /// Expand pattern under `instance_id/` into this builder (flat). Returns export map.
+    pub fn include(
+        mut self,
+        instance_id: impl Into<String>,
+        pattern: &Pattern,
+    ) -> Result<(Self, PatternExports)> {
+        let instance_id = instance_id.into();
+        if pattern.inner.numeric != self.numeric {
+            return Err(WyrdError::NumericMismatch);
+        }
+        let (knots, threads, exports) = expand_pattern(&instance_id, pattern)?;
+        for k in knots {
+            if self.names.iter().any(|n| n == &k.id) {
+                return Err(WyrdError::DuplicateKnotId);
+            }
+            self.names.push(k.id.clone());
+            self.knots.push(k);
+        }
+        self.threads.extend(threads);
+        Ok((self, exports))
     }
 
     pub fn build(self) -> Result<Weave> {
