@@ -50,7 +50,7 @@ mod tests {
         let (b, _) = Weave::builder("x")
             .knot("c", KnotKind::constant(ONE))
             .unwrap();
-        let mut w = b.build().unwrap();
+        let w = b.build().unwrap();
         let s = to_ron(&w).unwrap();
         // Flip numeric tag in serialized form
         let wrong = if s.contains("f32") {

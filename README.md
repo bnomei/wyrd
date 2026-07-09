@@ -43,8 +43,16 @@ Host tick: resolve `sense_id("plate")` once, then `set_sense(KnotId, Signal)` ea
 | `std` (default) | Desktop / tests via `no-std-compat` |
 | `signal-f32` (default) | Float wire path |
 | `signal-i32` | Integer Q16 path (Playdate-class) |
+| `serde` (graph/core) | Derive Serialize/Deserialize on author types |
+| `serde-ron` (graph) | `from_ron` / `to_ron` + validate on load |
 
 Enable exactly one of `signal-f32` / `signal-i32`.
+
+```bash
+cargo test --workspace
+cargo test -p wyrd-graph --features serde-ron
+cargo bench -p wyrd-runtime --bench settle
+```
 
 ## Docs (local / gitignored)
 
