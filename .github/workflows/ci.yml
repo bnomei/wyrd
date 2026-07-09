@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  dual-signal:
+    name: dual-signal (${{ matrix.signal }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - signal: signal-f32
+            features: "std,signal-f32"
+          - signal: signal-i32
+            features: "std,signal-i32"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test core/graph/runtime (${{ matrix.signal }})
+        run: |
+          cargo test -p wyrd-core -p wyrd-graph -p wyrd-runtime \
+            --no-default-features \
+            --features "${{ matrix.features }}"
+      - name: Test graph serde-ron (${{ matrix.signal }})
+        run: |
+          cargo test -p wyrd-graph \
+            --no-default-features \
+            --features "${{ matrix.features }},serde-ron"
+
+  bevy-f32:
+    name: bevy (signal-f32 only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test wyrd-bevy
+        run: cargo test -p wyrd-bevy
+      - name: Build and_door example
+        run: cargo build -p wyrd-bevy --example and_door
+
+  no-std-i32:
+    name: no_std core signal-i32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check wyrd-core no_std + i32
+        run: |
+          cargo check -p wyrd-core \
+            --no-default-features \
+            --features "alloc,signal-i32"

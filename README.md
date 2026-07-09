@@ -50,12 +50,22 @@ Host tick: resolve `sense_id("plate")` once, then `set_sense(KnotId, Signal)` ea
 Enable exactly one of `signal-f32` / `signal-i32`.
 
 ```bash
+# Dual numeric paths (f32 + i32) + Bevy f32-only
+./scripts/dual-check.sh
+
 cargo test --workspace
 cargo test -p wyrd-graph --features serde-ron
 cargo bench -p wyrd-runtime --bench settle
 cargo test -p wyrd-bevy
 cargo run -p wyrd-bevy --example and_door
 ```
+
+| Path | Crates | Notes |
+| --- | --- | --- |
+| `signal-f32` | core, graph, runtime, **bevy** | Default; Bevy adapter is f32-only |
+| `signal-i32` | core, graph, runtime | Playdate-class; **not** via `wyrd-bevy` |
+
+CI: `.github/workflows/ci.yml` runs both signal matrices + Bevy + `no_std` i32 check.
 
 ## Docs (local / gitignored)
 

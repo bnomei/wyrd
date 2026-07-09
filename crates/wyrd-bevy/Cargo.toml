@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Thin Bevy adapter for Wyrd Weaves (sample → loom → apply)"
+description = "Thin Bevy adapter for Wyrd Weaves (sample → loom → apply). signal-f32 only."
 readme = "README.md"
 
 [features]
@@ -15,6 +15,7 @@ bevy_log = ["bevy/bevy_log"]
 [dependencies]
 # Match engine-neutral hosts: pin Bevy, no default renderer stack.
 bevy = { version = "0.18", default-features = false }
+# Bevy path is float-native — dual-check i32 on core/runtime CI, not here.
 wyrd-core = { workspace = true, default-features = false, features = ["std", "signal-f32"] }
 wyrd-graph = { workspace = true, default-features = false, features = ["std", "signal-f32"] }
 wyrd-runtime = { workspace = true, default-features = false, features = ["std", "signal-f32"] }

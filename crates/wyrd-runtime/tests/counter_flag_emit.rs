@@ -4,7 +4,9 @@ use wyrd_core::{FlagPriority, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{BindOpts, Runtime};
 
+/// Whole-unit count from SignalOut (works for f32 and i32 Q paths via from_count).
 fn count_out(rt: &Runtime) -> i32 {
+    use wyrd_core::from_count;
     let pid = rt.path_id("count").unwrap();
     let v = rt
         .outbox()
@@ -13,7 +15,21 @@ fn count_out(rt: &Runtime) -> i32 {
         .find(|s| s.path == pid)
         .map(|s| s.value)
         .unwrap_or(ZERO);
-    v as i32
+    // Compare against from_count ladder so dual-path stays honest.
+    for n in 0..64 {
+        if v == from_count(n) {
+            return n;
+        }
+    }
+    // Fallback (should not hit in these tests)
+    #[cfg(feature = "signal-f32")]
+    {
+        v as i32
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        v
+    }
 }
 
 fn signal_truthy(rt: &Runtime, path: &str) -> bool {

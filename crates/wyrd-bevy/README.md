@@ -8,6 +8,21 @@ Thin Bevy adapter for Wyrd. Core stays engine-neutral; this crate only:
 
 Never store `Entity` as a Thread endpoint. Resolve `KnotId` / `HostPathId` at setup.
 
+## Numeric path: **signal-f32 only**
+
+Bevy is float-native (`Transform`, time, etc.). This crate **always** depends on
+`wyrd-*` with `signal-f32`. It does **not** offer `signal-i32`.
+
+Integer / Q16 dual-path coverage lives on **core / graph / runtime**:
+
+```bash
+./scripts/dual-check.sh
+# or CI job dual-signal (signal-i32)
+```
+
+Playdate-class hosts should depend on `wyrd-runtime` with `signal-i32` directly,
+not through `wyrd-bevy`.
+
 ## Example
 
 ```bash
