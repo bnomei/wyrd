@@ -59,6 +59,50 @@ fn counter_rising_edge_not_level() {
 }
 
 #[test]
+fn counter_reset_then_rising_inc_same_tick() {
+    let (b, _) = Weave::builder("cr").knot("inc", KnotKind::signal_in()).unwrap();
+    let (b, _) = b.knot("rst", KnotKind::signal_in()).unwrap();
+    let (b, _) = b.knot("cnt", KnotKind::counter()).unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("count")).unwrap();
+    let weave = b
+        .wire_named("inc", "out", "cnt", "inc")
+        .wire_named("rst", "out", "cnt", "reset")
+        .wire_named("cnt", "count", "out", "in")
+        .build()
+        .unwrap();
+    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let inc = rt.sense_id("inc").unwrap();
+    let rst = rt.sense_id("rst").unwrap();
+
+    // count to 5
+    for t in 0..5u64 {
+        rt.begin_frame(HostTime { tick: t });
+        {
+            let mut w = rt.port_writer();
+            w.set_sense(inc, if t % 2 == 0 { ONE } else { ZERO });
+            w.set_sense(rst, ZERO);
+        }
+        rt.loom(&weave).unwrap();
+    }
+    // same tick: reset + rising inc → 1
+    rt.begin_frame(HostTime { tick: 10 });
+    {
+        let mut w = rt.port_writer();
+        w.set_sense(inc, ZERO);
+        w.set_sense(rst, ZERO);
+    }
+    rt.loom(&weave).unwrap();
+    rt.begin_frame(HostTime { tick: 11 });
+    {
+        let mut w = rt.port_writer();
+        w.set_sense(inc, ONE);
+        w.set_sense(rst, ONE);
+    }
+    rt.loom(&weave).unwrap();
+    assert_eq!(count_out(&rt), 1);
+}
+
+#[test]
 fn flag_toggle_rising_and_reset() {
     let (b, _) = Weave::builder("f").knot("tog", KnotKind::signal_in()).unwrap();
     let (b, _) = b.knot("rst", KnotKind::signal_in()).unwrap();

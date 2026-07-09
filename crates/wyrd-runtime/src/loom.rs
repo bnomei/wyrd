@@ -164,13 +164,12 @@ impl Runtime {
                 let reset = self.get_port(kid, PortSlot(2));
                 if is_truthy(reset) {
                     self.counter[ki] = 0;
-                } else {
-                    if !is_truthy(self.prev_in[ki]) && is_truthy(inc) {
-                        self.counter[ki] = self.counter[ki].saturating_add(1);
-                    }
-                    if !is_truthy(self.prev_dec[ki]) && is_truthy(dec) {
-                        self.counter[ki] = self.counter[ki].saturating_sub(1);
-                    }
+                }
+                if !is_truthy(self.prev_in[ki]) && is_truthy(inc) {
+                    self.counter[ki] = self.counter[ki].saturating_add(1);
+                }
+                if !is_truthy(self.prev_dec[ki]) && is_truthy(dec) {
+                    self.counter[ki] = self.counter[ki].saturating_sub(1);
                 }
                 self.prev_in[ki] = inc;
                 self.prev_dec[ki] = dec;
