@@ -10,7 +10,7 @@ mod pattern;
 mod validate;
 mod weave;
 
-pub use builder::WeaveBuilder;
+pub use builder::{slot_of, WeaveBuilder};
 pub use pattern::{expand_pattern, merge_expanded, Pattern, PatternExports};
 pub use validate::{validate, Budget};
 pub use weave::{KnotDef, PortRefAuthor, ThreadDef, Weave};

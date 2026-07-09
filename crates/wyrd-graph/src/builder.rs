@@ -59,6 +59,12 @@ impl WeaveBuilder {
         self
     }
 
+    /// Wire two author port refs (e.g. from PatternExports).
+    pub fn wire_ports(mut self, from: PortRefAuthor, to: PortRefAuthor) -> Self {
+        self.threads.push(ThreadDef { from, to });
+        self
+    }
+
     /// Wire using KnotIds + PortSlots (preferred after handles exist).
     pub fn wire(mut self, from: (KnotId, PortSlot), to: (KnotId, PortSlot)) -> Result<Self> {
         let fk = self
@@ -135,8 +141,7 @@ fn port_name(kind: &KnotKind, slot: PortSlot) -> Option<&'static str> {
         .map(|p| p.name)
 }
 
-/// Resolve name → slot using kind table (builder helper).
-#[allow(dead_code)]
+/// Resolve catalog port name → slot for a kind.
 pub fn slot_of(kind: &KnotKind, name: &str) -> Result<PortSlot> {
     port_slot(kind, name).ok_or(WyrdError::UnknownPort)
 }
