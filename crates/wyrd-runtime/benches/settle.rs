@@ -1,5 +1,6 @@
 //! Divan settle benches (step 5.1).
 
+use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
 use wyrd_core::{HostTime, KnotKind, ONE};
 use wyrd_graph::Weave;
@@ -24,14 +25,18 @@ fn chain_not(n: usize) -> (Weave, Runtime) {
 }
 
 // Budget hard max knots is 256 (constant + n Nots + out).
+/// `n` = number of Not knots (total knots ≈ n + 2).
 #[divan::bench(args = [16, 64, 128])]
 fn settle_not_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_not(n);
-    bencher.bench_local(|| {
-        rt.begin_frame(HostTime { tick: 0 });
-        rt.loom(black_box(&weave)).unwrap();
-        black_box(rt.outbox().signals().len());
-    });
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
 }
 
 #[divan::bench]
@@ -46,16 +51,19 @@ fn settle_and_door(bencher: Bencher) {
     let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
     let a = rt.sense_id("plate_a").unwrap();
     let b_id = rt.sense_id("plate_b").unwrap();
-    bencher.bench_local(|| {
-        rt.begin_frame(HostTime { tick: 1 });
-        {
-            let mut w = rt.port_writer();
-            w.set_sense(a, ONE);
-            w.set_sense(b_id, ONE);
-        }
-        rt.loom(black_box(&weave)).unwrap();
-        black_box(rt.outbox().signals().len());
-    });
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 1 });
+            {
+                let mut w = rt.port_writer();
+                w.set_sense(a, ONE);
+                w.set_sense(b_id, ONE);
+            }
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
 }
 
 fn main() {
