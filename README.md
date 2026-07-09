@@ -53,6 +53,10 @@ Enable exactly one of `signal-f32` / `signal-i32`.
 # Dual numeric paths (f32 + i32) + Bevy f32-only
 ./scripts/dual-check.sh
 
+# Line coverage (HTML under target/coverage/; see scripts/coverage-gaps.md)
+./scripts/coverage.sh
+./scripts/coverage.sh --i32
+
 cargo test --workspace
 cargo test -p wyrd-graph --features serde-ron
 cargo bench -p wyrd-runtime --bench settle

@@ -57,3 +57,30 @@ jobs:
           cargo check -p wyrd-core \
             --no-default-features \
             --features "alloc,signal-i32"
+
+  coverage:
+    name: coverage (llvm-cov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Coverage summary (f32 core suite)
+        run: |
+          cargo llvm-cov --workspace --exclude wyrd-bevy \
+            --lcov --output-path lcov.info \
+            --fail-under-lines 80
+      - name: Coverage summary (i32)
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov -p wyrd-core -p wyrd-graph -p wyrd-runtime \
+            --no-default-features --features "std,signal-i32" \
+            --summary-only
+      - name: Upload lcov
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: lcov.info

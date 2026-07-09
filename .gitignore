@@ -4,4 +4,7 @@ docs/
 # Rust
 /target/
 **/*.rs.bk
+# Coverage HTML/LCOV (regenerate with ./scripts/coverage.sh)
+/coverage/
+/lcov.info
 
