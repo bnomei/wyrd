@@ -9,7 +9,7 @@ use crate::weave::Weave;
 
 /// Deserialize Weave from RON text. Rejects numeric path mismatch vs compiled feature.
 pub fn from_ron(text: &str) -> Result<Weave> {
-    let weave: Weave = ron::from_str(text).map_err(|_| WyrdError::Msg("ron parse error"))?;
+    let weave: Weave = ron::from_str(text).map_err(|_| WyrdError::Parse)?;
     if weave.numeric != NumericPath::compiled() {
         return Err(WyrdError::NumericMismatch);
     }
@@ -20,7 +20,7 @@ pub fn from_ron(text: &str) -> Result<Weave> {
 /// Serialize Weave to RON (pretty).
 pub fn to_ron(weave: &Weave) -> Result<String> {
     ron::ser::to_string_pretty(weave, ron::ser::PrettyConfig::default())
-        .map_err(|_| WyrdError::Msg("ron serialize error"))
+        .map_err(|_| WyrdError::Serialize)
 }
 
 #[cfg(test)]

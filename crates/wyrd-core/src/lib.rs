@@ -19,4 +19,10 @@ pub use kind::{
     CalcOp, CompareOp, FlagPriority, KnotKind, NumericPath, TimerMode,
 };
 pub use ports::{port_slot, ports_of, PortDir, PortInfo};
-pub use signal::{div, from_count, from_level, is_truthy, mul, sat_add, sat_sub, Signal, ONE, ZERO};
+// Author-facing signal helpers. Arithmetic ops stay module-private for graphs (use Calc knots).
+pub use signal::{from_count, from_level, is_truthy, Signal, ONE, ZERO};
+
+/// Low-level path ops (prefer Calc knots in Weaves).
+pub mod signal_ops {
+    pub use crate::signal::{div, mul, sat_add, sat_sub};
+}

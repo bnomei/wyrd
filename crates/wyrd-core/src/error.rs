@@ -3,7 +3,7 @@ use core::fmt;
 /// Library error. Settle should not panic; bind/validate may return this.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WyrdError {
-    /// Generic message for early scaffolding (replace with structured variants).
+    /// Stable static message (parse / rare cases). Prefer structured variants.
     Msg(&'static str),
     UnknownKnot,
     UnknownPort,
@@ -15,6 +15,10 @@ pub enum WyrdError {
     Budget,
     NumericMismatch,
     Empty,
+    /// Invalid pattern instance or inner id (slash / empty).
+    InvalidPatternId,
+    Parse,
+    Serialize,
 }
 
 impl fmt::Display for WyrdError {
@@ -31,6 +35,9 @@ impl fmt::Display for WyrdError {
             WyrdError::Budget => f.write_str("budget exceeded"),
             WyrdError::NumericMismatch => f.write_str("numeric path mismatch"),
             WyrdError::Empty => f.write_str("empty weave"),
+            WyrdError::InvalidPatternId => f.write_str("invalid pattern instance id"),
+            WyrdError::Parse => f.write_str("parse error"),
+            WyrdError::Serialize => f.write_str("serialize error"),
         }
     }
 }

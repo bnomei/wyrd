@@ -18,3 +18,10 @@ alloc = ["no-std-compat/alloc", "wyrd-core/alloc", "wyrd-graph/alloc"]
 wyrd-core = { workspace = true, default-features = false }
 wyrd-graph = { workspace = true, default-features = false }
 no-std-compat = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+divan = "0.1"
+
+[[bench]]
+name = "settle"
+harness = false

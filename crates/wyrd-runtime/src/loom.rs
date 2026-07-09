@@ -232,10 +232,10 @@ impl Runtime {
                 let a = self.get_port(kid, PortSlot(0));
                 let b = self.get_port(kid, PortSlot(1));
                 let o = match op {
-                    CalcOp::Add => wyrd_core::sat_add(a, b),
-                    CalcOp::Sub => wyrd_core::sat_sub(a, b),
-                    CalcOp::Mul => wyrd_core::mul(a, b),
-                    CalcOp::Div => wyrd_core::div(a, b),
+                    CalcOp::Add => wyrd_core::signal_ops::sat_add(a, b),
+                    CalcOp::Sub => wyrd_core::signal_ops::sat_sub(a, b),
+                    CalcOp::Mul => wyrd_core::signal_ops::mul(a, b),
+                    CalcOp::Div => wyrd_core::signal_ops::div(a, b),
                 };
                 self.set_port(kid, PortSlot(2), o);
             }

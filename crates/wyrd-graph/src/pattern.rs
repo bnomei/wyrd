@@ -51,7 +51,7 @@ pub fn expand_pattern(
     pattern: &Pattern,
 ) -> Result<(Vec<KnotDef>, Vec<ThreadDef>, PatternExports)> {
     if instance_id.is_empty() || instance_id.contains('/') {
-        return Err(WyrdError::Msg("invalid pattern instance id"));
+        return Err(WyrdError::InvalidPatternId);
     }
     if pattern.inner.knots.is_empty() {
         return Err(WyrdError::Empty);
@@ -67,7 +67,7 @@ pub fn expand_pattern(
     let mut inner_ids: BTreeMap<&str, &KnotDef> = BTreeMap::new();
     for k in &pattern.inner.knots {
         if k.id.contains('/') {
-            return Err(WyrdError::Msg("inner knot id must not contain '/'"));
+            return Err(WyrdError::InvalidPatternId);
         }
         if inner_ids.insert(k.id.as_str(), k).is_some() {
             return Err(WyrdError::DuplicateKnotId);
@@ -242,12 +242,12 @@ mod tests {
         let p = monostable_pattern();
         let (b, _) = Weave::builder("lvl").knot("btn", KnotKind::signal_in()).unwrap();
         let (b, exp) = b.include("h1", &p).unwrap();
-        let start = exp.port_in("start").unwrap();
-        let b = b.wire_named("btn", "out", &start.knot, &start.port);
+        let start = exp.port_in("start").unwrap().clone();
+        let b = b.wire_ports(PortRefAuthor::new("btn", "out"), start);
         let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-        let active = exp.port_out("active").unwrap();
+        let active = exp.port_out("active").unwrap().clone();
         let w = b
-            .wire_named(&active.knot, &active.port, "out", "in")
+            .wire_ports(active, PortRefAuthor::new("out", "in"))
             .build()
             .unwrap();
         validate(&w, &Budget::default()).unwrap();
