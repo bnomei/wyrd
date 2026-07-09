@@ -123,9 +123,15 @@ impl Runtime {
                 priority,
                 enable_toggle,
             } => {
-                let set = is_truthy(self.get_port(kid, PortSlot(0)));
-                let reset = is_truthy(self.get_port(kid, PortSlot(1)));
-                let toggle = enable_toggle && is_truthy(self.get_port(kid, PortSlot(2)));
+                let set_l = self.get_port(kid, PortSlot(0));
+                let reset_l = self.get_port(kid, PortSlot(1));
+                let toggle_l = self.get_port(kid, PortSlot(2));
+                let set = is_truthy(set_l);
+                let reset = is_truthy(reset_l);
+                // Toggle is rising-edge so held toggle does not flip every loom.
+                let toggle = enable_toggle
+                    && !is_truthy(self.prev_in[ki])
+                    && is_truthy(toggle_l);
                 let mut st = self.flag[ki];
                 match priority {
                     FlagPriority::ResetWins => {
@@ -147,34 +153,27 @@ impl Runtime {
                         }
                     }
                 }
+                self.prev_in[ki] = toggle_l;
                 self.flag[ki] = st;
                 self.set_port(kid, PortSlot(3), if st { ONE } else { ZERO });
             }
             KnotKind::Counter => {
-                // Rising-edge on inc/dec (D-counter-edge)
+                // Same-tick: reset level first, then rising-edge inc/dec (D-counter-edge).
                 let inc = self.get_port(kid, PortSlot(0));
                 let dec = self.get_port(kid, PortSlot(1));
                 let reset = self.get_port(kid, PortSlot(2));
-                // Use prev stored in prev_in as packed? Simple: track prev on inc only via prev_in
-                // For multi inputs we use port_vals history — store prev_inc/dec in prev_in for inc edge only
-                // Minimal: edge vs prev_in for combined "inc" channel; also check reset level
                 if is_truthy(reset) {
                     self.counter[ki] = 0;
                 } else {
-                    let prev = self.prev_in[ki];
-                    // Encode previous inc in prev_in; rising on inc
-                    if !is_truthy(prev) && is_truthy(inc) {
+                    if !is_truthy(self.prev_in[ki]) && is_truthy(inc) {
                         self.counter[ki] = self.counter[ki].saturating_add(1);
                     }
-                    // dec edge: if prev was from dec tracking — simplified: level rising on dec
-                    // Use only inc edge in prev_in for v0 slice; dec if rising from 0 on dec while prev not set
-                    // Better: store last inc and dec in two state slots — use counter high bits? Keep simple:
                     if !is_truthy(self.prev_dec[ki]) && is_truthy(dec) {
                         self.counter[ki] = self.counter[ki].saturating_sub(1);
                     }
-                    self.prev_dec[ki] = dec;
-                    self.prev_in[ki] = inc;
                 }
+                self.prev_in[ki] = inc;
+                self.prev_dec[ki] = dec;
                 self.set_port(kid, PortSlot(3), crate::from_count(self.counter[ki]));
             }
             KnotKind::Timer { mode, ticks } => match mode {
@@ -279,14 +278,16 @@ impl Runtime {
                 }
             }
             KnotKind::EmitCommand { .. } => {
-                // enable: unconnected stays ZERO → treat as on; explicit 0 still on; only non-ONE falsey optional later
+                // Rising edge on `trigger` only (held level must not spam).
                 let trig = self.get_port(kid, PortSlot(0));
                 let payload = self.get_port(kid, PortSlot(2));
-                if is_truthy(trig) {
+                let prev = self.prev_in[ki];
+                if !is_truthy(prev) && is_truthy(trig) {
                     if let Some(cmd) = self.knots[ki].cmd {
                         self.push_emit(cmd, payload);
                     }
                 }
+                self.prev_in[ki] = trig;
             }
         }
     }
