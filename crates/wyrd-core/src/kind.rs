@@ -116,6 +116,12 @@ pub enum KnotKind {
         out_min: Signal,
         out_max: Signal,
     },
+    /// Gate continuous signal with optional hysteresis; edge pulse outs.
+    Threshold {
+        high: Signal,
+        low: Signal,
+        use_hysteresis: bool,
+    },
     SignalOut {
         path: std::string::String,
     },
@@ -194,6 +200,27 @@ impl KnotKind {
             in_max: crate::signal::ONE,
             out_min: crate::signal::ZERO,
             out_max: crate::signal::ONE,
+        }
+    }
+
+    /// Threshold at half-scale with mild hysteresis (low=0.4·ONE, high=0.5·ONE on f32).
+    pub fn threshold_default() -> Self {
+        #[cfg(feature = "signal-f32")]
+        {
+            KnotKind::Threshold {
+                high: 0.5,
+                low: 0.4,
+                use_hysteresis: true,
+            }
+        }
+        #[cfg(feature = "signal-i32")]
+        {
+            let one = crate::signal::ONE;
+            KnotKind::Threshold {
+                high: one / 2,
+                low: one * 2 / 5, // 0.4
+                use_hysteresis: true,
+            }
         }
     }
 

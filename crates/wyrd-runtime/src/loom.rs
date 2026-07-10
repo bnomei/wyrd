@@ -283,6 +283,38 @@ impl Runtime {
                 let o = digitize(i, steps, in_min, in_max, out_min, out_max);
                 self.set_port(kid, PortSlot(1), o);
             }
+            KindTag::Threshold {
+                high,
+                low,
+                use_hysteresis,
+            } => {
+                let x = self.get_port(kid, PortSlot(0));
+                let prev = self.flag[ki];
+                let mut latched = prev;
+                if use_hysteresis {
+                    if latched {
+                        if x < low {
+                            latched = false;
+                        }
+                    } else if x >= high {
+                        latched = true;
+                    }
+                } else {
+                    latched = x >= high;
+                }
+                self.flag[ki] = latched;
+                self.set_port(kid, PortSlot(1), if latched { ONE } else { ZERO });
+                self.set_port(
+                    kid,
+                    PortSlot(2),
+                    if !prev && latched { ONE } else { ZERO },
+                );
+                self.set_port(
+                    kid,
+                    PortSlot(3),
+                    if prev && !latched { ONE } else { ZERO },
+                );
+            }
             KindTag::SignalOut => {
                 let v = self.get_port(kid, PortSlot(0));
                 if let Some(path) = self.knots[ki].path {
@@ -350,6 +382,11 @@ enum KindTag {
         out_min: Signal,
         out_max: Signal,
     },
+    Threshold {
+        high: Signal,
+        low: Signal,
+        use_hysteresis: bool,
+    },
     SignalOut,
     EmitCommand,
 }
@@ -406,6 +443,15 @@ impl KindTag {
                 in_max: *in_max,
                 out_min: *out_min,
                 out_max: *out_max,
+            },
+            KnotKind::Threshold {
+                high,
+                low,
+                use_hysteresis,
+            } => KindTag::Threshold {
+                high: *high,
+                low: *low,
+                use_hysteresis: *use_hysteresis,
             },
             KnotKind::SignalOut { .. } => KindTag::SignalOut,
             KnotKind::EmitCommand { .. } => KindTag::EmitCommand,

@@ -155,10 +155,18 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
         if ports_of(&k.kind).is_empty() {
             return Err(WyrdError::UnknownPort);
         }
-        if let KnotKind::Digitize { steps, .. } = &k.kind {
-            if *steps == 0 {
+        match &k.kind {
+            KnotKind::Digitize { steps, .. } if *steps == 0 => {
                 return Err(WyrdError::InvalidParam);
             }
+            KnotKind::Threshold {
+                high,
+                low,
+                use_hysteresis,
+            } if *use_hysteresis && low > high => {
+                return Err(WyrdError::InvalidParam);
+            }
+            _ => {}
         }
     }
 

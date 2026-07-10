@@ -64,6 +64,12 @@ const SELECT: &[PortInfo] = &[
     pin(2, "b", true),
     pout(3, "out"),
 ];
+const THRESHOLD: &[PortInfo] = &[
+    pin(0, "in", true),
+    pout(1, "out"),
+    pout(2, "crossed_up"),
+    pout(3, "crossed_down"),
+];
 const MAP_LIKE: &[PortInfo] = &[pin(0, "in", true), pout(1, "out")];
 const SIGNAL_OUT: &[PortInfo] = &[pin(0, "in", true)];
 const EMIT: &[PortInfo] = &[
@@ -113,6 +119,7 @@ pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
         KnotKind::Neg => MAP_LIKE,
         KnotKind::Select => SELECT,
         KnotKind::Digitize { .. } => MAP_LIKE,
+        KnotKind::Threshold { .. } => THRESHOLD,
         KnotKind::SignalOut { .. } => SIGNAL_OUT,
         KnotKind::EmitCommand { .. } => EMIT,
     }
