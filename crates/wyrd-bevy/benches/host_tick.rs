@@ -4,7 +4,8 @@ use bevy::prelude::*;
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
 use wyrd_bevy::{
-    apply_signal_bool, set_sense_bool, AndDoorBinding, Door, WyrdInstance, WyrdPlugin, WyrdWorld,
+    apply_signal_bool, set_sense_bool, AndDoorBinding, Door, WyrdInstance, WyrdPlugin, WyrdSet,
+    WyrdWorld,
 };
 use wyrd_core::KnotKind;
 use wyrd_graph::Weave;
@@ -57,10 +58,8 @@ fn setup_app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(WyrdPlugin)
-        .add_systems(
-            Update,
-            (sample_plates, apply_door_component).chain(),
-        );
+        .add_systems(Update, sample_plates.in_set(WyrdSet::Sample))
+        .add_systems(Update, apply_door_component.in_set(WyrdSet::Apply));
 
     let weave = and_door_weave();
     let inst = WyrdInstance::new("demo", weave).unwrap();
@@ -88,7 +87,8 @@ fn bevy_door_tick_both(bencher: Bencher) {
     app.world_mut().resource_mut::<PlateState>().a = true;
     app.world_mut().resource_mut::<PlateState>().b = true;
     app.update();
-    let knots = 4u64; // plate_a, plate_b, and, door out
+    // Weave: plate_a, plate_b, both, door → 4 knots (ItemsCount labels work, not pure loom ns).
+    let knots = 4u64;
     bencher
         .counter(ItemsCount::new(knots))
         .bench_local(|| {

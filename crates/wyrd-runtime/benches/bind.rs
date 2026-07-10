@@ -53,10 +53,9 @@ fn expand_pattern_monostable(bencher: Bencher) {
         });
 }
 
-/// Builder include monostable + wire + bind (full load path).
+/// Bind a weave that already included monostable (bind only; weave built outside).
 #[divan::bench]
 fn bind_after_pattern_include(bencher: Bencher) {
-    // Build weave outside sample so we time bind only.
     let weave = weave_with_monostable_include();
     let knots = weave.knots.len() as u64;
     bencher

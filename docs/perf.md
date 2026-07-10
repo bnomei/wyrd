@@ -276,10 +276,10 @@ cargo bench -p wyrd-runtime --bench bind -- expand_pattern_monostable bind_after
 
 | Bench | Median | Notes |
 | --- | ---: | --- |
-| `bevy_door_tick_both` | ~1.25 µs | `app.update()` both plates high |
+| `bevy_door_tick_both` | ~1.33 µs | Sample → Loom → Apply (WyrdSet); both plates high |
 | `bevy_door_tick_scripted` | ~1.32 µs | 4-phase plate script |
 
-Roughly **~40–50×** a raw `settle_and_door` loom (~27 ns) — Bevy schedule + resource/query overhead, not loom math.
+Roughly **~50×** a raw `settle_and_door` loom (~27 ns) — Bevy schedule + resource/query overhead, not loom math.
 
 ```bash
 cargo bench -p wyrd-bevy --bench host_tick
