@@ -51,15 +51,14 @@ pub(crate) enum KindTag {
         degenerate: bool,
         in_min: Signal,
         out_min: Signal,
-        /// f32: `1/(in_max-in_min)`; i32: unused (use `den`).
-        inv_in_span: Signal,
+        /// f32: `steps/(in_max-in_min)` for bin index; i32: unused (use `den`).
+        bin_scale: Signal,
         /// f32: `(out_max-out_min)/(steps-1)`; i32: unused (use `out_span`/`last`).
         out_scale: Signal,
+        /// f32: `last as f32` for clamp; i32: unused.
+        last_f: Signal,
         steps: u16,
         last: u16,
-        /// i32 path: `in_max - in_min` as i64 stored in two halves? Keep i64 den via Signal pair:
-        /// den is i32-range for valid Q spans; large spans use i64 in digitize via recompute.
-        /// Store den as i64-compatible: use `den_i64` only on i32 feature.
         #[cfg(feature = "signal-i32")]
         den: i64,
         #[cfg(feature = "signal-i32")]
@@ -215,7 +214,11 @@ impl KindTag {
         {
             let span_in = in_max - in_min;
             let degenerate = steps <= 1 || span_in.abs() < f32::EPSILON;
-            let inv_in_span = if degenerate { 0.0 } else { 1.0 / span_in };
+            let bin_scale = if degenerate {
+                0.0
+            } else {
+                (steps as f32) / span_in
+            };
             let out_scale = if degenerate || last == 0 {
                 0.0
             } else {
@@ -225,8 +228,9 @@ impl KindTag {
                 degenerate,
                 in_min,
                 out_min,
-                inv_in_span,
+                bin_scale,
                 out_scale,
+                last_f: last as f32,
                 steps,
                 last,
             }
@@ -240,8 +244,9 @@ impl KindTag {
                 degenerate,
                 in_min,
                 out_min,
-                inv_in_span: 0, // unused on i32
+                bin_scale: 0,
                 out_scale: 0,
+                last_f: 0,
                 steps,
                 last,
                 den,

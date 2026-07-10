@@ -300,8 +300,9 @@ impl Runtime {
                 degenerate,
                 in_min,
                 out_min,
-                inv_in_span,
+                bin_scale,
                 out_scale,
+                last_f,
                 steps,
                 last,
                 #[cfg(feature = "signal-i32")]
@@ -315,8 +316,9 @@ impl Runtime {
                     degenerate,
                     in_min,
                     out_min,
-                    inv_in_span,
+                    bin_scale,
                     out_scale,
+                    last_f,
                     steps,
                     last,
                     #[cfg(feature = "signal-i32")]
@@ -557,8 +559,9 @@ fn digitize_fast(
     degenerate: bool,
     in_min: Signal,
     out_min: Signal,
-    inv_in_span: Signal,
+    bin_scale: Signal,
     out_scale: Signal,
+    last_f: Signal,
     steps: u16,
     last: u16,
     #[cfg(feature = "signal-i32")] den: i64,
@@ -569,19 +572,15 @@ fn digitize_fast(
     }
     #[cfg(feature = "signal-f32")]
     {
-        let _ = (steps, last); // used below
-        let t = ((i - in_min) * inv_in_span).clamp(0.0, 1.0);
-        // bin in [0, last]; endpoint t=1 maps to last.
-        let mut bin = (t * steps as f32) as u32;
-        let last_u = last as u32;
-        if bin > last_u {
-            bin = last_u;
-        }
-        out_min + (bin as f32) * out_scale
+        let _ = (steps, last);
+        // Integer bin in [0, last]; endpoint (raw≥steps) clamps via last_f.
+        let raw = (i - in_min) * bin_scale;
+        let bin = raw.max(0.0).min(last_f) as u32;
+        out_scale.mul_add(bin as f32, out_min)
     }
     #[cfg(feature = "signal-i32")]
     {
-        let _ = (inv_in_span, out_scale);
+        let _ = (bin_scale, out_scale, last_f);
         let last_i = last as i64;
         let t = ((i as i64) - (in_min as i64)).clamp(0, den);
         let mut bin = t * (steps as i64) / den;
@@ -607,8 +606,9 @@ pub(crate) fn digitize_for_test(
             degenerate,
             in_min,
             out_min,
-            inv_in_span,
+            bin_scale,
             out_scale,
+            last_f,
             steps,
             last,
             #[cfg(feature = "signal-i32")]
@@ -620,8 +620,9 @@ pub(crate) fn digitize_for_test(
             degenerate,
             in_min,
             out_min,
-            inv_in_span,
+            bin_scale,
             out_scale,
+            last_f,
             steps,
             last,
             #[cfg(feature = "signal-i32")]

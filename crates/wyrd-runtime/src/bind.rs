@@ -494,6 +494,54 @@ mod tests {
     use wyrd_graph::Weave;
 
     #[test]
+    fn sense_seeds_lists_only_sense_knots() {
+        let (b, _) = Weave::builder("s")
+            .knot("in", KnotKind::signal_in())
+            .unwrap();
+        let (b, _) = b.knot("c", KnotKind::constant(ONE)).unwrap();
+        let (b, _) = b.knot("n", KnotKind::Not).unwrap();
+        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let weave = b
+            .wire_named("in", "out", "n", "in")
+            .wire_named("n", "out", "out", "in")
+            .build()
+            .unwrap();
+        let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        assert_eq!(rt.sense_seeds.len(), 2, "SignalIn + Constant only");
+        assert!(
+            rt.sense_seeds
+                .iter()
+                .any(|s| matches!(s, SenseSeed::SignalIn { .. }))
+        );
+        assert!(
+            rt.sense_seeds
+                .iter()
+                .any(|s| matches!(s, SenseSeed::Constant { value, .. } if *value == ONE))
+        );
+        // Emit without enable wire → enable_wired false
+        let (b, _) = Weave::builder("e")
+            .knot("btn", KnotKind::signal_in())
+            .unwrap();
+        let (b, _) = b.knot("em", KnotKind::emit_command("fire")).unwrap();
+        let weave = b.wire_named("btn", "out", "em", "trigger").build().unwrap();
+        let rt = Runtime::bind(
+            &weave,
+            BindOpts {
+                seed: Some(Seed(1)),
+                ..BindOpts::default()
+            },
+        )
+        .unwrap();
+        let em = rt.sense_id("em").expect("em knot");
+        match rt.kind_tags[em.0 as usize] {
+            crate::kind_tag::KindTag::EmitCommand { enable_wired } => {
+                assert!(!enable_wired);
+            }
+            _ => panic!("expected EmitCommand tag"),
+        }
+    }
+
+    #[test]
     fn cmd_name_and_path_name_lookup() {
         let (b, _) = Weave::builder("e")
             .knot("btn", KnotKind::signal_in())

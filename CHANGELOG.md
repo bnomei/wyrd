@@ -58,6 +58,6 @@
 - **P3**: pattern expand/include bind benches; Bevy headless `host_tick`
 - **Settle structural pass**: bind-time `KindTag` cache, CSR inbound, flat clear indices,
   hot port access, Sense skip in topo; Digitize bin path tweak; `settle_iso` isolation benches
-- **Arm-math + residual structure**: Digitize/Map bind precompute; Sqrt via `f32::sqrt` +
-  Newton isqrt (drop `libm`); sense seed list; Calc tags split by op; Compare const as
-  `Signal`; Emit/Random wire flags at bind
+- **Arm-math + residual structure**: Digitize/Map bind precompute (+ f32 Digitize
+  `bin_scale`/`mul_add`); Sqrt via `f32::sqrt` + Newton isqrt (drop `libm`); sense seed
+  list; Calc tags split by op; Compare const as `Signal`; Emit/Random wire flags at bind

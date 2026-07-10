@@ -174,16 +174,17 @@ Each area: isolation baseline → change → after×2 (f32) + i32 check when dua
 
 | Area | Change | Iso f32 before → after (median, N=64) |
 | --- | --- | ---: |
-| **1 Digitize** | Bind precompute: `inv_in_span`, `out_scale` / i32 `den`+`out_span` | **~1.093 µs → ~854 ns** |
+| **1 Digitize** | Bind precompute: scales / i32 `den`+`out_span` | **~1.093 µs → ~854 ns** |
+| **1b Digitize** | f32 `bin_scale=steps/span` + `last_f` clamp + `mul_add` (integer bins) | **~854 ns → ~646–693 ns** |
 | **2 Sqrt** | f32: core `f32::sqrt` (drop `libm`); i32: Newton `isqrt` | **~1.08 µs → ~395–437 ns** (i32 ~562 → ~310 ns) |
 | **3 Map** | Bind precompute: reciprocal × + i32 `den`/`out_span_i64` | **~651 ns → ~505–515 ns** |
-| **4 Residual** | Sense seed list (no full-knot scan); Calc tags split by op; Compare `rhs` as `Signal`; Emit/Random wire flags at bind | Not 64 **~307 → ~270 ns**; Map **~505 ns** stable |
+| **4 Residual** | Sense seed list; Calc tags split by op; Compare `rhs` as `Signal`; Emit/Random wire flags at bind | Not 64 **~307 → ~270 ns** |
 
-**Final isolation medians (f32, long):** Digitize ~849 ns · Map ~505 ns · Sqrt ~395 ns · Not64 ~270 ns · Fanout64 ~572 ns.
+**Final isolation medians (f32, long):** Digitize **~646–693 ns** · Map ~505 ns · Sqrt ~395 ns · Not64 ~270 ns · Fanout64 ~572 ns.
 
-**Final isolation (i32, long):** Map ~286 ns · Sqrt ~291 ns · Not64 ~284 ns · Digitize median noisy (~275 ns fastest / ~755 ns median — prefer catalog row).
+**Final isolation (i32, long):** Map ~286 ns · Sqrt ~291 ns · Not64 ~284 ns · Digitize still noisy on iso (prefer catalog / fastest).
 
-**Why stop here:** remaining heavy arms (Calc Div i32 Q-div, Digitize f32 bin cast) are mostly live arithmetic with little bind-time constant fold left. Further wins need algorithmic changes or host-side batching, not more KindTag fields.
+**Why stop here:** Digitize f32 still above Map/Not (bin cast + clamp) but ~1.6× closer than pre-area1. Remaining arms (Calc Div i32 Q-div) are live arithmetic; further wins need algorithmic/host batching.
 
 ## Scaled catalog / delay (P0 — amortized)
 
@@ -196,7 +197,7 @@ These chains use **N copies** of the interesting arm so fixed loom tax is amorti
 | `settle_map_chain` | 16 | 18 | ~131 ns | ~138 M |
 | `settle_map_chain` | 64 | 66 | **~578 ns** | ~114 M |
 | `settle_digitize_chain` | 16 | 18 | ~205 ns | ~88 M |
-| `settle_digitize_chain` | 64 | 66 | **~937 ns** | ~70 M |
+| `settle_digitize_chain` | 64 | 66 | **~650–700 ns** (iso) | ~95–100 M |
 | `settle_calc_mul_chain` | 16 | 19 (+const ONE) | ~252 ns | ~75 M |
 | `settle_calc_mul_chain` | 64 | 67 | ~547 ns | ~123 M |
 | `settle_sqrt_chain` | 16 | 18 | ~105 ns | ~172 M |
