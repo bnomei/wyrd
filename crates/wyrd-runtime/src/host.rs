@@ -6,7 +6,7 @@
 
 use std::vec::Vec;
 
-use wyrd_core::{CmdId, HostPathId, HostTime, Result, Signal};
+use wyrd_core::{CmdId, HostPathId, HostTime, KnotId, Result, Signal};
 use wyrd_graph::Weave;
 
 use crate::bind::Runtime;
@@ -76,6 +76,82 @@ pub fn tick_once(host: &mut impl Host, rt: &mut Runtime, weave: &Weave) -> Resul
     rt.loom(weave)?;
     host.apply(rt.outbox());
     Ok(())
+}
+
+/// No-op host (benches, placeholder worlds).
+#[derive(Clone, Debug, Default)]
+pub struct NullHost {
+    pub tick: u64,
+}
+
+impl Host for NullHost {
+    fn time(&self) -> HostTime {
+        HostTime { tick: self.tick }
+    }
+    fn sample_into(&mut self, _ports: &mut PortWriter<'_>) {}
+    fn apply(&mut self, _outbox: Outbox<'_>) {
+        self.tick = self.tick.wrapping_add(1);
+    }
+}
+
+/// Scripted senses + recorded apply commands for deterministic replay tests.
+///
+/// Hold dense [`KnotId`]s resolved at bind. Each frame is a list of
+/// `(KnotId, Signal)` writes applied in `sample_into`. After each tick,
+/// `commands` grows with that frame's outbox mapping (reused buffer).
+#[derive(Clone, Debug, Default)]
+pub struct ScriptedHost {
+    pub tick: u64,
+    /// Per-tick sense samples: index = tick at sample time.
+    pub frames: Vec<Vec<(KnotId, Signal)>>,
+    /// Flattened HostCommand history (append-only across ticks).
+    pub commands: Vec<HostCommand>,
+    /// Per-tick command counts (for slicing `commands`).
+    pub commands_per_tick: Vec<usize>,
+}
+
+impl ScriptedHost {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Push one frame of dense sense writes (order preserved).
+    pub fn push_frame(&mut self, senses: impl IntoIterator<Item = (KnotId, Signal)>) {
+        self.frames.push(senses.into_iter().collect());
+    }
+
+    /// Commands applied on the last completed tick (after `tick_once`).
+    pub fn last_commands(&self) -> &[HostCommand] {
+        let n = match self.commands_per_tick.last() {
+            Some(&c) => c,
+            None => return &[],
+        };
+        let start = self.commands.len().saturating_sub(n);
+        &self.commands[start..]
+    }
+}
+
+impl Host for ScriptedHost {
+    fn time(&self) -> HostTime {
+        HostTime { tick: self.tick }
+    }
+
+    fn sample_into(&mut self, ports: &mut PortWriter<'_>) {
+        let i = self.tick as usize;
+        if let Some(frame) = self.frames.get(i) {
+            for &(id, v) in frame {
+                ports.set_sense(id, v);
+            }
+        }
+    }
+
+    fn apply(&mut self, outbox: Outbox<'_>) {
+        let before = self.commands.len();
+        append_commands(outbox, &mut self.commands);
+        self.commands_per_tick
+            .push(self.commands.len().saturating_sub(before));
+        self.tick = self.tick.wrapping_add(1);
+    }
 }
 
 #[cfg(test)]
