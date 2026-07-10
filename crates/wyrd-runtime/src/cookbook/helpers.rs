@@ -3,8 +3,10 @@
 use crate::host::{tick_once, ScriptedHost};
 use crate::BindOpts;
 use crate::{BindError, HandleError, Runtime};
-use wyrd_core::{is_truthy, HostTime, SenseId, Signal, ZERO};
+use wyrd_core::{is_truthy, HostTime, Signal, ZERO};
 use wyrd_graph::Weave;
+
+use crate::SenseId;
 
 /// True if SignalOut path is present and truthy this frame.
 pub fn signal_out_truthy(rt: &Runtime, path: &str) -> bool {
@@ -35,7 +37,7 @@ pub fn emit_count(rt: &Runtime, cmd_name: &str) -> usize {
     rt.outbox()
         .emits()
         .iter()
-        .filter(|e| rt.cmd_name(e.cmd) == Some(cmd_name))
+        .filter(|e| rt.cmd_name(e.cmd) == Ok(cmd_name))
         .count()
 }
 

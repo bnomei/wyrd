@@ -6,9 +6,9 @@
 //! never Weave Threads. f32 signal path only.
 
 use bevy::prelude::*;
-use wyrd_core::{HostPathId, HostTime, SenseId, ONE, ZERO};
+use wyrd_core::{HostTime, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindError, HandleError, Outbox, Runtime};
+use wyrd_runtime::{BindError, HandleError, HostPathId, Outbox, Runtime, SenseId};
 
 /// Ordered host integration sets. Sample → Loom → Apply.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -21,7 +21,7 @@ pub enum WyrdSet {
     Apply,
 }
 
-/// One bound Weave + Runtime. Host owns sampling and applying outbox.
+/// One bound Runtime. Host owns sampling and applying outbox.
 pub struct WyrdInstance {
     label: String,
     runtime: Runtime,
@@ -79,7 +79,7 @@ pub struct WyrdWorld {
 }
 
 /// Demo/test binding for the and-door sample (not a general host primitive).
-/// Resolve your own `KnotId` / `HostPathId` fields at setup for production games.
+/// Resolve your own `SenseId` / `HostPathId` fields at setup for production games.
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct AndDoorBinding {
     pub plate_a: SenseId,
@@ -130,7 +130,7 @@ pub fn loom_all(mut world: ResMut<WyrdWorld>) {
     }
 }
 
-/// Write ONE/ZERO into a sense port (dense KnotId).
+/// Write ONE/ZERO into a sense port through its dense [`SenseId`].
 #[inline]
 pub fn set_sense_bool(inst: &mut WyrdInstance, id: SenseId, on: bool) -> Result<(), HandleError> {
     let v = if on { ONE } else { ZERO };
@@ -246,10 +246,8 @@ mod tests {
             door_path: inst.path_id("door.open").unwrap(),
             instance: 0,
         };
-        assert!(!signal_truthy(
-            &inst,
-            HostPathId::try_from(99usize).unwrap()
-        ));
+        let foreign = WyrdInstance::new("foreign", and_door_weave()).unwrap();
+        assert!(!signal_truthy(&inst, foreign.path_id("door.open").unwrap()));
 
         app.world_mut()
             .resource_mut::<WyrdWorld>()

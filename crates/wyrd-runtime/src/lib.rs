@@ -12,11 +12,13 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+extern crate alloc;
 extern crate no_std_compat as std;
 
 mod bind;
 pub mod cookbook;
 mod error;
+mod handles;
 mod host;
 mod kind_tag;
 mod loom;
@@ -24,15 +26,13 @@ mod outbox;
 
 pub use bind::{BindOpts, Runtime};
 pub use error::{BindError, CookbookError, HandleError};
+pub use handles::{CmdId, HostPathId, KnotHandle, SenseId};
 pub use host::{
     append_commands, outbox_to_commands, tick_once, Host, HostCommand, NullHost, ScriptedHost,
 };
 pub use outbox::{Emit, Outbox, PortWriter, SignalOutSample};
 
-pub use wyrd_core::{
-    from_count, is_truthy, CmdId, HostPathId, HostTime, KnotId, PortSlot, Seed, SenseId, Signal,
-    ONE, ZERO,
-};
+pub use wyrd_core::{from_count, is_truthy, HostTime, KnotId, PortSlot, Seed, Signal, ONE, ZERO};
 pub use wyrd_graph::{
     validate, validate_report, Budget, BudgetWarning, KnotKind, ValidateReport, Weave,
 };

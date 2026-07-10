@@ -7,16 +7,17 @@
 
 use std::collections::BTreeMap;
 use std::string::String;
-use std::vec;
 use std::vec::Vec;
 
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use wyrd_core::{
-    port_slot, ports_of, CalcOp, CmdId, HostPathId, HostTime, KnotId, KnotKind, PortDir, PortSlot,
-    Seed, SenseId, Signal, ZERO,
+    port_slot, ports_of, CalcOp, HostTime, KnotId, KnotKind, PortDir, PortSlot, Seed, Signal, ZERO,
 };
 use wyrd_graph::{validate, Budget, Weave};
 
 use crate::error::{BindError, HandleError};
+use crate::handles::{CmdId, HostPathId, KnotHandle, SenseId};
 use crate::outbox::{Emit, Outbox, PortWriter, SignalOutSample};
 
 /// Bind-time sense seed entry — only Sense knots, so loom need not scan all knots.
@@ -61,6 +62,7 @@ pub(crate) struct ResolvedKnot {
 /// Sole executable artifact after bind. Sample senses through [`PortWriter`],
 /// settle with [`Self::loom`], then read [`Self::outbox`].
 pub struct Runtime {
+    pub(crate) owner: usize,
     pub(crate) knots: Vec<ResolvedKnot>,
     /// Author name → KnotId
     name_to_id: BTreeMap<String, KnotId>,
@@ -114,6 +116,7 @@ pub struct Runtime {
 }
 
 const MAX_PORTS: usize = 8;
+static NEXT_RUNTIME_OWNER: AtomicUsize = AtomicUsize::new(1);
 
 fn fnv1a64(data: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -133,6 +136,14 @@ impl Runtime {
     /// exceeded, a port cannot be resolved, or topo order cannot be built.
     pub fn bind(weave: Weave, opts: BindOpts) -> Result<Self, BindError> {
         let weave_id = String::from(weave.id());
+        let owner = NEXT_RUNTIME_OWNER.fetch_add(1, Ordering::Relaxed);
+        if owner == usize::MAX {
+            return Err(BindError::CapacityExceeded {
+                weave_id,
+                resource: "runtime owner token",
+                count: owner,
+            });
+        }
         validate(&weave, &opts.budget).map_err(|source| BindError::InvalidWeave {
             weave_id: weave_id.clone(),
             source,
@@ -160,13 +171,14 @@ impl Runtime {
                     let pid = if let Some(id) = path_index.get(path) {
                         *id
                     } else {
-                        let id = HostPathId::try_from(path_names.len()).map_err(|_| {
+                        let index = u16::try_from(path_names.len()).map_err(|_| {
                             BindError::CapacityExceeded {
                                 weave_id: weave_id.clone(),
                                 resource: "host path",
                                 count: path_names.len() + 1,
                             }
                         })?;
+                        let id = HostPathId::new(owner, index);
                         path_names.push(path.clone());
                         path_index.insert(path.clone(), id);
                         id
@@ -177,13 +189,14 @@ impl Runtime {
                     let cid = if let Some(id) = cmd_index.get(name) {
                         *id
                     } else {
-                        let id = CmdId::try_from(cmd_names.len()).map_err(|_| {
+                        let index = u16::try_from(cmd_names.len()).map_err(|_| {
                             BindError::CapacityExceeded {
                                 weave_id: weave_id.clone(),
                                 resource: "command",
                                 count: cmd_names.len() + 1,
                             }
                         })?;
+                        let id = CmdId::new(owner, index);
                         cmd_names.push(name.clone());
                         cmd_index.insert(name.clone(), id);
                         id
@@ -238,7 +251,7 @@ impl Runtime {
         })?;
 
         let n = knots.len();
-        let mut inbound_lists: Vec<Vec<(KnotId, PortSlot, PortSlot)>> = vec![Vec::new(); n];
+        let mut inbound_lists: Vec<Vec<(KnotId, PortSlot, PortSlot)>> = alloc::vec![Vec::new(); n];
         for &(f, fs, t, ts) in &threads {
             inbound_lists[usize::from(t)].push((f, fs, ts));
         }
@@ -327,16 +340,37 @@ impl Runtime {
         }
 
         let mut delay_buf = Vec::new();
-        let mut delay_off = vec![0u16; n];
-        let mut delay_len = vec![0u16; n];
-        let delay_head = vec![0u16; n];
+        let mut delay_off = alloc::vec![0u16; n];
+        let mut delay_len = alloc::vec![0u16; n];
+        let delay_head = alloc::vec![0u16; n];
         for (i, k) in knots.iter().enumerate() {
             if let KnotKind::Delay { ticks } = k.kind {
                 let len = ticks as usize;
                 if len > 0 {
-                    delay_off[i] = delay_buf.len() as u16;
+                    let offset = u16::try_from(delay_buf.len()).map_err(|_| {
+                        BindError::CapacityExceeded {
+                            weave_id: weave_id.clone(),
+                            resource: "delay buffer offset",
+                            count: delay_buf.len(),
+                        }
+                    })?;
+                    let new_len = delay_buf.len().checked_add(len).ok_or_else(|| {
+                        BindError::CapacityExceeded {
+                            weave_id: weave_id.clone(),
+                            resource: "delay buffer",
+                            count: usize::MAX,
+                        }
+                    })?;
+                    if new_len > u16::MAX as usize {
+                        return Err(BindError::CapacityExceeded {
+                            weave_id: weave_id.clone(),
+                            resource: "delay buffer",
+                            count: new_len,
+                        });
+                    }
+                    delay_off[i] = offset;
                     delay_len[i] = ticks;
-                    delay_buf.resize(delay_buf.len() + len, ZERO);
+                    delay_buf.resize(new_len, ZERO);
                 }
             }
         }
@@ -349,6 +383,7 @@ impl Runtime {
         let rng = (base.0 ^ seed_mix) | 1;
 
         Ok(Runtime {
+            owner,
             knots,
             name_to_id,
             id_to_name,
@@ -362,15 +397,15 @@ impl Runtime {
             topo,
             kind_tags,
             sense_seeds,
-            sense_values: vec![ZERO; n],
-            port_vals: vec![ZERO; n * MAX_PORTS],
+            sense_values: alloc::vec![ZERO; n],
+            port_vals: alloc::vec![ZERO; n * MAX_PORTS],
             max_ports: MAX_PORTS,
-            prev_in: vec![ZERO; n],
-            prev_dec: vec![ZERO; n],
-            counter: vec![0; n],
-            flag: vec![false; n],
-            timer_left: vec![0; n],
-            on_start_done: vec![false; n],
+            prev_in: alloc::vec![ZERO; n],
+            prev_dec: alloc::vec![ZERO; n],
+            counter: alloc::vec![0; n],
+            flag: alloc::vec![false; n],
+            timer_left: alloc::vec![0; n],
+            on_start_done: alloc::vec![false; n],
             delay_buf,
             delay_off,
             delay_len,
@@ -405,7 +440,14 @@ impl Runtime {
         if !matches!(self.knots.get(usize::from(knot))?.kind, KnotKind::SignalIn) {
             return None;
         }
-        SenseId::try_from(usize::from(knot)).ok()
+        Some(SenseId::new(self.owner, knot.get()))
+    }
+
+    /// Resolve an author knot name for checked tooling access.
+    pub fn knot_id(&self, name: &str) -> Option<KnotHandle> {
+        self.name_to_id
+            .get(name)
+            .map(|knot| KnotHandle::new(self.owner, knot.get()))
     }
 
     /// Resolve a `SignalOut` path string interned at bind.
@@ -413,17 +455,35 @@ impl Runtime {
         self.path_names
             .iter()
             .position(|p| p == path)
-            .and_then(|i| HostPathId::try_from(i).ok())
+            .and_then(|i| u16::try_from(i).ok())
+            .map(|index| HostPathId::new(self.owner, index))
+    }
+
+    /// Resolve an `EmitCommand` name interned at bind.
+    pub fn cmd_id(&self, name: &str) -> Option<CmdId> {
+        self.cmd_names
+            .iter()
+            .position(|candidate| candidate == name)
+            .and_then(|i| u16::try_from(i).ok())
+            .map(|index| CmdId::new(self.owner, index))
     }
 
     /// Interned path string for a dense host path id.
-    pub fn path_name(&self, id: HostPathId) -> Option<&str> {
-        self.path_names.get(usize::from(id)).map(|s| s.as_str())
+    pub fn path_name(&self, id: HostPathId) -> Result<&str, HandleError> {
+        self.ensure_owner(id.owner, "host path")?;
+        self.path_names
+            .get(usize::from(id.index))
+            .map(|s| s.as_str())
+            .ok_or(HandleError::InvalidHostPath { path: id })
     }
 
     /// Interned emit command name for a dense command id.
-    pub fn cmd_name(&self, id: CmdId) -> Option<&str> {
-        self.cmd_names.get(usize::from(id)).map(|s| s.as_str())
+    pub fn cmd_name(&self, id: CmdId) -> Result<&str, HandleError> {
+        self.ensure_owner(id.owner, "command")?;
+        self.cmd_names
+            .get(usize::from(id.index))
+            .map(|s| s.as_str())
+            .ok_or(HandleError::InvalidCommand { cmd: id })
     }
 
     /// Start a frame: set tick and clear the outbox for this loom.
@@ -463,8 +523,15 @@ impl Runtime {
 
     /// Safe OOB-tolerant read (returns ZERO past end). Used by tests and host tooling.
     #[inline]
-    pub fn get_port_checked(&self, knot: KnotId, slot: PortSlot) -> Result<Signal, HandleError> {
-        let Some(resolved) = self.knots.get(usize::from(knot)) else {
+    pub fn get_port_checked(
+        &self,
+        knot: KnotHandle,
+        slot: PortSlot,
+    ) -> Result<Signal, HandleError> {
+        self.ensure_owner(knot.owner, "knot")?;
+        let dense = KnotId::try_from(usize::from(knot.index))
+            .map_err(|_| HandleError::InvalidKnot { knot })?;
+        let Some(resolved) = self.knots.get(usize::from(dense)) else {
             return Err(HandleError::InvalidKnot { knot });
         };
         if !ports_of(&resolved.kind)
@@ -473,7 +540,7 @@ impl Runtime {
         {
             return Err(HandleError::InvalidPort { knot, port: slot });
         }
-        let i = self.port_index(knot, slot);
+        let i = self.port_index(dense, slot);
         self.port_vals
             .get(i)
             .copied()
@@ -484,11 +551,14 @@ impl Runtime {
     #[inline]
     pub fn set_port_checked(
         &mut self,
-        knot: KnotId,
+        knot: KnotHandle,
         slot: PortSlot,
         v: Signal,
     ) -> Result<(), HandleError> {
-        let Some(resolved) = self.knots.get(usize::from(knot)) else {
+        self.ensure_owner(knot.owner, "knot")?;
+        let dense = KnotId::try_from(usize::from(knot.index))
+            .map_err(|_| HandleError::InvalidKnot { knot })?;
+        let Some(resolved) = self.knots.get(usize::from(dense)) else {
             return Err(HandleError::InvalidKnot { knot });
         };
         if !ports_of(&resolved.kind)
@@ -497,7 +567,7 @@ impl Runtime {
         {
             return Err(HandleError::InvalidPort { knot, port: slot });
         }
-        let i = self.port_index(knot, slot);
+        let i = self.port_index(dense, slot);
         let p = self
             .port_vals
             .get_mut(i)
@@ -510,7 +580,8 @@ impl Runtime {
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn get_port(&self, knot: KnotId, slot: PortSlot) -> Result<Signal, HandleError> {
-        self.get_port_checked(knot, slot)
+        let handle = KnotHandle::new(self.owner, knot.get());
+        self.get_port_checked(handle, slot)
     }
 
     /// Alias for checked set (bind-unit tests + OOB safety).
@@ -522,7 +593,16 @@ impl Runtime {
         slot: PortSlot,
         v: Signal,
     ) -> Result<(), HandleError> {
-        self.set_port_checked(knot, slot, v)
+        let handle = KnotHandle::new(self.owner, knot.get());
+        self.set_port_checked(handle, slot, v)
+    }
+
+    fn ensure_owner(&self, owner: usize, handle: &'static str) -> Result<(), HandleError> {
+        if owner == self.owner {
+            Ok(())
+        } else {
+            Err(HandleError::ForeignRuntime { handle })
+        }
     }
 
     /// Number of bind-time kind tags (equals knot count after successful bind).
@@ -569,8 +649,8 @@ impl Runtime {
 }
 
 fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Option<Vec<KnotId>> {
-    let mut indeg = vec![0u32; n];
-    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut indeg = alloc::vec![0u32; n];
+    let mut adj: Vec<Vec<usize>> = alloc::vec![Vec::new(); n];
     for &(f, _, t, _) in threads {
         let a = usize::from(f);
         let b = usize::from(t);
@@ -675,14 +755,22 @@ mod tests {
             },
         )
         .unwrap();
-        let cmd = CmdId::try_from(0usize).unwrap();
-        assert_eq!(rt.cmd_name(cmd), Some("fire"));
-        assert_eq!(rt.cmd_name(CmdId::try_from(99usize).unwrap()), None);
+        let cmd = rt.knots[usize::from(*rt.name_to_id.get("em").unwrap())]
+            .cmd
+            .unwrap();
+        assert_eq!(rt.cmd_name(cmd), Ok("fire"));
+        let invalid_cmd = CmdId::new(rt.owner, 99);
         assert_eq!(
-            rt.path_name(HostPathId::try_from(0usize).unwrap()),
-            Some("y")
+            rt.cmd_name(invalid_cmd),
+            Err(HandleError::InvalidCommand { cmd: invalid_cmd })
         );
-        assert_eq!(rt.path_name(HostPathId::try_from(99usize).unwrap()), None);
+        let path = rt.path_id("y").unwrap();
+        assert_eq!(rt.path_name(path), Ok("y"));
+        let invalid_path = HostPathId::new(rt.owner, 99);
+        assert_eq!(
+            rt.path_name(invalid_path),
+            Err(HandleError::InvalidHostPath { path: invalid_path })
+        );
     }
 
     #[test]
@@ -703,13 +791,14 @@ mod tests {
         let weave = b.build().unwrap();
         let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
         let far = KnotId::try_from(999usize).unwrap();
+        let far_handle = KnotHandle::new(rt.owner, far.get());
         assert_eq!(
             rt.get_port(far, PortSlot::new(0)),
-            Err(HandleError::InvalidKnot { knot: far })
+            Err(HandleError::InvalidKnot { knot: far_handle })
         );
         assert_eq!(
             rt.set_port(far, PortSlot::new(0), ONE),
-            Err(HandleError::InvalidKnot { knot: far })
+            Err(HandleError::InvalidKnot { knot: far_handle })
         );
         let _ = FlagPriority::SetWins;
     }
@@ -780,6 +869,7 @@ mod tests {
         let n_id = KnotId::try_from(1usize).unwrap();
         rt.set_port_hot(n_id, PortSlot::new(0), ONE);
         assert_eq!(rt.get_port_hot(n_id, PortSlot::new(0)), ONE);
-        assert_eq!(rt.get_port_checked(n_id, PortSlot::new(0)), Ok(ONE));
+        let n_handle = rt.knot_id("n").unwrap();
+        assert_eq!(rt.get_port_checked(n_handle, PortSlot::new(0)), Ok(ONE));
     }
 }

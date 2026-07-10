@@ -67,11 +67,11 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 
 ### Domain model
 
-- [x] Author `Weave` (string knot ids + catalog port names)
-- [x] `KnotDef` / `ThreadDef` / `PortRefAuthor`
+- [x] Editable `WeaveDef` (string knot ids + catalog port names) converts to an immutable validated `Weave`
+- [x] `KnotDef` / `ThreadDef` / `PortRefDef`
 - [x] Closed `enum KnotKind` dispatch (**D-dispatch**)
 - [x] Closed port tables per kind (**D-port-schema**)
-- [x] Dense runtime ids: `KnotId`, `PortSlot`, `HostPathId`, `CmdId` (**D-id-space**)
+- [x] Dense runtime ids: internal `KnotId` / `PortSlot` plus owner-aware `SenseId`, `HostPathId`, and `CmdId` handles (**D-id-space**)
 - [x] Scalar `Signal` monomorphized f32 **or** i32 Q16 (**D-numeric-dual**)
 - [x] Truthy = non-zero
 - [x] Custom vec DAG storage (no petgraph required)
@@ -97,12 +97,12 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 
 ### Bind → sample → loom → outbox
 
-- [x] `Runtime::bind` + validate
+- [x] `Runtime::bind` consumes validated `Weave`; `Runtime` is the sole executable artifact
 - [x] Intern path / cmd strings → dense ids
 - [x] Topo order at bind
 - [x] Precomputed inbound edges + input slot lists
 - [x] `begin_frame` clears outbox
-- [x] Host sample via dense `PortWriter::set_sense(KnotId, Signal)`
+- [x] Host sample via checked dense `PortWriter::set_sense(SenseId, Signal)`
 - [x] One settle pass per tick (scheduled topo)
 - [x] Outbox: `SignalOutSample` + `Emit { cmd, payload }`
 - [x] Path/cmd name reverse lookup
@@ -186,7 +186,7 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 - [x] Bevy 0.18 pin; `default-features = false` style deps
 - [x] **signal-f32 only** (i32 not via Bevy adapter)
 - [x] `WyrdPlugin` + `WyrdSet::{Sample, Loom, Apply}` chain
-- [x] `WyrdWorld` / `WyrdInstance` (bound Weave + Runtime)
+- [x] `WyrdWorld` / `WyrdInstance` (private label + bound Runtime + tick; no retained Weave)
 - [x] Dense `sense_id` / `path_id` helpers
 - [x] Headless and-door test (sample → loom → apply)
 - [x] `and_door` example binary
@@ -221,9 +221,10 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 
 ## Phase 6 — Patterns as product
 
-- [x] `Pattern` type + `exports_in` / `exports_out`
-- [x] `expand_pattern` / `merge_expanded` (expand-at-load)
-- [x] Builder `include` + `wire_ports`
+- [x] Editable `PatternDef` + immutable validated `Pattern` with named input/output exports
+- [x] Builder `include` expands Patterns at authoring time
+- [x] Typed `PatternInstance::input` / `output` endpoints connect through `WeaveBuilder::connect`
+- [x] Declarative `weave!` supports knots, aliases, Patterns, and typed endpoint combinations
 - [x] Prefixed instance ids (`instance/knot`)
 - [x] Validate after parent wires exports
 - [x] **Pattern cookbook** shipped as CI tests (`patterns_cookbook`)
@@ -265,7 +266,7 @@ Soft / hard defaults from vision (library may raise/lower via config):
 
 - [x] Hard max knots / threads
 - [x] Soft vs hard policy + `BindOpts.budget` override
-- [x] Author-facing soft report via `validate_report` (hard still `WyrdError`)
+- [x] Author-facing soft report via `validate_report`; hard failures use contextual `ValidationError` / `BindError`
 
 ---
 

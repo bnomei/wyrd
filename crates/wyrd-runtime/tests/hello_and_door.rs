@@ -24,7 +24,7 @@ fn hello_not() {
     let box_ = rt.outbox();
     assert_eq!(box_.signals().len(), 1);
     assert!(!wyrd_core::is_truthy(box_.signals()[0].value));
-    assert_eq!(rt.path_name(box_.signals()[0].path), Some("debug.inverted"));
+    assert_eq!(rt.path_name(box_.signals()[0].path), Ok("debug.inverted"));
 }
 
 #[test]

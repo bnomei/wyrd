@@ -4,10 +4,11 @@
 //! hot path. [`Outbox`] exposes dense `SignalOut` samples and capped emits for
 //! host apply after settle.
 
-use wyrd_core::{CmdId, HostPathId, SenseId, Signal};
+use wyrd_core::Signal;
 
 use crate::bind::Runtime;
 use crate::error::HandleError;
+use crate::handles::{CmdId, HostPathId, SenseId};
 
 /// One `SignalOut` level written during the last loom.
 #[derive(Copy, Clone, Debug)]
@@ -54,7 +55,10 @@ impl PortWriter<'_> {
     /// Returns [`HandleError::InvalidSense`] if the id is out of range or not a sense.
     #[inline]
     pub fn set_sense(&mut self, id: SenseId, value: Signal) -> Result<(), HandleError> {
-        let i = usize::from(id);
+        if id.owner != self.rt.owner {
+            return Err(HandleError::ForeignRuntime { handle: "sense" });
+        }
+        let i = usize::from(id.index);
         if !matches!(
             self.rt.knots.get(i).map(|k| &k.kind),
             Some(wyrd_core::KnotKind::SignalIn)
@@ -80,10 +84,13 @@ mod tests {
         let _k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
         let weave = b.build().unwrap();
         let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
-        let invalid = SenseId::try_from(999usize).unwrap();
+        let mut other_builder = Weave::builder("other").unwrap();
+        let _sense = other_builder.knot("sense", KnotKind::signal_in()).unwrap();
+        let other = Runtime::bind(other_builder.build().unwrap(), BindOpts::default()).unwrap();
+        let invalid = other.sense_id("sense").unwrap();
         assert_eq!(
             rt.port_writer().set_sense(invalid, ONE),
-            Err(HandleError::InvalidSense { sense: invalid })
+            Err(HandleError::ForeignRuntime { handle: "sense" })
         );
         assert!(rt.outbox().signals().is_empty());
         assert!(rt.outbox().emits().is_empty());

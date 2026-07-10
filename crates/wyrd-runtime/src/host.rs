@@ -2,14 +2,15 @@
 //!
 //! Dense ids only on the hot path (D-id-space / D-hostpath). Loom never sees
 //! engine types; apply maps the outbox into [`HostCommand`]s or host-local effects.
-//! Resolve `KnotId` / `HostPathId` once at bind — not each sample.
+//! Resolve `SenseId` / `HostPathId` once after bind — not each sample.
 
 use std::vec::Vec;
 
-use wyrd_core::{CmdId, HostPathId, HostTime, SenseId, Signal};
+use wyrd_core::{HostTime, Signal};
 
 use crate::bind::Runtime;
 use crate::error::HandleError;
+use crate::handles::{CmdId, HostPathId, SenseId};
 use crate::outbox::{Outbox, PortWriter};
 
 /// Dense command emitted for host apply (from SignalOut / EmitCommand).
@@ -53,7 +54,7 @@ pub fn outbox_to_commands(outbox: Outbox<'_>) -> Vec<HostCommand> {
 /// Engine-neutral host: sample senses into a [`PortWriter`], apply outbox after loom.
 ///
 /// Implement on a concrete type; do not use `dyn Host` on the hot path.
-/// Hold dense `KnotId`s on the host; do not call `sense_id` every tick.
+/// Hold dense [`SenseId`]s on the host; do not call `Runtime::sense_id` every tick.
 pub trait Host {
     fn time(&self) -> HostTime;
     /// Write sense ports for this tick (dense `set_sense` only).
@@ -93,7 +94,7 @@ impl Host for NullHost {
 
 /// Scripted senses + recorded apply commands for deterministic replay tests.
 ///
-/// Hold dense [`KnotId`]s resolved at bind. Each frame is a **write list**
+/// Hold dense [`SenseId`]s resolved after bind. Each frame is a **write list**
 /// (not a full port snapshot) applied in `sample_into` when
 /// `HostTime.tick == frame_index`. Missing sense keys **hold last** value
 /// (runtime does not clear senses each frame). Ticks past `frames.len()`

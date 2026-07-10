@@ -1,6 +1,6 @@
 //! Host unit coverage (kept out of host.rs to avoid match residual line noise).
 
-use wyrd_core::{is_truthy, CmdId, HostPathId, HostTime, KnotKind, ONE, ZERO};
+use wyrd_core::{is_truthy, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{
     append_commands, outbox_to_commands, tick_once, BindOpts, HandleError, Host, HostCommand,
@@ -96,7 +96,7 @@ fn outbox_to_commands_includes_emit() {
     match cmds[0] {
         HostCommand::Emit { payload, cmd } => {
             assert_eq!(payload, ZERO);
-            assert_eq!(rt.cmd_name(cmd), Some("fire"));
+            assert_eq!(rt.cmd_name(cmd), Ok("fire"));
         }
         HostCommand::SetLevel { .. } => panic!("expected Emit"),
         _ => panic!("unexpected host command"),
@@ -105,12 +105,25 @@ fn outbox_to_commands_includes_emit() {
 
 #[test]
 fn host_command_variants_constructible() {
+    let mut b = Weave::builder("commands").unwrap();
+    let constant = b.knot("constant", KnotKind::constant(ONE)).unwrap();
+    let out = b.knot("out", KnotKind::signal_out("out")).unwrap();
+    let emit = b.knot("emit", KnotKind::emit_command("emit")).unwrap();
+    let from = b.output(&constant, "out").unwrap();
+    let to = b.input(&out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&constant, "out").unwrap();
+    let to = b.input(&emit, "trigger").unwrap();
+    b.connect(from, to).unwrap();
+    let mut rt = Runtime::bind(b.build().unwrap(), BindOpts::default()).unwrap();
+    rt.begin_frame(HostTime { tick: 0 });
+    rt.loom();
     let s = HostCommand::SetLevel {
-        path: HostPathId::try_from(1usize).unwrap(),
+        path: rt.path_id("out").unwrap(),
         value: ONE,
     };
     let e = HostCommand::Emit {
-        cmd: CmdId::try_from(0usize).unwrap(),
+        cmd: rt.outbox().emits()[0].cmd,
         payload: ZERO,
     };
     let _ = format!("{s:?}{e:?}");
@@ -140,11 +153,14 @@ fn tick_once_propagates_sampling_handle_error() {
     let _constant = b.knot("constant", KnotKind::constant(ONE)).unwrap();
     let weave = b.build().unwrap();
     let mut rt = Runtime::bind(weave, BindOpts::default()).unwrap();
-    let invalid = SenseId::try_from(999usize).unwrap();
+    let mut other_builder = Weave::builder("other-runtime").unwrap();
+    let _sense = other_builder.knot("sense", KnotKind::signal_in()).unwrap();
+    let other = Runtime::bind(other_builder.build().unwrap(), BindOpts::default()).unwrap();
+    let invalid = other.sense_id("sense").unwrap();
     let mut host = InvalidSenseHost(invalid);
 
     assert_eq!(
         tick_once(&mut host, &mut rt),
-        Err(HandleError::InvalidSense { sense: invalid })
+        Err(HandleError::ForeignRuntime { handle: "sense" })
     );
 }

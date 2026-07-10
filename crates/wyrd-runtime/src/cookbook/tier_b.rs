@@ -5,7 +5,6 @@
 use super::helpers::{bind_default, signal_out_truthy, tick_senses};
 use super::Result;
 use crate::host::ScriptedHost;
-use std::vec;
 use wyrd_core::{CompareOp, FlagPriority, KnotKind, TimerMode, ONE, ZERO};
 use wyrd_graph::{
     KnotDef, Pattern, PatternDef, PatternExportDef, PortRefDef, ThreadDef, Weave, WeaveDef,
@@ -24,7 +23,7 @@ pub fn run_b01_monostable_pattern() -> Result<()> {
         inner: WeaveDef {
             id: "pat.mono.inner".into(),
             numeric: wyrd_core::NumericPath::compiled(),
-            knots: vec![
+            knots: alloc::vec![
                 KnotDef {
                     id: "edge".into(),
                     kind: KnotKind::rising_from_zero(),
@@ -34,13 +33,13 @@ pub fn run_b01_monostable_pattern() -> Result<()> {
                     kind: KnotKind::timer(TimerMode::PulseHold, 2),
                 },
             ],
-            threads: vec![ThreadDef {
+            threads: alloc::vec![ThreadDef {
                 from: PortRefDef::new("edge", "out"),
                 to: PortRefDef::new("t", "start"),
             }],
         },
-        inputs: vec![PatternExportDef::new("start", "edge", "in")],
-        outputs: vec![PatternExportDef::new("active", "t", "active")],
+        inputs: alloc::vec![PatternExportDef::new("start", "edge", "in")],
+        outputs: alloc::vec![PatternExportDef::new("active", "t", "active")],
     })?;
 
     let mut b = Weave::builder("lvl")?;

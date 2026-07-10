@@ -12,18 +12,6 @@ pub struct KnotId(u16);
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct PortSlot(u8);
 
-/// Interned `SignalOut` host path (D-hostpath).
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
-pub struct HostPathId(u16);
-
-/// Interned `EmitCommand` name (D-hostpath).
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
-pub struct CmdId(u16);
-
-/// Dense id for a host-writable `SignalIn` sense (same numeric space as its knot).
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
-pub struct SenseId(u16);
-
 /// Optional diagnostics / tooling id (not used on the settle hot path).
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct ThreadId(u16);
@@ -65,9 +53,6 @@ macro_rules! dense_id {
 
 dense_id!(KnotId, u16);
 dense_id!(PortSlot, u8);
-dense_id!(HostPathId, u16);
-dense_id!(CmdId, u16);
-dense_id!(SenseId, u16);
 dense_id!(ThreadId, u16);
 
 impl PortSlot {

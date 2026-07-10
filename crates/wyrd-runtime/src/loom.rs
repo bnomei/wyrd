@@ -610,7 +610,14 @@ fn digitize_fast(
         let _ = (steps, last);
         let raw = (i - in_min) * bin_scale;
         let bin = raw.max(0.0).min(last_f) as u32;
-        out_scale.mul_add(bin as f32, out_min)
+        #[cfg(feature = "std")]
+        {
+            out_scale.mul_add(bin as f32, out_min)
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            out_scale * bin as f32 + out_min
+        }
     }
     #[cfg(feature = "signal-i32")]
     {
@@ -697,12 +704,30 @@ fn signal_sqrt(i: Signal) -> Signal {
         if i <= 0.0 {
             0.0
         } else {
-            i.sqrt()
+            sqrt_f32(i)
         }
     }
     #[cfg(feature = "signal-i32")]
     {
         isqrt_i32(i)
+    }
+}
+
+/// `no_std` square root for the float signal path.
+#[cfg(feature = "signal-f32")]
+#[inline]
+fn sqrt_f32(value: f32) -> f32 {
+    #[cfg(feature = "std")]
+    {
+        value.sqrt()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        let mut estimate = if value >= 1.0 { value } else { 1.0 };
+        for _ in 0..12 {
+            estimate = 0.5 * (estimate + value / estimate);
+        }
+        estimate
     }
 }
 

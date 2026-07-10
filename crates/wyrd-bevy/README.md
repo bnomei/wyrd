@@ -2,16 +2,18 @@
 
 Thin Bevy adapter for Wyrd. Core stays engine-neutral; this crate only:
 
-1. Holds bound `Runtime` + `Weave` as a Bevy resource  
-2. Runs `begin_frame` + `loom` in a ordered `SystemSet`  
+1. Holds the bound `Runtime` as the sole executable Bevy resource
+2. Runs `begin_frame` + `loom` in an ordered `SystemSet`
 3. Leaves **sample** and **apply** to the host game  
 
-Never store `Entity` as a Thread endpoint. Resolve `KnotId` / `HostPathId` at setup.
+`Runtime::bind` consumes the validated `Weave`; the adapter does not retain a
+second graph that could drift from runtime state. Never store `Entity` as a
+Thread endpoint. Resolve `SenseId` / `HostPathId` at setup.
 
 ## Host order
 
 ```text
-WyrdSet::Sample  → write senses (dense KnotId)
+WyrdSet::Sample  → write senses (dense SenseId)
 WyrdSet::Loom    → begin_frame + loom (plugin)
 WyrdSet::Apply   → read outbox → mutate Components → optional Messages
 ```

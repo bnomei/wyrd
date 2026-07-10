@@ -56,17 +56,20 @@ jobs:
       - name: Build and_door example
         run: cargo build -p wyrd-bevy --example and_door
 
-  no-std-i32:
-    name: no_std core signal-i32
+  no-std:
+    name: no_std runtime ${{ matrix.signal }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        signal: [signal-f32, signal-i32]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Check wyrd-core no_std + i32
+      - name: Check wyrd-runtime no_std
         run: |
-          cargo check -p wyrd-core \
+          cargo check -p wyrd-runtime \
             --no-default-features \
-            --features "alloc,signal-i32"
+            --features "alloc,${{ matrix.signal }}"
 
   coverage:
     name: coverage (llvm-cov 100%)

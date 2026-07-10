@@ -14,11 +14,17 @@ These files are **design sketches**. Names and shapes may change when real crate
 - Host at the edge; core never knows doors/cameras
 - `no_std` + `alloc` via `no-std-compat` (shown as `std::` imports)
 
-## v2 surface (preferred)
+## Archived consolidated sketch
 
-**Consolidated redesign:** [`11_revised_surface.rs`](./11_revised_surface.rs)
+**Last pre-implementation redesign sketch:** [`11_revised_surface.rs`](./11_revised_surface.rs)
 
 Synthesis of harsh reviews on the v1 sketches: dense ids after bind, closed port tables, host outbox without `String`, monomorphic `Signal`, corrected pedagogy graphs, expand-at-load Patterns.
+
+This sketch predates the shipped 0.2 API. It still shows superseded calls such
+as `Runtime::bind(&weave, ...)`, `runtime.loom(&weave)`, raw `KnotId` sampling,
+and mutable author graphs. Do not copy its signatures. Use the crate source,
+the root [quick taste](../../README.md#quick-taste), and the
+[0.2 migration guide](../../MIGRATION-0.2.md) for the current contract.
 
 | Doc | Role |
 | --- | --- |
@@ -29,9 +35,11 @@ Synthesis of harsh reviews on the v1 sketches: dense ids after bind, closed port
 | [`reviews/04-dual-signal-api.md`](./reviews/04-dual-signal-api.md) | Dual path + SignalOps |
 | [`reviews/05-pedagogy-and-patterns.md`](./reviews/05-pedagogy-and-patterns.md) | Sense/Rune/Act examples, Pattern, Seed |
 
-Treat **`01`–`10` as historical v1 sketches**; implement from **`11` + synthesis**.
+Treat **all `01`–`11` files as historical design sketches**. They preserve the
+reasoning that led to the implementation, not the current public API.
 
-**Shipped skeleton:** workspace crates `wyrd-core`, `wyrd-graph`, `wyrd-runtime` implement v2 ids, port schema, bind/loom, and the hello / and-door tests.
+**Shipped implementation:** workspace crates `wyrd-core`, `wyrd-graph`,
+`wyrd-runtime`, and `wyrd-bevy`; their source and rustdoc are authoritative.
 
 ## Reading order (v1 sketches)
 
@@ -51,13 +59,19 @@ Treat **`01`–`10` as historical v1 sketches**; implement from **`11` + synthes
 
 Narrative notes: [`outside-in.md`](./outside-in.md) · Random: [`random-and-seed.md`](./random-and-seed.md)
 
-## Rustic rules for this preview
+## Current rules that supersede the preview
 
 1. Prefer `enum` + `match` over trait objects.
-2. Prefer `Weave::builder()` or plain `struct` fill over macro DSLs (macros optional later).
-3. One settle call: `runtime.loom(&weave)` after `begin_frame(tick)`.
-4. **Author ports/names are strings; runtime ports are `PortSlot` / dense ids — not Entity.** (v2; v1 said “stringy or small ids.”)
+2. Use `WeaveBuilder` for generated graphs or `weave!` for static graphs; both
+   produce an immutable, validated `Weave`.
+3. `Runtime::bind(weave, opts)` consumes the graph. After `begin_frame`, one
+   `runtime.loom()` settles the bound topology.
+4. **Definition ports/names are strings; runtime ports use closed `PortSlot`
+   tables and dense ids, never engine entities.**
 5. No engine types in core examples.
-6. Fail loud at `validate()`; settle never panics.
+6. Definition conversion and binding fail contextually; loom is infallible
+   after successful binding.
 7. Examples monomorphic on feature-selected `Signal`; no public `Runtime<S>`.
-8. Host hot path: `set_sense(KnotId, …)` + `Outbox` with `HostPathId` / `CmdId` — no owned `String` in loom.
+8. Host hot path: resolve `SenseId`, `HostPathId`, and `CmdId` once, then use
+   checked `set_sense(SenseId, ...)` and the dense `Outbox` without owned
+   strings in loom.

@@ -15,7 +15,7 @@ pub mod kind;
 pub mod ports;
 pub mod signal;
 
-pub use ids::{CmdId, HostPathId, HostTime, KnotId, PortSlot, Seed, SenseId, ThreadId};
+pub use ids::{HostTime, KnotId, PortSlot, Seed, ThreadId};
 pub use kind::{CalcOp, CompareOp, FlagPriority, KnotKind, NumericPath, TimerMode};
 pub use ports::{port_slot, ports_of, PortDir, PortInfo};
 pub use signal::{from_count, from_level, is_truthy, Signal, ONE, ZERO};

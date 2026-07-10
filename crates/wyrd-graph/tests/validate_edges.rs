@@ -178,6 +178,96 @@ fn definition_rejects_invalid_catalog_parameters() {
     }
 }
 
+#[cfg(feature = "signal-f32")]
+#[test]
+fn definition_rejects_every_non_finite_signal_parameter() {
+    let bad = [f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
+    for value in bad {
+        let kinds = [
+            KnotKind::Constant { value },
+            KnotKind::Clamp {
+                min: value,
+                max: ONE,
+            },
+            KnotKind::Clamp {
+                min: ZERO,
+                max: value,
+            },
+            KnotKind::Map {
+                in_min: value,
+                in_max: ONE,
+                out_min: ZERO,
+                out_max: ONE,
+            },
+            KnotKind::Map {
+                in_min: ZERO,
+                in_max: value,
+                out_min: ZERO,
+                out_max: ONE,
+            },
+            KnotKind::Map {
+                in_min: ZERO,
+                in_max: ONE,
+                out_min: value,
+                out_max: ONE,
+            },
+            KnotKind::Map {
+                in_min: ZERO,
+                in_max: ONE,
+                out_min: ZERO,
+                out_max: value,
+            },
+            KnotKind::Digitize {
+                steps: 2,
+                in_min: value,
+                in_max: ONE,
+                out_min: ZERO,
+                out_max: ONE,
+            },
+            KnotKind::Digitize {
+                steps: 2,
+                in_min: ZERO,
+                in_max: value,
+                out_min: ZERO,
+                out_max: ONE,
+            },
+            KnotKind::Digitize {
+                steps: 2,
+                in_min: ZERO,
+                in_max: ONE,
+                out_min: value,
+                out_max: ONE,
+            },
+            KnotKind::Digitize {
+                steps: 2,
+                in_min: ZERO,
+                in_max: ONE,
+                out_min: ZERO,
+                out_max: value,
+            },
+            KnotKind::Threshold {
+                high: value,
+                low: ZERO,
+                use_hysteresis: false,
+            },
+            KnotKind::Threshold {
+                high: ONE,
+                low: value,
+                use_hysteresis: false,
+            },
+        ];
+        for kind in kinds {
+            assert!(matches!(
+                Weave::try_from(def(vec![knot("bad", kind)], vec![])),
+                Err(ValidationError::InvalidParameter {
+                    reason: "must be finite",
+                    ..
+                })
+            ));
+        }
+    }
+}
+
 #[test]
 fn typed_builder_checks_direction_port_and_owner_immediately() {
     let mut first = WeaveBuilder::new("first").unwrap();
@@ -299,6 +389,44 @@ fn pattern_validation_is_contextual() {
     assert!(matches!(
         Pattern::try_from(pattern),
         Err(ValidationError::WrongPortDirection { .. })
+    ));
+}
+
+#[test]
+fn pattern_rejects_duplicate_physical_input_exports() {
+    let mut pattern = monostable().to_def();
+    pattern
+        .inputs
+        .push(PatternExportDef::new("also_start", "edge", "in"));
+    assert!(matches!(
+        Pattern::try_from(pattern),
+        Err(ValidationError::DuplicatePatternInput {
+            knot_id,
+            port,
+            first_export,
+            duplicate_export,
+        }) if knot_id == "edge" && port == "in" && first_export == "start" && duplicate_export == "also_start"
+    ));
+}
+
+#[test]
+fn pattern_rejects_export_of_internally_connected_input() {
+    let mut pattern = monostable().to_def();
+    pattern
+        .inner
+        .knots
+        .push(knot("source", KnotKind::constant(ONE)));
+    pattern
+        .inner
+        .threads
+        .push(thread("source", "out", "edge", "in"));
+    assert!(matches!(
+        Pattern::try_from(pattern),
+        Err(ValidationError::PatternInputAlreadyConnected {
+            export,
+            knot_id,
+            port,
+        }) if export == "start" && knot_id == "edge" && port == "in"
     ));
 }
 

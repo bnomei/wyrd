@@ -3,8 +3,10 @@
 use core::fmt;
 
 use std::string::String;
-use wyrd_core::{KnotId, PortSlot, SenseId};
+use wyrd_core::PortSlot;
 use wyrd_graph::{BuildError, ValidationError};
+
+use crate::{CmdId, HostPathId, KnotHandle, SenseId};
 
 /// Failure while turning an authored [`wyrd_graph::Weave`] into a runtime.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,20 +76,32 @@ impl std::error::Error for BindError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HandleError {
+    ForeignRuntime { handle: &'static str },
     InvalidSense { sense: SenseId },
-    InvalidKnot { knot: KnotId },
-    InvalidPort { knot: KnotId, port: PortSlot },
+    InvalidHostPath { path: HostPathId },
+    InvalidCommand { cmd: CmdId },
+    InvalidKnot { knot: KnotHandle },
+    InvalidPort { knot: KnotHandle, port: PortSlot },
 }
 
 impl fmt::Display for HandleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ForeignRuntime { handle } => {
+                write!(f, "{handle} handle belongs to a different runtime")
+            }
             Self::InvalidSense { sense } => {
                 write!(
                     f,
                     "sense handle {} is invalid for this runtime",
                     sense.get()
                 )
+            }
+            Self::InvalidHostPath { path } => {
+                write!(f, "host path handle {} is invalid", path.get())
+            }
+            Self::InvalidCommand { cmd } => {
+                write!(f, "command handle {} is invalid", cmd.get())
             }
             Self::InvalidKnot { knot } => {
                 write!(f, "knot handle {} is invalid for this runtime", knot.get())

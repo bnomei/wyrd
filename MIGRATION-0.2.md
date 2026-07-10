@@ -80,11 +80,13 @@ let outbox = runtime.outbox();
 
 - Dense ID tuple fields are private. Use runtime resolvers and `.get()` for diagnostics.
 - Host sampling uses `SenseId`, not an arbitrary `KnotId`.
-- `path_name` and `cmd_name` return `Option<&str>`.
+- Runtime-resolved handles are owner-aware; using one with a different runtime returns
+  `HandleError::ForeignRuntime`.
+- `path_name` and `cmd_name` return `Result<&str, HandleError>` so foreign and invalid
+  handles remain distinguishable.
 - Checked runtime reads and writes return `Result`; invalid operations never return zero or
   silently do nothing.
 - `WyrdError` and the shared `Result` alias are replaced by `BuildError`,
   `ValidationError`, `JsonCodecError`, `RonCodecError`, `BindError`, and `HandleError`.
   Match the error associated with the boundary being called and retain codec sources for
   parser diagnostics.
-

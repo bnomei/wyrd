@@ -47,6 +47,16 @@ cargo check -p wyrd-core \
   --no-default-features \
   --features "alloc,signal-i32"
 
+echo "==> no_std runtime signal-f32"
+cargo check -p wyrd-runtime \
+  --no-default-features \
+  --features "alloc,signal-f32"
+
+echo "==> no_std runtime signal-i32"
+cargo check -p wyrd-runtime \
+  --no-default-features \
+  --features "alloc,signal-i32"
+
 echo "==> bevy f32-only"
 cargo test -p wyrd-bevy
 

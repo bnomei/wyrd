@@ -81,6 +81,17 @@ pub enum ValidationError {
     DuplicateExport {
         export: String,
     },
+    DuplicatePatternInput {
+        knot_id: String,
+        port: String,
+        first_export: String,
+        duplicate_export: String,
+    },
+    PatternInputAlreadyConnected {
+        export: String,
+        knot_id: String,
+        port: String,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -159,6 +170,23 @@ impl fmt::Display for ValidationError {
                 write!(f, "invalid pattern id '{pattern_id}': {reason}")
             }
             Self::DuplicateExport { export } => write!(f, "duplicate pattern export '{export}'"),
+            Self::DuplicatePatternInput {
+                knot_id,
+                port,
+                first_export,
+                duplicate_export,
+            } => write!(
+                f,
+                "pattern input '{knot_id}.{port}' is exported twice as '{first_export}' and '{duplicate_export}'"
+            ),
+            Self::PatternInputAlreadyConnected {
+                export,
+                knot_id,
+                port,
+            } => write!(
+                f,
+                "pattern input export '{export}' targets internally connected input '{knot_id}.{port}'"
+            ),
         }
     }
 }

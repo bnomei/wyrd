@@ -12,7 +12,7 @@ use std::prelude::v1::vec;
 use std::string::String;
 use std::vec::Vec;
 
-use wyrd_core::{ports_of, KnotKind, NumericPath, PortDir};
+use wyrd_core::{ports_of, KnotKind, NumericPath, PortDir, Signal};
 
 use crate::{ValidationError, Weave, WeaveDef};
 
@@ -358,6 +358,40 @@ fn validate_kind(knot: &crate::KnotDef) -> Result<(), ValidationError> {
             reason: "unsupported port arity",
         });
     }
+    let non_finite = match &knot.kind {
+        KnotKind::Constant { value } => non_finite_parameter("value", *value),
+        KnotKind::Map {
+            in_min,
+            in_max,
+            out_min,
+            out_max,
+        }
+        | KnotKind::Digitize {
+            in_min,
+            in_max,
+            out_min,
+            out_max,
+            ..
+        } => non_finite_parameter("in_min", *in_min)
+            .or_else(|| non_finite_parameter("in_max", *in_max))
+            .or_else(|| non_finite_parameter("out_min", *out_min))
+            .or_else(|| non_finite_parameter("out_max", *out_max)),
+        KnotKind::Threshold { high, low, .. } => {
+            non_finite_parameter("high", *high).or_else(|| non_finite_parameter("low", *low))
+        }
+        KnotKind::Clamp { min, max } => {
+            non_finite_parameter("min", *min).or_else(|| non_finite_parameter("max", *max))
+        }
+        _ => None,
+    };
+    if let Some(parameter) = non_finite {
+        return Err(ValidationError::InvalidParameter {
+            knot_id: knot.id.clone(),
+            parameter,
+            reason: "must be finite",
+        });
+    }
+
     let invalid = match &knot.kind {
         KnotKind::Digitize { steps: 0, .. } => Some(("steps", "must be greater than zero")),
         KnotKind::Digitize { in_min, in_max, .. } | KnotKind::Map { in_min, in_max, .. }
@@ -381,6 +415,16 @@ fn validate_kind(knot: &crate::KnotDef) -> Result<(), ValidationError> {
         });
     }
     Ok(())
+}
+
+#[cfg(feature = "signal-f32")]
+fn non_finite_parameter(parameter: &'static str, value: Signal) -> Option<&'static str> {
+    (!value.is_finite()).then_some(parameter)
+}
+
+#[cfg(feature = "signal-i32")]
+fn non_finite_parameter(_parameter: &'static str, _value: Signal) -> Option<&'static str> {
+    None
 }
 
 fn check_port(knot: &crate::KnotDef, name: &str, expected: PortDir) -> Result<(), ValidationError> {

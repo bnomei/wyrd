@@ -104,6 +104,13 @@ impl TryFrom<PatternDef> for Pattern {
             def.inner.knots.iter().map(|k| (k.id.as_str(), k)).collect();
         let mut names = BTreeSet::new();
         let mut external = BTreeSet::new();
+        let internally_connected: BTreeSet<(String, String)> = def
+            .inner
+            .threads
+            .iter()
+            .map(|thread| (thread.to.knot.clone(), thread.to.port.clone()))
+            .collect();
+        let mut physical_inputs: BTreeMap<(String, String), String> = BTreeMap::new();
         for export in &def.inputs {
             if !names.insert(export.name.as_str()) {
                 return Err(ValidationError::DuplicateExport {
@@ -111,7 +118,25 @@ impl TryFrom<PatternDef> for Pattern {
                 });
             }
             check_export(&index, export, PortDir::In)?;
-            external.insert((export.port.knot.clone(), export.port.port.clone()));
+            let endpoint = (export.port.knot.clone(), export.port.port.clone());
+            if internally_connected.contains(&endpoint) {
+                return Err(ValidationError::PatternInputAlreadyConnected {
+                    export: export.name.clone(),
+                    knot_id: export.port.knot.clone(),
+                    port: export.port.port.clone(),
+                });
+            }
+            if let Some(first_export) =
+                physical_inputs.insert(endpoint.clone(), export.name.clone())
+            {
+                return Err(ValidationError::DuplicatePatternInput {
+                    knot_id: endpoint.0,
+                    port: endpoint.1,
+                    first_export,
+                    duplicate_export: export.name.clone(),
+                });
+            }
+            external.insert(endpoint);
         }
         names.clear();
         for export in &def.outputs {
