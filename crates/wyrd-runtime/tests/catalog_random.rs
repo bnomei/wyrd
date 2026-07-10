@@ -117,6 +117,33 @@ fn random_with_min_max_ports() {
 }
 
 #[test]
+fn random_min_eq_max_is_constant() {
+    let (b, _) = Weave::builder("r")
+        .knot("lo", KnotKind::constant(ONE))
+        .unwrap();
+    let (b, _) = b.knot("hi", KnotKind::constant(ONE)).unwrap();
+    let (b, _) = b.knot("rnd", KnotKind::random(false)).unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b
+        .wire_named("lo", "out", "rnd", "min")
+        .wire_named("hi", "out", "rnd", "max")
+        .wire_named("rnd", "out", "out", "in")
+        .build()
+        .unwrap();
+    let mut rt = Runtime::bind(
+        &weave,
+        BindOpts {
+            seed: Some(Seed(7)),
+            ..BindOpts::default()
+        },
+    )
+    .unwrap();
+    rt.begin_frame(HostTime { tick: 0 });
+    rt.loom(&weave).unwrap();
+    assert_eq!(out_v(&rt, "y"), ONE);
+}
+
+#[test]
 fn reseed_resets_stream() {
     let weave = random_weave(false);
     let mut rt = Runtime::bind(

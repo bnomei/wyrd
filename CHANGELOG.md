@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Catalog (high + medium impact)
+
+- **Select** — truthy `sel` → `b`, else `a`
+- **Digitize** — quantize into `steps` bins over in→out ranges
+- **Threshold** — level out + crossed_up/crossed_down; optional hysteresis
+- **Random** — host `Seed` / `reseed`; optional rising gate; min/max ports; holds last sample
+- **Sqrt** — `libm::sqrtf` (f32) / integer isqrt (i32); non-positive → 0
+- **Xor** — truthy exclusive-or
+- **FallingToZero** / **Change** — edge pulses
+- **Clamp** — `[min, max]`; `min > max` → `InvalidParam`
+
 ### Host abstraction (`wyrd-runtime`)
 
 - `Host` trait: `time`, `sample_into(PortWriter)`, `apply(Outbox)`

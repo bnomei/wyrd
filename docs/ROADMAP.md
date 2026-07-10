@@ -27,7 +27,7 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 | **6** | Patterns as product | Expand-at-load + cookbook CI recipes |
 | **Host** | Generic Host trait + command apply | Done in runtime |
 | **7** | Loom editor | Later |
-| **8+** | Other engines, Random, Digitize, Vec2, … | Later |
+| **8+** | Other engines, Vec2, editor, … | Later |
 
 ---
 
@@ -136,6 +136,11 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 - [x] **Or** (arity tables 1..=4)
 - [x] **Compare** (Eq/Ne/Lt/Lte/Gt/Gte; wired rhs or `rhs_const`)
 - [x] **RisingFromZero**
+- [x] **FallingToZero**
+- [x] **Change** (either-edge truthiness pulse)
+- [x] **Xor**
+- [x] **Select** (sel → a/b multiplex)
+- [x] **Threshold** (optional hysteresis; crossed_up / crossed_down)
 
 ### Runes — math
 
@@ -143,8 +148,9 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 - [x] **Map** (linear remap; zero span → out_min)
 - [x] **Abs**
 - [x] **Neg**
-- [ ] **Digitize** / quantize — *(later / v1 unless Map is enough)*
-- [ ] **Sqrt** / libm extras — *(later)*
+- [x] **Digitize** / quantize (steps bins; steps=0 → InvalidParam)
+- [x] **Sqrt** (f32 libm; i32 isqrt; non-positive → 0)
+- [x] **Clamp** (min/max; min > max → InvalidParam)
 
 ### Runes — state
 
@@ -152,6 +158,7 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 - [x] **Counter** (rising-edge inc/dec; reset)
 - [x] **Timer** FedCountdown + PulseHold (tick integers)
 - [x] **Delay** Rune (ring buffer; no Thread delay metadata yet)
+- [x] **Random** (host Seed; optional gate; min/max ports; reseed)
 
 ### Act
 
@@ -163,9 +170,6 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 
 ### Catalog intentionally not v0
 
-- [ ] **Random** (seeded only) — *(later / v1+; `Seed` type stub exists)*
-- [ ] **Select** as separate Knot — *(later; may stay Compare/Map composition)*
-- [ ] **Threshold** as separate Knot — *(later; Compare covers most cases)*
 - [ ] **Vec2** / multi-axis PortType — *(later; axes = separate SignalIns)*
 - [ ] Wormhole / global bus Knots — *(later; discouraged)*
 - [ ] Thread-level invert / delay metadata — *(later; Delay Rune only in v0)*
