@@ -11,9 +11,22 @@ use wyrd_graph::{validate, Budget, Weave};
 
 use crate::outbox::{Emit, Outbox, PortWriter, SignalOutSample};
 
-#[derive(Clone, Debug, Default)]
+/// Bind-time options (sandbox / host policy).
+#[derive(Clone, Debug)]
 pub struct BindOpts {
     pub seed: Option<Seed>,
+    /// Hard cap on EmitCommand outbox entries per loom (default 8).
+    /// Further emits in the same tick are dropped (no panic).
+    pub max_emits_per_tick: u16,
+}
+
+impl Default for BindOpts {
+    fn default() -> Self {
+        Self {
+            seed: None,
+            max_emits_per_tick: 8,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -61,6 +74,7 @@ pub struct Runtime {
     pub(crate) delay_head: Vec<u16>,
     out_signals: Vec<SignalOutSample>,
     out_emits: Vec<Emit>,
+    max_emits_per_tick: u16,
     tick: u64,
     #[allow(dead_code)]
     seed: Option<Seed>,
@@ -193,6 +207,7 @@ impl Runtime {
             delay_head,
             out_signals,
             out_emits,
+            max_emits_per_tick: opts.max_emits_per_tick,
             tick: 0,
             seed: opts.seed,
         })
@@ -258,6 +273,9 @@ impl Runtime {
     }
 
     pub(crate) fn push_emit(&mut self, cmd: CmdId, payload: Signal) {
+        if self.out_emits.len() as u16 >= self.max_emits_per_tick {
+            return;
+        }
         self.out_emits.push(Emit { cmd, payload });
     }
 }
@@ -319,6 +337,7 @@ mod tests {
             &weave,
             BindOpts {
                 seed: Some(Seed(1)),
+                ..BindOpts::default()
             },
         )
         .unwrap();
