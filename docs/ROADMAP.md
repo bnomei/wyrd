@@ -206,14 +206,15 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 - [x] Parameterized N ∈ {16, 64, 128} with items/sec counters
 - [x] Separate benches: bind (topo/validate) vs settle families vs host tick
 - [x] Catalog + delay + Random + fan-out settle benches
-- [x] Full host-tick bench (`tick_once_not_chain`)
-- [x] `docs/perf.md` — how to bench + f32/i32 tables + flamegraph how-to
+- [x] **P0–P3** measurement coverage: scaled chains, stateful/emit, edges completeness, pattern + Bevy
+- [x] Full host-tick bench (`tick_once_not_chain` + Bevy `host_tick`)
+- [x] `docs/perf.md` — how to bench + f32/i32 tables + completeness matrix + flamegraph how-to
 - [x] Expected hot-function checklist in `docs/perf.md` (SVG capture still optional)
 - [x] Steady-state buffer stability proven (capacity/delay_buf); global alloc hook open
 - [x] Measured settle + bind numbers in `docs/perf.md` (local host)
 - [ ] Optional Criterion CI HTML — *(later)*
 - [ ] Parallel settle — *(later; default single-threaded for determinism)*
-- [ ] KindTag-at-bind / gather+clear fusion — *(next opt pass)*
+- [ ] KindTag-at-bind / gather+clear fusion — *(next opt pass; Digitize/Sqrt first)*
 
 ---
 

@@ -6,7 +6,7 @@
 use wyrd_core::{
     from_count, CalcOp, CompareOp, FlagPriority, KnotKind, Seed, TimerMode, ONE, ZERO,
 };
-use wyrd_graph::{Budget, Weave};
+use wyrd_graph::{expand_pattern, Budget, Pattern, PortRefAuthor, Weave};
 use wyrd_runtime::{BindOpts, Runtime};
 
 /// Raised budgets for deep Not-chains (default hard depth is 16).
@@ -593,6 +593,53 @@ pub fn small_authored_weave() -> Weave {
     b.wire_named("in", "out", "n", "in")
         .wire_named("n", "out", "map", "in")
         .wire_named("map", "out", "out", "in")
+        .build()
+        .unwrap()
+}
+
+// ---------------------------------------------------------------------------
+// P3: pattern expand / include (load path)
+// ---------------------------------------------------------------------------
+
+/// Monostable pattern (RisingFromZero → PulseHold) — same shape as cookbook.
+pub fn monostable_pattern() -> Pattern {
+    let (b, _) = Weave::builder("pat.mono")
+        .knot("edge", KnotKind::rising_from_zero())
+        .unwrap();
+    let (b, _) = b
+        .knot("t", KnotKind::timer(TimerMode::PulseHold, 2))
+        .unwrap();
+    let inner = b
+        .wire_named("edge", "out", "t", "start")
+        .build()
+        .unwrap();
+    Pattern {
+        id: "pat.mono".into(),
+        inner,
+        exports_in: vec![("start".into(), "edge".into(), "in".into())],
+        exports_out: vec![("active".into(), "t".into(), "active".into())],
+    }
+}
+
+/// Expand monostable only (no Runtime). Returns expanded knot count.
+pub fn expand_monostable_once() -> usize {
+    let p = monostable_pattern();
+    let (knots, _threads, _exp) = expand_pattern("hold1", &p).unwrap();
+    knots.len()
+}
+
+/// Parent: SignalIn + include monostable + SignalOut → ready-to-bind Weave.
+pub fn weave_with_monostable_include() -> Weave {
+    let pat = monostable_pattern();
+    let (b, _) = Weave::builder("lvl")
+        .knot("btn", KnotKind::signal_in())
+        .unwrap();
+    let (b, exp) = b.include("hold1", &pat).unwrap();
+    let start = exp.port_in("start").unwrap().clone();
+    let active = exp.port_out("active").unwrap().clone();
+    let (b, _) = b.knot("out", KnotKind::signal_out("lamp")).unwrap();
+    b.wire_ports(PortRefAuthor::new("btn", "out"), start)
+        .wire_ports(active, PortRefAuthor::new("out", "in"))
         .build()
         .unwrap()
 }

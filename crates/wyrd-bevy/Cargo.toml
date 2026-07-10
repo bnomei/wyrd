@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 description = "Thin Bevy adapter for Wyrd Weaves (sample → loom → apply). signal-f32 only."
 readme = "README.md"
+autobenches = false
 
 [features]
 default = []
@@ -20,6 +21,14 @@ wyrd-core = { workspace = true, default-features = false, features = ["std", "si
 wyrd-graph = { workspace = true, default-features = false, features = ["std", "signal-f32"] }
 wyrd-runtime = { workspace = true, default-features = false, features = ["std", "signal-f32"] }
 
+[dev-dependencies]
+divan = "0.1"
+
 [[example]]
 name = "and_door"
 path = "examples/and_door.rs"
+
+[[bench]]
+name = "host_tick"
+path = "benches/host_tick.rs"
+harness = false

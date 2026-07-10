@@ -12,7 +12,8 @@ Bench targets are **split** so the suite can grow without one mega-file. Shared 
 | `settle_chain` | `benches/settle_chain.rs` | Not depth, And door, host `tick_once` |
 | `settle_catalog` | `benches/settle_catalog.rs` | Micro + scaled Map/Digitize/Mul/Div/Sqrt + edges/logic packs + Compare/Clamp chains + OnStart |
 | `settle_stateful` | `benches/settle_stateful.rs` | Delay, Random, **stateful kit**, **emit storm** |
-| `bind` | `benches/bind.rs` | Load path: validate + topo + buffers |
+| `bind` | `benches/bind.rs` | Load path: validate + topo + buffers + **pattern expand/include** |
+| `host_tick` (`wyrd-bevy`) | `crates/wyrd-bevy/benches/host_tick.rs` | Headless Bevy door update (f32 only) |
 
 ```bash
 # All targets (f32 default)
@@ -255,6 +256,40 @@ cargo bench -p wyrd-runtime --bench settle_catalog -- settle_calc_div_chain
 cargo bench -p wyrd-runtime --bench settle_catalog -- \
   settle_edges_pack settle_logic_pack settle_clamp_neg_chain \
   settle_compare_chain settle_onstart
+```
+
+## P3 — Pattern load + Bevy host tick
+
+### Pattern expand / bind (f32; i32 similar on pure graph)
+
+| Bench | What | Median | Notes |
+| --- | --- | ---: | --- |
+| `expand_pattern_monostable` | expand only | ~536 ns | 2 inner knots |
+| `bind_after_pattern_include` | bind pre-built include weave | ~1.5 µs | ~4 knots |
+| `include_build_bind_monostable` | include+build+bind each sample | ~2.9 µs | authoring reload |
+
+```bash
+cargo bench -p wyrd-runtime --bench bind -- expand_pattern_monostable bind_after_pattern_include
+```
+
+### Bevy headless (f32 only)
+
+| Bench | Median | Notes |
+| --- | ---: | --- |
+| `bevy_door_tick_both` | ~1.25 µs | `app.update()` both plates high |
+| `bevy_door_tick_scripted` | ~1.32 µs | 4-phase plate script |
+
+Roughly **~40–50×** a raw `settle_and_door` loom (~27 ns) — Bevy schedule + resource/query overhead, not loom math.
+
+```bash
+cargo bench -p wyrd-bevy --bench host_tick
+```
+
+CI: optional `workflow_dispatch` only — do not fail PRs on wall-clock noise. Document:
+
+```bash
+cargo bench -p wyrd-runtime
+cargo bench -p wyrd-bevy --bench host_tick
 ```
 
 ## Adding a new bench
