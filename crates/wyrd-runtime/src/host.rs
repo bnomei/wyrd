@@ -1,7 +1,8 @@
-//! Host-facing tick: sample → loom → apply.
+//! Host-facing tick: begin_frame → sample → loom → apply.
 //!
 //! Dense ids only on the hot path (D-id-space / D-hostpath). Loom never sees
 //! engine types; apply maps the outbox into [`HostCommand`]s or host-local effects.
+//! Resolve `KnotId` / `HostPathId` once at bind — not each sample.
 
 use std::vec::Vec;
 
@@ -9,9 +10,11 @@ use wyrd_core::{CmdId, HostPathId, HostTime, Result, Signal};
 use wyrd_graph::Weave;
 
 use crate::bind::Runtime;
-use crate::outbox::Outbox;
+use crate::outbox::{Outbox, PortWriter};
 
 /// Dense command emitted for host apply (from SignalOut / EmitCommand).
+///
+/// `SetLevel` is host pedagogy language for any SignalOut sample (full Signal).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum HostCommand {
     SetLevel {
@@ -24,37 +27,52 @@ pub enum HostCommand {
     },
 }
 
-/// Map a loom outbox into dense host commands (order: signals then emits).
-pub fn outbox_to_commands(outbox: Outbox<'_>) -> Vec<HostCommand> {
-    let mut cmds = Vec::with_capacity(outbox.signals().len() + outbox.emits().len());
+/// Append outbox contents as dense host commands (signals then emits).
+///
+/// Prefer iterating [`Outbox::signals`] / [`Outbox::emits`] on the hottest
+/// paths; use this helper when a command list is convenient (tests, scripted
+/// hosts). Reuse `out` across ticks to avoid fresh allocation.
+pub fn append_commands(outbox: Outbox<'_>, out: &mut Vec<HostCommand>) {
+    out.reserve(outbox.signals().len() + outbox.emits().len());
     for s in outbox.signals() {
-        cmds.push(HostCommand::SetLevel {
+        out.push(HostCommand::SetLevel {
             path: s.path,
             value: s.value,
         });
     }
     for e in outbox.emits() {
-        cmds.push(HostCommand::Emit {
+        out.push(HostCommand::Emit {
             cmd: e.cmd,
             payload: e.payload,
         });
     }
+}
+
+/// Map a loom outbox into a new command vec (allocates). See [`append_commands`].
+pub fn outbox_to_commands(outbox: Outbox<'_>) -> Vec<HostCommand> {
+    let mut cmds = Vec::new();
+    append_commands(outbox, &mut cmds);
     cmds
 }
 
-/// Engine-neutral host: sample senses, apply outbox after loom.
+/// Engine-neutral host: sample senses into a [`PortWriter`], apply outbox after loom.
 ///
 /// Implement on a concrete type; do not use `dyn Host` on the hot path.
+/// Hold dense `KnotId`s on the host; do not call `sense_id` every tick.
 pub trait Host {
     fn time(&self) -> HostTime;
-    fn sample(&mut self, rt: &mut Runtime);
+    /// Write sense ports for this tick (dense `set_sense` only).
+    fn sample_into(&mut self, ports: &mut PortWriter<'_>);
     fn apply(&mut self, outbox: Outbox<'_>);
 }
 
-/// One host tick: sample → begin_frame → loom → apply.
+/// One host tick: begin_frame → sample → loom → apply.
 pub fn tick_once(host: &mut impl Host, rt: &mut Runtime, weave: &Weave) -> Result<()> {
-    host.sample(rt);
     rt.begin_frame(host.time());
+    {
+        let mut w = rt.port_writer();
+        host.sample_into(&mut w);
+    }
     rt.loom(weave)?;
     host.apply(rt.outbox());
     Ok(())
@@ -78,9 +96,10 @@ mod tests {
         fn time(&self) -> HostTime {
             HostTime { tick: self.tick }
         }
-        fn sample(&mut self, _rt: &mut Runtime) {}
+        fn sample_into(&mut self, _ports: &mut PortWriter<'_>) {}
         fn apply(&mut self, outbox: Outbox<'_>) {
-            self.cmds = outbox_to_commands(outbox);
+            self.cmds.clear();
+            append_commands(outbox, &mut self.cmds);
             self.tick = self.tick.wrapping_add(1);
         }
     }

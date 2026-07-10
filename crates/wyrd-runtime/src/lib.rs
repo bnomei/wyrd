@@ -11,7 +11,7 @@ mod loom;
 mod outbox;
 
 pub use bind::{BindOpts, Runtime};
-pub use host::{outbox_to_commands, tick_once, Host, HostCommand};
+pub use host::{append_commands, outbox_to_commands, tick_once, Host, HostCommand};
 pub use outbox::{Emit, Outbox, PortWriter, SignalOutSample};
 
 pub use wyrd_core::{
