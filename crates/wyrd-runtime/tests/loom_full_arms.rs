@@ -324,10 +324,7 @@ fn flag_setwins_reset_and_toggle_and_resetwins_set() {
 #[test]
 fn map_zero_span_and_delay_one() {
     let (b, _) = Weave::builder("z")
-        .knot(
-            "c",
-            KnotKind::constant(from_count(1)),
-        )
+        .knot("c", KnotKind::constant(from_count(1)))
         .unwrap();
     let (b, _) = b
         .knot(

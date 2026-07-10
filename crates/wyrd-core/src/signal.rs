@@ -177,7 +177,11 @@ mod tests {
         {
             assert_eq!(div(from_count(6), from_count(2)), from_count(3));
             assert_eq!(div(from_count(6), ZERO), ZERO);
-            assert_eq!(div(from_count(7), ONE), from_count(7), "div by ONE identity");
+            assert_eq!(
+                div(from_count(7), ONE),
+                from_count(7),
+                "div by ONE identity"
+            );
             assert_eq!(sat_add(from_count(1), from_count(2)), from_count(3));
             assert_eq!(sat_sub(from_count(5), from_count(2)), from_count(3));
         }

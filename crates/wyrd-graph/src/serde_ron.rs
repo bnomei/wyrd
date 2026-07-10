@@ -22,8 +22,10 @@ pub fn from_ron(text: &str) -> Result<Weave> {
 /// Returns `Ok` for any well-formed `Weave`. Serialization failure is treated
 /// as a programmer error (types are always RON-representable).
 pub fn to_ron(weave: &Weave) -> Result<String> {
-    Ok(ron::ser::to_string_pretty(weave, ron::ser::PrettyConfig::default())
-        .expect("Weave is RON-serializable"))
+    Ok(
+        ron::ser::to_string_pretty(weave, ron::ser::PrettyConfig::default())
+            .expect("Weave is RON-serializable"),
+    )
 }
 
 #[cfg(test)]

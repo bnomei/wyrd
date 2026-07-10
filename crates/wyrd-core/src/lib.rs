@@ -15,9 +15,7 @@ pub mod signal;
 
 pub use error::{Result, WyrdError};
 pub use ids::{CmdId, HostPathId, HostTime, KnotId, PortSlot, Seed, ThreadId};
-pub use kind::{
-    CalcOp, CompareOp, FlagPriority, KnotKind, NumericPath, TimerMode,
-};
+pub use kind::{CalcOp, CompareOp, FlagPriority, KnotKind, NumericPath, TimerMode};
 pub use ports::{port_slot, ports_of, PortDir, PortInfo};
 // Author-facing signal helpers. Arithmetic ops stay module-private for graphs (use Calc knots).
 pub use signal::{from_count, from_level, is_truthy, Signal, ONE, ZERO};

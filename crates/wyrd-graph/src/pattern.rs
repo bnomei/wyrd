@@ -184,10 +184,7 @@ mod tests {
         let (b, _) = b
             .knot("t", KnotKind::timer(TimerMode::PulseHold, 2))
             .unwrap();
-        let inner = b
-            .wire_named("edge", "out", "t", "start")
-            .build()
-            .unwrap();
+        let inner = b.wire_named("edge", "out", "t", "start").build().unwrap();
         Pattern {
             id: "pat.mono".into(),
             inner,
@@ -240,7 +237,9 @@ mod tests {
     #[test]
     fn include_builder_path() {
         let p = monostable_pattern();
-        let (b, _) = Weave::builder("lvl").knot("btn", KnotKind::signal_in()).unwrap();
+        let (b, _) = Weave::builder("lvl")
+            .knot("btn", KnotKind::signal_in())
+            .unwrap();
         let (b, exp) = b.include("h1", &p).unwrap();
         let start = exp.port_in("start").unwrap().clone();
         let b = b.wire_ports(PortRefAuthor::new("btn", "out"), start);
@@ -283,7 +282,9 @@ mod tests {
     #[test]
     fn numeric_mismatch_on_merge() {
         let p = monostable_pattern();
-        let (b, _) = Weave::builder("p").knot("a", KnotKind::signal_in()).unwrap();
+        let (b, _) = Weave::builder("p")
+            .knot("a", KnotKind::signal_in())
+            .unwrap();
         let mut parent = b.build().unwrap();
         let mut p2 = p;
         #[cfg(feature = "signal-f32")]
@@ -303,7 +304,9 @@ mod tests {
     #[test]
     fn duplicate_instance_fails() {
         let p = monostable_pattern();
-        let (b, _) = Weave::builder("p").knot("a", KnotKind::signal_in()).unwrap();
+        let (b, _) = Weave::builder("p")
+            .knot("a", KnotKind::signal_in())
+            .unwrap();
         let mut parent = b.build().unwrap();
         merge_expanded(&mut parent, "hold1", &p).unwrap();
         assert!(matches!(

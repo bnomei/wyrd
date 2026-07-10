@@ -33,10 +33,7 @@ fn pulse_hold_active_for_n_ticks_then_off() {
         .knot("btn", KnotKind::signal_in())
         .unwrap();
     let (b, _) = b
-        .knot(
-            "t",
-            KnotKind::timer(TimerMode::PulseHold, 3),
-        )
+        .knot("t", KnotKind::timer(TimerMode::PulseHold, 3))
         .unwrap();
     let (b, _) = b.knot("out", KnotKind::signal_out("active")).unwrap();
     let weave = b
@@ -73,10 +70,7 @@ fn fed_countdown_active_after_n_feed_ticks() {
         .knot("plate", KnotKind::signal_in())
         .unwrap();
     let (b, _) = b
-        .knot(
-            "t",
-            KnotKind::timer(TimerMode::FedCountdown, 3),
-        )
+        .knot("t", KnotKind::timer(TimerMode::FedCountdown, 3))
         .unwrap();
     let (b, _) = b.knot("out", KnotKind::signal_out("active")).unwrap();
     let weave = b

@@ -9,17 +9,19 @@
 
 use bevy::prelude::*;
 use wyrd_bevy::{
-    apply_signal_bool, set_sense_bool, AndDoorBinding, Door, WyrdInstance, WyrdPlugin,
-    WyrdSet, WyrdSignalConfirm, WyrdWorld,
+    apply_signal_bool, set_sense_bool, AndDoorBinding, Door, WyrdInstance, WyrdPlugin, WyrdSet,
+    WyrdSignalConfirm, WyrdWorld,
 };
 use wyrd_core::KnotKind;
 use wyrd_graph::Weave;
 
 fn main() {
     App::new()
-        .add_plugins(MinimalPlugins.set(bevy::app::ScheduleRunnerPlugin::run_loop(
-            std::time::Duration::from_millis(1),
-        )))
+        .add_plugins(
+            MinimalPlugins.set(bevy::app::ScheduleRunnerPlugin::run_loop(
+                std::time::Duration::from_millis(1),
+            )),
+        )
         .add_plugins(WyrdPlugin)
         .insert_resource(PlateState {
             a: false,

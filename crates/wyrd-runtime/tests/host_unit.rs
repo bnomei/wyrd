@@ -3,8 +3,8 @@
 use wyrd_core::{is_truthy, CmdId, HostPathId, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{
-    append_commands, outbox_to_commands, tick_once, BindOpts, Host, HostCommand, Outbox,
-    Runtime, ScriptedHost,
+    append_commands, outbox_to_commands, tick_once, BindOpts, Host, HostCommand, Outbox, Runtime,
+    ScriptedHost,
 };
 
 struct RecordHost {

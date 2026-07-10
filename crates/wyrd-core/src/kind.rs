@@ -312,4 +312,3 @@ mod tests {
         let _ = KnotKind::clamp(crate::ZERO, ONE);
     }
 }
-

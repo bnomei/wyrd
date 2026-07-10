@@ -198,7 +198,7 @@ mod tests {
                 out_min: crate::ZERO,
                 out_max: crate::ONE,
             })[0]
-            .name,
+                .name,
             "in"
         );
         assert_eq!(ports_of(&KnotKind::Abs)[1].name, "out");

@@ -5,9 +5,7 @@ use std::string::String;
 use std::vec;
 use std::vec::Vec;
 
-use wyrd_core::{
-    port_slot, ports_of, KnotKind, NumericPath, PortDir, Result, WyrdError,
-};
+use wyrd_core::{port_slot, ports_of, KnotKind, NumericPath, PortDir, Result, WyrdError};
 
 use crate::weave::Weave;
 
@@ -56,8 +54,14 @@ impl Default for Budget {
 /// Soft budget exceeded (does not fail bind / [`validate`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BudgetWarning {
-    SoftKnots { count: u16, soft: u16 },
-    SoftThreads { count: u16, soft: u16 },
+    SoftKnots {
+        count: u16,
+        soft: u16,
+    },
+    SoftThreads {
+        count: u16,
+        soft: u16,
+    },
     SoftChainDepth {
         depth: u16,
         soft: u16,
@@ -168,9 +172,7 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
             } if *steps == 0 || in_min > in_max => {
                 return Err(WyrdError::InvalidParam);
             }
-            KnotKind::Map {
-                in_min, in_max, ..
-            } if in_min > in_max => {
+            KnotKind::Map { in_min, in_max, .. } if in_min > in_max => {
                 return Err(WyrdError::InvalidParam);
             }
             KnotKind::Threshold {
@@ -244,9 +246,7 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
             }
             let need = match &k.kind {
                 KnotKind::Compare { rhs_const, .. } if p.name == "rhs" => rhs_const.is_none(),
-                KnotKind::Random {
-                    require_gate: true,
-                } if p.name == "gate" => true,
+                KnotKind::Random { require_gate: true } if p.name == "gate" => true,
                 _ => p.required,
             };
             if !need {
@@ -301,8 +301,8 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
     }
     // Process in topo order (reuse Kahn with fresh indeg from adj).
     let mut indeg2 = vec![0u32; n];
-    for a in 0..n {
-        for &b in &adj[a] {
+    for outs in adj.iter().take(n) {
+        for &b in outs {
             indeg2[b] += 1;
         }
     }
@@ -379,4 +379,3 @@ fn delay_ticks(kind: &KnotKind) -> u16 {
         _ => 0,
     }
 }
-

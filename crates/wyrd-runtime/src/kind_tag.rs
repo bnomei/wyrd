@@ -7,8 +7,12 @@ use wyrd_core::{CalcOp, CompareOp, FlagPriority, KnotKind, Signal, TimerMode};
 pub(crate) enum KindTag {
     Sense,
     Not,
-    And { arity: u8 },
-    Or { arity: u8 },
+    And {
+        arity: u8,
+    },
+    Or {
+        arity: u8,
+    },
     RisingFromZero,
     Compare {
         op: CompareOp,
@@ -20,16 +24,24 @@ pub(crate) enum KindTag {
         enable_toggle: bool,
     },
     Counter,
-    TimerPulseHold { ticks: u16 },
-    TimerFedCountdown { ticks: u16 },
-    Delay { ticks: u16 },
+    TimerPulseHold {
+        ticks: u16,
+    },
+    TimerFedCountdown {
+        ticks: u16,
+    },
+    Delay {
+        ticks: u16,
+    },
     /// Split Calc ops into dedicated tags so hot chains monomorphize the op.
     CalcAdd,
     CalcSub,
     CalcMul,
     CalcDiv,
     /// `b` is a Constant resolved at bind (common Div-by-ONE pattern).
-    CalcDivConst { divisor: Signal },
+    CalcDivConst {
+        divisor: Signal,
+    },
     Abs,
     Neg,
     /// Linear map with bind-time inv/scale.
@@ -81,10 +93,15 @@ pub(crate) enum KindTag {
     Xor,
     FallingToZero,
     Change,
-    Clamp { min: Signal, max: Signal },
+    Clamp {
+        min: Signal,
+        max: Signal,
+    },
     SignalOut,
     /// `enable_wired` set at bind from inbound CSR (not from KnotKind alone).
-    EmitCommand { enable_wired: bool },
+    EmitCommand {
+        enable_wired: bool,
+    },
 }
 
 impl KindTag {

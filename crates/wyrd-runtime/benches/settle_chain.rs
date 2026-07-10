@@ -14,13 +14,11 @@ use wyrd_runtime::{tick_once, NullHost};
 fn settle_not_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_not(n);
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 #[divan::bench]
@@ -29,18 +27,16 @@ fn settle_and_door(bencher: Bencher) {
     let a = rt.sense_id("plate_a").unwrap();
     let b_id = rt.sense_id("plate_b").unwrap();
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 1 });
-            {
-                let mut w = rt.port_writer();
-                w.set_sense(a, ONE);
-                w.set_sense(b_id, ONE);
-            }
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 1 });
+        {
+            let mut w = rt.port_writer();
+            w.set_sense(a, ONE);
+            w.set_sense(b_id, ONE);
+        }
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 /// Host `tick_once` (NullHost) on a Not chain.
@@ -49,12 +45,10 @@ fn tick_once_not_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_not(n);
     let mut host = NullHost::default();
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            tick_once(&mut host, &mut rt, black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        tick_once(&mut host, &mut rt, black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 fn main() {

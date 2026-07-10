@@ -201,9 +201,7 @@ impl Runtime {
                     slots.push(p.slot);
                     // Wired Ins are overwritten by gather each loom — only clear
                     // unwired Ins (must stay ZERO / default).
-                    let wired = inbound_lists[ki]
-                        .iter()
-                        .any(|&(_, _, ts)| ts == p.slot);
+                    let wired = inbound_lists[ki].iter().any(|&(_, _, ts)| ts == p.slot);
                     if !wired {
                         clear_port_idx.push(ki * MAX_PORTS + p.slot.0 as usize);
                     }
@@ -212,10 +210,7 @@ impl Runtime {
             input_slots.push(slots);
             match &k.kind {
                 KnotKind::Constant { value } => {
-                    sense_seeds.push(SenseSeed::Constant {
-                        kid,
-                        value: *value,
-                    });
+                    sense_seeds.push(SenseSeed::Constant { kid, value: *value });
                 }
                 KnotKind::SignalIn => {
                     sense_seeds.push(SenseSeed::SignalIn { kid });
@@ -279,10 +274,8 @@ impl Runtime {
             }
         }
 
-        let mut out_signals = Vec::new();
-        out_signals.reserve(act_signals);
-        let mut out_emits = Vec::new();
-        out_emits.reserve(act_emits);
+        let out_signals = Vec::with_capacity(act_signals);
+        let out_emits = Vec::with_capacity(act_emits);
 
         let base = opts.seed.unwrap_or(Seed(0xC0FF_EE00_D15C_AFEDu64));
         let seed_mix = fnv1a64(weave.id.as_bytes());
@@ -471,10 +464,7 @@ impl Runtime {
     }
 }
 
-fn topo_order(
-    n: usize,
-    threads: &[(KnotId, PortSlot, KnotId, PortSlot)],
-) -> Result<Vec<KnotId>> {
+fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Result<Vec<KnotId>> {
     let mut indeg = vec![0u32; n];
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     for &(f, _, t, _) in threads {
@@ -527,16 +517,14 @@ mod tests {
             .unwrap();
         let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
         assert_eq!(rt.sense_seeds.len(), 2, "SignalIn + Constant only");
-        assert!(
-            rt.sense_seeds
-                .iter()
-                .any(|s| matches!(s, SenseSeed::SignalIn { .. }))
-        );
-        assert!(
-            rt.sense_seeds
-                .iter()
-                .any(|s| matches!(s, SenseSeed::Constant { value, .. } if *value == ONE))
-        );
+        assert!(rt
+            .sense_seeds
+            .iter()
+            .any(|s| matches!(s, SenseSeed::SignalIn { .. })));
+        assert!(rt
+            .sense_seeds
+            .iter()
+            .any(|s| matches!(s, SenseSeed::Constant { value, .. } if *value == ONE)));
         // Emit without enable wire → enable_wired false
         let (b, _) = Weave::builder("e")
             .knot("btn", KnotKind::signal_in())
@@ -633,9 +621,7 @@ mod tests {
             .knot("in", KnotKind::signal_in())
             .unwrap();
         let (b, _) = b.knot("one", KnotKind::constant(ONE)).unwrap();
-        let (b, _) = b
-            .knot("d", KnotKind::Calc { op: CalcOp::Div })
-            .unwrap();
+        let (b, _) = b.knot("d", KnotKind::Calc { op: CalcOp::Div }).unwrap();
         let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
         let weave = b
             .wire_named("in", "out", "d", "a")

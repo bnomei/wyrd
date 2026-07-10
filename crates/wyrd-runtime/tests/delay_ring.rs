@@ -23,7 +23,9 @@ fn tick(rt: &mut Runtime, weave: &Weave, t: u64, v: wyrd_core::Signal) {
 
 #[test]
 fn delay_zero_is_passthrough() {
-    let (b, _) = Weave::builder("d0").knot("in", KnotKind::signal_in()).unwrap();
+    let (b, _) = Weave::builder("d0")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
     let (b, _) = b.knot("d", KnotKind::Delay { ticks: 0 }).unwrap();
     let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
     let weave = b
@@ -38,7 +40,9 @@ fn delay_zero_is_passthrough() {
 
 #[test]
 fn delay_three_ticks() {
-    let (b, _) = Weave::builder("d3").knot("in", KnotKind::signal_in()).unwrap();
+    let (b, _) = Weave::builder("d3")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
     let (b, _) = b.knot("d", KnotKind::Delay { ticks: 3 }).unwrap();
     let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
     let weave = b

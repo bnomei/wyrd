@@ -89,20 +89,18 @@ fn bevy_door_tick_both(bencher: Bencher) {
     app.update();
     // Weave: plate_a, plate_b, both, door → 4 knots (ItemsCount labels work, not pure loom ns).
     let knots = 4u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            app.world_mut().resource_mut::<PlateState>().a = true;
-            app.world_mut().resource_mut::<PlateState>().b = true;
-            app.update();
-            let open = app
-                .world_mut()
-                .query::<&Door>()
-                .single(app.world())
-                .map(|d| d.open)
-                .unwrap_or(false);
-            black_box(open);
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        app.world_mut().resource_mut::<PlateState>().a = true;
+        app.world_mut().resource_mut::<PlateState>().b = true;
+        app.update();
+        let open = app
+            .world_mut()
+            .query::<&Door>()
+            .single(app.world())
+            .map(|d| d.open)
+            .unwrap_or(false);
+        black_box(open);
+    });
 }
 
 /// Alternating plate patterns over updates (sample churn).
@@ -112,27 +110,25 @@ fn bevy_door_tick_scripted(bencher: Bencher) {
     app.update();
     let mut phase = 0u8;
     let knots = 4u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            let (a, b) = match phase % 4 {
-                0 => (false, false),
-                1 => (true, false),
-                2 => (true, true),
-                _ => (false, true),
-            };
-            phase = phase.wrapping_add(1);
-            app.world_mut().resource_mut::<PlateState>().a = a;
-            app.world_mut().resource_mut::<PlateState>().b = b;
-            app.update();
-            let open = app
-                .world_mut()
-                .query::<&Door>()
-                .single(app.world())
-                .map(|d| d.open)
-                .unwrap_or(false);
-            black_box(open);
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        let (a, b) = match phase % 4 {
+            0 => (false, false),
+            1 => (true, false),
+            2 => (true, true),
+            _ => (false, true),
+        };
+        phase = phase.wrapping_add(1);
+        app.world_mut().resource_mut::<PlateState>().a = a;
+        app.world_mut().resource_mut::<PlateState>().b = b;
+        app.update();
+        let open = app
+            .world_mut()
+            .query::<&Door>()
+            .single(app.world())
+            .map(|d| d.open)
+            .unwrap_or(false);
+        black_box(open);
+    });
 }
 
 fn main() {

@@ -44,7 +44,9 @@ fn signal_truthy(rt: &Runtime, path: &str) -> bool {
 
 #[test]
 fn counter_rising_edge_not_level() {
-    let (b, _) = Weave::builder("c").knot("inc", KnotKind::signal_in()).unwrap();
+    let (b, _) = Weave::builder("c")
+        .knot("inc", KnotKind::signal_in())
+        .unwrap();
     let (b, _) = b.knot("cnt", KnotKind::counter()).unwrap();
     let (b, _) = b.knot("out", KnotKind::signal_out("count")).unwrap();
     let weave = b
@@ -76,7 +78,9 @@ fn counter_rising_edge_not_level() {
 
 #[test]
 fn counter_reset_then_rising_inc_same_tick() {
-    let (b, _) = Weave::builder("cr").knot("inc", KnotKind::signal_in()).unwrap();
+    let (b, _) = Weave::builder("cr")
+        .knot("inc", KnotKind::signal_in())
+        .unwrap();
     let (b, _) = b.knot("rst", KnotKind::signal_in()).unwrap();
     let (b, _) = b.knot("cnt", KnotKind::counter()).unwrap();
     let (b, _) = b.knot("out", KnotKind::signal_out("count")).unwrap();
@@ -120,7 +124,9 @@ fn counter_reset_then_rising_inc_same_tick() {
 
 #[test]
 fn flag_toggle_rising_and_reset() {
-    let (b, _) = Weave::builder("f").knot("tog", KnotKind::signal_in()).unwrap();
+    let (b, _) = Weave::builder("f")
+        .knot("tog", KnotKind::signal_in())
+        .unwrap();
     let (b, _) = b.knot("rst", KnotKind::signal_in()).unwrap();
     let (b, _) = b
         .knot("flag", KnotKind::flag(FlagPriority::ResetWins, true))
@@ -167,7 +173,9 @@ fn flag_toggle_rising_and_reset() {
 
 #[test]
 fn emit_once_on_held_trigger() {
-    let (b, _) = Weave::builder("e").knot("btn", KnotKind::signal_in()).unwrap();
+    let (b, _) = Weave::builder("e")
+        .knot("btn", KnotKind::signal_in())
+        .unwrap();
     let (b, _) = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let weave = b.wire_named("btn", "out", "em", "trigger").build().unwrap();
     let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();

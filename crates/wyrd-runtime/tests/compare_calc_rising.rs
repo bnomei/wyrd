@@ -20,10 +20,7 @@ fn compare_gte_rhs_const() {
         .knot("n", KnotKind::signal_in())
         .unwrap();
     let (b, _) = b
-        .knot(
-            "cmp",
-            KnotKind::compare(CompareOp::Gte, Some(3)),
-        )
+        .knot("cmp", KnotKind::compare(CompareOp::Gte, Some(3)))
         .unwrap();
     let (b, _) = b.knot("out", KnotKind::signal_out("ok")).unwrap();
     let weave = b

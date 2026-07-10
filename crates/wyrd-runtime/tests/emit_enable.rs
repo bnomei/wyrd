@@ -93,7 +93,7 @@ fn enable_open_while_trigger_held_does_not_emit() {
     {
         let mut w = rt.port_writer();
         w.set_sense(btn, ONE); // held
-        w.set_sense(en, ONE);  // enable opens
+        w.set_sense(en, ONE); // enable opens
     }
     rt.loom(&weave).unwrap();
     assert_eq!(rt.outbox().emits().len(), 0);

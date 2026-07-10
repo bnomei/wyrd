@@ -1,6 +1,4 @@
-use wyrd_core::{
-    is_truthy, CompareOp, FlagPriority, KnotId, PortSlot, Result, Signal, ONE, ZERO,
-};
+use wyrd_core::{is_truthy, CompareOp, FlagPriority, KnotId, PortSlot, Result, Signal, ONE, ZERO};
 use wyrd_graph::Weave;
 
 use crate::bind::{Runtime, SenseSeed};
@@ -81,12 +79,11 @@ impl Runtime {
         // Stack buffer: max ports per knot is 8.
         let mut tmp: [(PortSlot, Signal); 8] = [(PortSlot(0), ZERO); 8];
         let n = n.min(8);
-        for i in 0..n {
-            let (f, fs, ts) = self.inbound_edges[start + i];
+        for (i, &(f, fs, ts)) in self.inbound_edges[start..start + n].iter().enumerate() {
             tmp[i] = (ts, self.get_port_hot(f, fs));
         }
-        for i in 0..n {
-            self.set_port_hot(kid, tmp[i].0, tmp[i].1);
+        for &(ts, v) in tmp.iter().take(n) {
+            self.set_port_hot(kid, ts, v);
         }
     }
 
@@ -149,8 +146,7 @@ impl Runtime {
                 let toggle_l = self.get_port_hot(kid, PortSlot(2));
                 let set = is_truthy(set_l);
                 let reset = is_truthy(reset_l);
-                let toggle =
-                    enable_toggle && !is_truthy(self.prev_in[ki]) && is_truthy(toggle_l);
+                let toggle = enable_toggle && !is_truthy(self.prev_in[ki]) && is_truthy(toggle_l);
                 let mut st = self.flag[ki];
                 match priority {
                     FlagPriority::ResetWins => {
@@ -218,11 +214,7 @@ impl Runtime {
                     if self.timer_left[ki] > 0 {
                         self.timer_left[ki] -= 1;
                     }
-                    let active = if self.timer_left[ki] == 0 {
-                        ONE
-                    } else {
-                        ZERO
-                    };
+                    let active = if self.timer_left[ki] == 0 { ONE } else { ZERO };
                     self.set_port_hot(kid, PortSlot(1), active);
                 } else {
                     self.timer_left[ki] = 0;
@@ -299,9 +291,9 @@ impl Runtime {
                 inv_in_span,
                 out_span,
                 #[cfg(feature = "signal-i32")]
-                    den,
+                den,
                 #[cfg(feature = "signal-i32")]
-                    out_span_i64,
+                out_span_i64,
             } => {
                 let i = self.get_port_hot(kid, PortSlot(0));
                 let o = map_linear_fast(
@@ -335,9 +327,9 @@ impl Runtime {
                 steps,
                 last,
                 #[cfg(feature = "signal-i32")]
-                    den,
+                den,
                 #[cfg(feature = "signal-i32")]
-                    out_span,
+                out_span,
             } => {
                 let i = self.get_port_hot(kid, PortSlot(0));
                 let o = digitize_fast(
@@ -378,16 +370,8 @@ impl Runtime {
                 }
                 self.flag[ki] = latched;
                 self.set_port_hot(kid, PortSlot(1), if latched { ONE } else { ZERO });
-                self.set_port_hot(
-                    kid,
-                    PortSlot(2),
-                    if !prev && latched { ONE } else { ZERO },
-                );
-                self.set_port_hot(
-                    kid,
-                    PortSlot(3),
-                    if prev && !latched { ONE } else { ZERO },
-                );
+                self.set_port_hot(kid, PortSlot(2), if !prev && latched { ONE } else { ZERO });
+                self.set_port_hot(kid, PortSlot(3), if prev && !latched { ONE } else { ZERO });
             }
             KindTag::Random {
                 require_gate,
@@ -425,7 +409,11 @@ impl Runtime {
                     // Hold last sample in `counter` storage.
                     #[cfg(feature = "signal-f32")]
                     {
-                        self.set_port_hot(kid, PortSlot(3), f32::from_bits(self.counter[ki] as u32));
+                        self.set_port_hot(
+                            kid,
+                            PortSlot(3),
+                            f32::from_bits(self.counter[ki] as u32),
+                        );
                     }
                     #[cfg(feature = "signal-i32")]
                     {
@@ -504,7 +492,6 @@ impl Runtime {
             }
         }
     }
-
 }
 
 fn compare(op: CompareOp, lhs: Signal, rhs: Signal) -> bool {
@@ -561,9 +548,9 @@ pub(crate) fn map_linear_for_test(
             inv_in_span,
             out_span,
             #[cfg(feature = "signal-i32")]
-                den,
+            den,
             #[cfg(feature = "signal-i32")]
-                out_span_i64,
+            out_span_i64,
         } => map_linear_fast(
             i,
             degenerate,
@@ -583,6 +570,7 @@ pub(crate) fn map_linear_for_test(
 /// Quantize `i` into `steps` bins over in range, map to out range (endpoints included).
 /// Digitize using bind-time precomputed scales (hot path).
 #[inline]
+#[allow(clippy::too_many_arguments)] // bind-time precompute fields; keep hot path flat
 fn digitize_fast(
     i: Signal,
     degenerate: bool,
@@ -641,9 +629,9 @@ pub(crate) fn digitize_for_test(
             steps,
             last,
             #[cfg(feature = "signal-i32")]
-                den,
+            den,
             #[cfg(feature = "signal-i32")]
-                out_span,
+            out_span,
         } => digitize_fast(
             i,
             degenerate,

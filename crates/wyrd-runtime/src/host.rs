@@ -17,14 +17,8 @@ use crate::outbox::{Outbox, PortWriter};
 /// `SetLevel` is host pedagogy language for any SignalOut sample (full Signal).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum HostCommand {
-    SetLevel {
-        path: HostPathId,
-        value: Signal,
-    },
-    Emit {
-        cmd: CmdId,
-        payload: Signal,
-    },
+    SetLevel { path: HostPathId, value: Signal },
+    Emit { cmd: CmdId, payload: Signal },
 }
 
 /// Append outbox contents as dense host commands (signals then emits).
@@ -161,4 +155,3 @@ impl Host for ScriptedHost {
         self.tick = self.tick.wrapping_add(1);
     }
 }
-

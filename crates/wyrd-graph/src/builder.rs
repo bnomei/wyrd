@@ -87,12 +87,7 @@ impl WeaveBuilder {
     }
 
     /// And arity-2 convenience: creates And knot and wires a.out→in_0, b.out→in_1.
-    pub fn and2(
-        self,
-        id: impl Into<String>,
-        a: KnotId,
-        b: KnotId,
-    ) -> Result<(Self, KnotId)> {
+    pub fn and2(self, id: impl Into<String>, a: KnotId, b: KnotId) -> Result<(Self, KnotId)> {
         let (bld, and_id) = self.knot(id, KnotKind::and2())?;
         let bld = bld.wire((a, PortSlot(0)), (and_id, PortSlot(0)))?; // a out → in_0
         let bld = bld.wire((b, PortSlot(0)), (and_id, PortSlot(1)))?;
@@ -209,14 +204,14 @@ mod tests {
         let (b, pb) = b.knot("b", KnotKind::signal_in()).unwrap();
         let (b, both) = b.and2("both", a, pb).unwrap();
         let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-        let w = b
-            .wire_named("both", "out", "out", "in")
-            .build()
-            .unwrap();
+        let w = b.wire_named("both", "out", "out", "in").build().unwrap();
         assert_eq!(w.knots.len(), 4);
         let _ = both;
         assert_eq!(slot_of(&KnotKind::not(), "in").unwrap(), PortSlot(0));
-        assert_eq!(slot_of(&KnotKind::not(), "nope"), Err(WyrdError::UnknownPort));
+        assert_eq!(
+            slot_of(&KnotKind::not(), "nope"),
+            Err(WyrdError::UnknownPort)
+        );
     }
 
     #[test]
@@ -239,7 +234,10 @@ mod tests {
         {
             pat.inner.numeric = NumericPath::F32;
         }
-        let b = WeaveBuilder::new("host").knot("x", KnotKind::signal_in()).unwrap().0;
+        let b = WeaveBuilder::new("host")
+            .knot("x", KnotKind::signal_in())
+            .unwrap()
+            .0;
         assert_eq!(
             b.include("i1", &pat).map(|_| ()),
             Err(WyrdError::NumericMismatch)

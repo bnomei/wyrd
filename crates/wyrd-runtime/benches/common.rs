@@ -188,7 +188,9 @@ pub fn fanout_nots(n: usize) -> (Weave, Runtime) {
         let nid = format!("n{i}");
         let oid = format!("o{i}");
         let (b2, _) = b.knot(&nid, KnotKind::not()).unwrap();
-        let (b3, _) = b2.knot(&oid, KnotKind::signal_out(format!("y{i}"))).unwrap();
+        let (b3, _) = b2
+            .knot(&oid, KnotKind::signal_out(format!("y{i}")))
+            .unwrap();
         b = b3
             .wire_named("c", "out", &nid, "in")
             .wire_named(&nid, "out", &oid, "in");
@@ -342,9 +344,7 @@ pub fn chain_delays(n: usize, ticks: u16) -> (Weave, Runtime) {
     }
     let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
     let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
-    let path_sum = (n as u32)
-        .saturating_mul(ticks as u32)
-        .min(u16::MAX as u32) as u16;
+    let path_sum = (n as u32).saturating_mul(ticks as u32).min(u16::MAX as u32) as u16;
     let rt = bind_scaled(&weave, |bud| {
         bud.max_delay_path_sum = path_sum.max(32);
     });
@@ -522,10 +522,7 @@ pub fn chain_clamp_neg(n: usize) -> (Weave, Runtime) {
         let cl = format!("c{i}");
         let (b2, _) = b.knot(&neg, KnotKind::Neg).unwrap();
         let (b3, _) = b2
-            .knot(
-                &cl,
-                KnotKind::clamp(from_count(-2), from_count(2)),
-            )
+            .knot(&cl, KnotKind::clamp(from_count(-2), from_count(2)))
             .unwrap();
         b = b3
             .wire_named(&prev, "out", &neg, "in")
@@ -547,10 +544,7 @@ pub fn chain_compare(n: usize) -> (Weave, Runtime) {
     for i in 0..n {
         let id = format!("cmp{i}");
         let (b2, _) = b
-            .knot(
-                &id,
-                KnotKind::compare(CompareOp::Gte, Some(0)),
-            )
+            .knot(&id, KnotKind::compare(CompareOp::Gte, Some(0)))
             .unwrap();
         b = b2.wire_named(&prev, "out", &id, "lhs");
         prev = id;
@@ -563,9 +557,7 @@ pub fn chain_compare(n: usize) -> (Weave, Runtime) {
 
 /// OnStart → SignalOut (first-frame pulse; low value as ongoing bench).
 pub fn onstart_out() -> (Weave, Runtime) {
-    let (b, _) = Weave::builder("ons")
-        .knot("s", KnotKind::OnStart)
-        .unwrap();
+    let (b, _) = Weave::builder("ons").knot("s", KnotKind::OnStart).unwrap();
     let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
     let weave = b.wire_named("s", "out", "out", "in").build().unwrap();
     let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
@@ -609,10 +601,7 @@ pub fn monostable_pattern() -> Pattern {
     let (b, _) = b
         .knot("t", KnotKind::timer(TimerMode::PulseHold, 2))
         .unwrap();
-    let inner = b
-        .wire_named("edge", "out", "t", "start")
-        .build()
-        .unwrap();
+    let inner = b.wire_named("edge", "out", "t", "start").build().unwrap();
     Pattern {
         id: "pat.mono".into(),
         inner,

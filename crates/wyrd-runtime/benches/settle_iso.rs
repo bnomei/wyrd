@@ -19,13 +19,11 @@ use wyrd_core::{HostTime, ONE};
 fn iso_struct_not_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_not(n);
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 /// Gather / outbox pressure: wide fan-out of Nots (many SignalOut).
@@ -33,13 +31,11 @@ fn iso_struct_not_chain(bencher: Bencher, n: usize) {
 fn iso_gather_fanout(bencher: Bencher, n: usize) {
     let (weave, mut rt) = fanout_nots(n);
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 /// Eval-heavy: Digitize layer stack (amortized).
@@ -48,14 +44,12 @@ fn iso_eval_digitize_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_digitize(n, 8);
     let id = rt.sense_id("in").unwrap();
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer().set_sense(id, ONE);
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(id, ONE);
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 /// Eval-heavy: Sqrt layer stack (amortized).
@@ -64,14 +58,12 @@ fn iso_eval_sqrt_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_sqrt(n);
     let id = rt.sense_id("in").unwrap();
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer().set_sense(id, ONE);
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(id, ONE);
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 /// Map stack as lighter eval control vs Digitize/Sqrt.
@@ -80,14 +72,12 @@ fn iso_eval_map_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_map(n);
     let id = rt.sense_id("in").unwrap();
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer().set_sense(id, ONE);
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(id, ONE);
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 /// Rank1: Calc Div chain (const ONE divisor — stresses Q-div / identity path).
@@ -96,14 +86,12 @@ fn iso_eval_div_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_calc_div(n);
     let id = rt.sense_id("in").unwrap();
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer().set_sense(id, ONE);
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(id, ONE);
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 /// Rank4: Clamp+Neg layers.
@@ -112,14 +100,12 @@ fn iso_eval_clamp_neg_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_clamp_neg(n);
     let id = rt.sense_id("in").unwrap();
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer().set_sense(id, ONE);
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(id, ONE);
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 /// Rank5: Compare chain (const rhs).
@@ -128,14 +114,12 @@ fn iso_eval_compare_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_compare(n);
     let id = rt.sense_id("in").unwrap();
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer().set_sense(id, ONE);
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(id, ONE);
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 /// Rank7: Delay chain (ring traffic).
@@ -144,14 +128,12 @@ fn iso_eval_delay_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_delays(n, 4); // ticks=4 (power-of-two ring)
     let id = rt.sense_id("in").unwrap();
     let knots = weave.knots.len() as u64;
-    bencher
-        .counter(ItemsCount::new(knots))
-        .bench_local(|| {
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer().set_sense(id, ONE);
-            rt.loom(black_box(&weave)).unwrap();
-            black_box(rt.outbox().signals().len());
-        });
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(id, ONE);
+        rt.loom(black_box(&weave)).unwrap();
+        black_box(rt.outbox().signals().len());
+    });
 }
 
 fn main() {

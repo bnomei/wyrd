@@ -224,17 +224,13 @@ mod tests {
         app.update();
         assert!(!app.world().resource::<DoorOpen>().0);
 
-        app.world_mut().insert_resource(PlateState {
-            a: true,
-            b: false,
-        });
+        app.world_mut()
+            .insert_resource(PlateState { a: true, b: false });
         app.update();
         assert!(!app.world().resource::<DoorOpen>().0);
 
-        app.world_mut().insert_resource(PlateState {
-            a: true,
-            b: true,
-        });
+        app.world_mut()
+            .insert_resource(PlateState { a: true, b: true });
         app.update();
         assert!(app.world().resource::<DoorOpen>().0);
 
@@ -251,10 +247,7 @@ mod tests {
     #[derive(Resource, Default)]
     struct ConfirmLog(Vec<WyrdSignalConfirm>);
 
-    fn log_confirms(
-        mut reader: MessageReader<WyrdSignalConfirm>,
-        mut log: ResMut<ConfirmLog>,
-    ) {
+    fn log_confirms(mut reader: MessageReader<WyrdSignalConfirm>, mut log: ResMut<ConfirmLog>) {
         for m in reader.read() {
             log.0.push(*m);
         }
@@ -287,10 +280,8 @@ mod tests {
         app.add_systems(Update, apply_door_component.in_set(WyrdSet::Apply));
         app.add_systems(Update, log_confirms.after(WyrdSet::Apply));
 
-        app.world_mut().insert_resource(PlateState {
-            a: true,
-            b: true,
-        });
+        app.world_mut()
+            .insert_resource(PlateState { a: true, b: true });
         app.update();
 
         let door = app
