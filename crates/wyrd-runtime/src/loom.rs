@@ -265,6 +265,13 @@ impl Runtime {
                 let o = map_linear(i, in_min, in_max, out_min, out_max);
                 self.set_port(kid, PortSlot(1), o);
             }
+            KindTag::Select => {
+                let sel = self.get_port(kid, PortSlot(0));
+                let a = self.get_port(kid, PortSlot(1));
+                let b = self.get_port(kid, PortSlot(2));
+                let o = if is_truthy(sel) { b } else { a };
+                self.set_port(kid, PortSlot(3), o);
+            }
             KindTag::SignalOut => {
                 let v = self.get_port(kid, PortSlot(0));
                 if let Some(path) = self.knots[ki].path {
@@ -324,6 +331,7 @@ enum KindTag {
         out_min: Signal,
         out_max: Signal,
     },
+    Select,
     SignalOut,
     EmitCommand,
 }
@@ -367,6 +375,7 @@ impl KindTag {
                 out_min: *out_min,
                 out_max: *out_max,
             },
+            KnotKind::Select => KindTag::Select,
             KnotKind::SignalOut { .. } => KindTag::SignalOut,
             KnotKind::EmitCommand { .. } => KindTag::EmitCommand,
         }

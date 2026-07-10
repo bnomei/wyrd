@@ -58,6 +58,12 @@ const COUNTER: &[PortInfo] = &[
 const TIMER_PULSE: &[PortInfo] = &[pin(0, "start", true), pout(1, "active")];
 const TIMER_FED: &[PortInfo] = &[pin(0, "feed", true), pout(1, "active")];
 const CALC: &[PortInfo] = &[pin(0, "a", true), pin(1, "b", true), pout(2, "out")];
+const SELECT: &[PortInfo] = &[
+    pin(0, "sel", true),
+    pin(1, "a", true),
+    pin(2, "b", true),
+    pout(3, "out"),
+];
 const MAP_LIKE: &[PortInfo] = &[pin(0, "in", true), pout(1, "out")];
 const SIGNAL_OUT: &[PortInfo] = &[pin(0, "in", true)];
 const EMIT: &[PortInfo] = &[
@@ -105,6 +111,7 @@ pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
         KnotKind::Map { .. } => MAP_LIKE,
         KnotKind::Abs => MAP_LIKE,
         KnotKind::Neg => MAP_LIKE,
+        KnotKind::Select => SELECT,
         KnotKind::SignalOut { .. } => SIGNAL_OUT,
         KnotKind::EmitCommand { .. } => EMIT,
     }
@@ -176,6 +183,8 @@ mod tests {
         );
         assert_eq!(ports_of(&KnotKind::Abs)[1].name, "out");
         assert_eq!(ports_of(&KnotKind::Neg)[0].name, "in");
+        assert_eq!(port_slot(&KnotKind::select(), "sel"), Some(PortSlot(0)));
+        assert_eq!(port_slot(&KnotKind::select(), "b"), Some(PortSlot(2)));
         assert_eq!(ports_of(&KnotKind::constant(crate::ONE))[0].name, "out");
         assert_eq!(ports_of(&KnotKind::signal_in())[0].name, "out");
         assert_eq!(ports_of(&KnotKind::OnStart)[0].name, "out");

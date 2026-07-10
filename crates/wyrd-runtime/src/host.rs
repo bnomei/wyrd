@@ -127,9 +127,8 @@ impl ScriptedHost {
 
     /// Commands applied on the last completed tick (after `tick_once`).
     pub fn last_commands(&self) -> &[HostCommand] {
-        let n = match self.commands_per_tick.last() {
-            Some(&c) => c,
-            None => return &[],
+        let Some(&n) = self.commands_per_tick.last() else {
+            return &[];
         };
         let start = self.commands.len().saturating_sub(n);
         &self.commands[start..]
@@ -143,10 +142,11 @@ impl Host for ScriptedHost {
 
     fn sample_into(&mut self, ports: &mut PortWriter<'_>) {
         let i = self.tick as usize;
-        if let Some(frame) = self.frames.get(i) {
-            for &(id, v) in frame {
-                ports.set_sense(id, v);
-            }
+        let Some(frame) = self.frames.get(i) else {
+            return;
+        };
+        for &(id, v) in frame {
+            ports.set_sense(id, v);
         }
     }
 
@@ -162,7 +162,7 @@ impl Host for ScriptedHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wyrd_core::{is_truthy, KnotKind, ONE, ZERO};
+    use wyrd_core::{is_truthy, CmdId, HostPathId, KnotKind, ONE, ZERO};
     use wyrd_graph::Weave;
 
     use crate::bind::BindOpts;
@@ -207,13 +207,11 @@ mod tests {
         tick_once(&mut host, &mut rt, &weave).unwrap();
 
         assert_eq!(host.cmds.len(), 1);
-        match host.cmds[0] {
-            HostCommand::SetLevel { path: p, value } => {
-                assert_eq!(p, path);
-                assert!(!is_truthy(value));
-            }
-            HostCommand::Emit { .. } => panic!("expected SetLevel"),
-        }
+        assert!(matches!(
+            host.cmds[0],
+            HostCommand::SetLevel { path: p, value }
+                if p == path && !is_truthy(value)
+        ));
         assert_eq!(host.tick, 1);
     }
 
@@ -226,21 +224,54 @@ mod tests {
         let weave = b.wire_named("btn", "out", "em", "trigger").build().unwrap();
         let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
         let btn = rt.sense_id("btn").unwrap();
-        let cmd = {
-            // rising edge emit
-            rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer().set_sense(btn, ONE);
-            rt.loom(&weave).unwrap();
-            let cmds = outbox_to_commands(rt.outbox());
-            assert_eq!(cmds.len(), 1);
-            match cmds[0] {
-                HostCommand::Emit { cmd, payload } => {
-                    assert_eq!(payload, ZERO); // default unconnected payload
-                    cmd
-                }
-                HostCommand::SetLevel { .. } => panic!("expected Emit"),
-            }
+        // rising edge emit
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(btn, ONE);
+        rt.loom(&weave).unwrap();
+        let cmds = outbox_to_commands(rt.outbox());
+        assert_eq!(cmds.len(), 1);
+        assert!(matches!(
+            cmds[0],
+            HostCommand::Emit {
+                payload: p,
+                ..
+            } if p == ZERO
+        ));
+        let emit = rt.outbox().emits()[0];
+        assert_eq!(emit.payload, ZERO);
+        assert_eq!(rt.cmd_name(emit.cmd), "fire");
+    }
+
+    #[test]
+    fn host_command_variants_constructible() {
+        let s = HostCommand::SetLevel {
+            path: HostPathId(1),
+            value: ONE,
         };
-        assert_eq!(rt.cmd_name(cmd), "fire");
+        let e = HostCommand::Emit {
+            cmd: CmdId(0),
+            payload: ZERO,
+        };
+        assert!(matches!(s, HostCommand::SetLevel { .. }));
+        assert!(matches!(e, HostCommand::Emit { .. }));
+    }
+
+    #[test]
+    fn scripted_last_commands_empty_before_tick() {
+        let h = ScriptedHost::new();
+        assert!(h.last_commands().is_empty());
+    }
+
+    #[test]
+    fn scripted_sample_with_no_frames_is_noop() {
+        let (b, _) = Weave::builder("n")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let weave = b.build().unwrap();
+        let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        let mut host = ScriptedHost::new(); // no frames
+        tick_once(&mut host, &mut rt, &weave).unwrap();
+        assert_eq!(host.tick, 1);
+        assert!(host.last_commands().is_empty());
     }
 }

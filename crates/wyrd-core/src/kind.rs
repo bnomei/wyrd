@@ -106,6 +106,8 @@ pub enum KnotKind {
     },
     Abs,
     Neg,
+    /// Multiplex: falsey sel → a, truthy sel → b.
+    Select,
     SignalOut {
         path: std::string::String,
     },
@@ -170,6 +172,10 @@ impl KnotKind {
             priority,
             enable_toggle,
         }
+    }
+
+    pub fn select() -> Self {
+        KnotKind::Select
     }
 
     pub fn arity(&self) -> Option<u8> {
