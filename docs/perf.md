@@ -178,9 +178,18 @@ Each area: isolation baseline → change → after×2 (f32) + i32 check when dua
 | **1b Digitize** | f32 `bin_scale=steps/span` + `last_f` clamp + `mul_add` (integer bins) | **~854 ns → ~646–693 ns** |
 | **2 Sqrt** | f32: core `f32::sqrt` (drop `libm`); i32: Newton `isqrt` | **~1.08 µs → ~395–437 ns** (i32 ~562 → ~310 ns) |
 | **3 Map** | Bind precompute: reciprocal × + i32 `den`/`out_span_i64` | **~651 ns → ~505–515 ns** |
-| **4 Residual** | Sense seed list; Calc tags split by op; Compare `rhs` as `Signal`; Emit/Random wire flags at bind | Not 64 **~307 → ~270 ns** |
+| **4 Residual** | Sense seed list; Calc tags split by op; Compare `rhs` as `Signal`; Emit/Random wire flags at bind | Not 64 **~307–310 → ~268 ns** (r1/r2 agree) |
 
-**Final isolation medians (f32, long):** Digitize **~646–693 ns** · Map ~505 ns · Sqrt ~395 ns · Not64 ~270 ns · Fanout64 ~572 ns.
+**Area 4 residual evidence (long Divan `iso_struct_not_chain`):**
+
+| Capture | Not64 median | Notes |
+| --- | ---: | --- |
+| before (cite `bench-area-digitize-before` / `bench-area-map-before`) | ~307 / ~309.6 ns | pre sense_seeds |
+| after r1 (`bench-area-residual-after-r1`) | **~268 ns** | `--sample-count 300 --min-time 1` |
+| after r2 (`bench-area-residual-after-r2`) | **~267.9 ns** | agrees with r1 |
+| map control (`bench-area-residual-control-map`) | ~502 ns | no Map regression |
+
+**Final isolation medians (f32, long):** Digitize **~646–693 ns** · Map ~502–505 ns · Sqrt ~395 ns · Not64 **~268 ns** · Fanout64 ~572 ns.
 
 **Final isolation (i32, long):** Map ~286 ns · Sqrt ~291 ns · Not64 ~284 ns · Digitize still noisy on iso (prefer catalog / fastest).
 
