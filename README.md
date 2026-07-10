@@ -37,6 +37,27 @@ rt.loom(&weave)?;
 
 Host tick: resolve `sense_id("plate")` once, then `set_sense(KnotId, Signal)` each frame — **no string lookup on the hot path**.
 
+## Host tick (sample → loom → apply)
+
+Game engines **own** world I/O. Wyrd never knows doors, cameras, or Entities.
+
+```text
+1. host.sample_into(PortWriter)   // dense set_sense(KnotId, Signal)
+2. begin_frame + loom             // settle DAG once
+3. host.apply(outbox)             // SetLevel / Emit via HostPathId / CmdId
+```
+
+Use `wyrd_runtime::{Host, tick_once, NullHost, ScriptedHost, HostCommand}` for
+headless/scripted loops, or free-form systems in Bevy (`WyrdSet::{Sample, Loom, Apply}`).
+
+**Door is a host effect** — a Bevy `Door` component (or your own type), not a Knot.
+Bevy **Messages** (`WyrdSignalConfirm`) are post-apply confirmations for VFX/UI only;
+they are **never** Weave Threads.
+
+```bash
+cargo run -p wyrd-bevy --example and_door   # Door component + confirmation Message
+```
+
 ## Features
 
 | Feature | Meaning |
@@ -75,6 +96,8 @@ CI: `.github/workflows/ci.yml` runs both signal matrices + Bevy + `no_std` i32 c
 
 Design notes live under `docs/` (see `.gitignore`). Start with:
 
+- `docs/ROADMAP.md` — full checklist (done / open / later)  
+- `docs/vision.md` — product vision  
 - `docs/research/decisions.md` — locked decisions  
 - `docs/api-preview/11_revised_surface.rs` — v2 API pencil  
 - `docs/primitives/port-schema.md` — closed port tables  

@@ -1,4 +1,7 @@
-//! Headless and-door demo: two plates → And → door.open.
+//! And-door demo: two plates → And → SignalOut; **host** applies to a Door component.
+//!
+//! The door is **not** a Wyrd Knot — only a host effect. Bevy Messages confirm
+//! apply (VFX/UI), they are never Weave Threads.
 //!
 //! ```bash
 //! cargo run -p wyrd-bevy --example and_door
@@ -6,7 +9,8 @@
 
 use bevy::prelude::*;
 use wyrd_bevy::{
-    set_sense_bool, signal_truthy, AndDoorBinding, WyrdInstance, WyrdPlugin, WyrdSet, WyrdWorld,
+    apply_signal_bool, set_sense_bool, AndDoorBinding, Door, WyrdInstance, WyrdPlugin,
+    WyrdSet, WyrdSignalConfirm, WyrdWorld,
 };
 use wyrd_core::KnotKind;
 use wyrd_graph::Weave;
@@ -17,7 +21,6 @@ fn main() {
             std::time::Duration::from_millis(1),
         )))
         .add_plugins(WyrdPlugin)
-        .init_resource::<DoorOpen>()
         .insert_resource(PlateState {
             a: false,
             b: false,
@@ -26,12 +29,10 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(Update, drive_plates.in_set(WyrdSet::Sample))
         .add_systems(Update, apply_door.in_set(WyrdSet::Apply))
+        .add_systems(Update, log_confirms.after(WyrdSet::Apply))
         .add_systems(Update, quit_after.in_set(WyrdSet::Apply))
         .run();
 }
-
-#[derive(Resource, Default)]
-struct DoorOpen(bool);
 
 #[derive(Resource)]
 struct PlateState {
@@ -51,7 +52,9 @@ fn setup(mut world: ResMut<WyrdWorld>, mut commands: Commands) {
     };
     world.instances.push(inst);
     commands.insert_resource(binding);
-    eprintln!("wyrd-bevy and_door: frames 1–2 A only, 3–4 both plates");
+    // Host-owned door entity (not a Weave knot).
+    commands.spawn(Door { open: false });
+    eprintln!("wyrd-bevy and_door: host Door component; frames 1–2 A only, 3–4 both plates");
 }
 
 fn and_door_weave() -> Weave {
@@ -80,19 +83,37 @@ fn drive_plates(
     set_sense_bool(inst, binding.plate_b, plates.b);
 }
 
-fn apply_door(binding: Res<AndDoorBinding>, world: Res<WyrdWorld>, mut door: ResMut<DoorOpen>) {
+fn apply_door(
+    binding: Res<AndDoorBinding>,
+    world: Res<WyrdWorld>,
+    mut q: Query<&mut Door>,
+    mut confirms: MessageWriter<WyrdSignalConfirm>,
+) {
     let Some(inst) = world.instances.get(binding.instance) else {
         return;
     };
-    let open = signal_truthy(inst, binding.door_path);
-    if open != door.0 {
-        door.0 = open;
-        eprintln!("door.open = {open}");
+    for mut door in &mut q {
+        if apply_signal_bool(inst, binding.door_path, &mut door.open) {
+            confirms.write(WyrdSignalConfirm {
+                path: binding.door_path,
+                truthy: door.open,
+            });
+            eprintln!("host applied Door.open = {}", door.open);
+        }
+    }
+}
+
+fn log_confirms(mut reader: MessageReader<WyrdSignalConfirm>) {
+    for c in reader.read() {
+        eprintln!(
+            "confirmation (not a Thread): path={:?} truthy={}",
+            c.path, c.truthy
+        );
     }
 }
 
 fn quit_after(plates: Res<PlateState>, mut exit: MessageWriter<AppExit>) {
-    if plates.frame >= 5 {
+    if plates.frame >= 6 {
         exit.write(AppExit::Success);
     }
 }
