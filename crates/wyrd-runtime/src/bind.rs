@@ -259,6 +259,16 @@ impl Runtime {
         }
     }
 
+    /// Capacity of the SignalOut outbox buffer (reserved at bind).
+    pub fn outbox_signals_capacity(&self) -> usize {
+        self.out_signals.capacity()
+    }
+
+    /// Length of the flat delay ring (sized at bind).
+    pub fn delay_buf_len(&self) -> usize {
+        self.delay_buf.len()
+    }
+
     pub(crate) fn get_port(&self, knot: KnotId, slot: PortSlot) -> Signal {
         let i = knot.0 as usize * self.max_ports + slot.0 as usize;
         self.port_vals.get(i).copied().unwrap_or(ZERO)

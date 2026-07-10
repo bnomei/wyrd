@@ -1,14 +1,13 @@
-//! Steady-state loom does not grow major Runtime buffers (std only).
+//! Steady-state loom buffer stability (bind-time preallocation).
 //!
-//! Proves bind-time preallocation for outbox + delay rings: after warmup,
-//! repeated loom does not increase `outbox` capacity or delay_buf length.
+//! After warmup, repeated loom does not grow outbox capacity or delay_buf length.
 
 use wyrd_core::{HostTime, KnotKind, ONE};
 use wyrd_graph::Weave;
 use wyrd_runtime::{BindOpts, Runtime};
 
 #[test]
-fn loom_steady_state_no_outbox_cap_growth() {
+fn loom_steady_state_outbox_capacity_stable() {
     let (b, _) = Weave::builder("z")
         .knot("c", KnotKind::constant(ONE))
         .unwrap();
@@ -21,16 +20,20 @@ fn loom_steady_state_no_outbox_cap_growth() {
         .unwrap();
     let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
 
-    // Warmup — first loom may fill reserved outbox.
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom(&weave).unwrap();
-    let sig_cap = rt.outbox().signals().len(); // after clear next frame, check via loom behavior
+    let cap = rt.outbox_signals_capacity();
+    assert!(cap >= 1, "bind reserves at least one SignalOut slot");
 
-    // After begin_frame, outbox is empty but capacity is retained.
     for t in 1..64u64 {
         rt.begin_frame(HostTime { tick: t });
         rt.loom(&weave).unwrap();
-        assert_eq!(rt.outbox().signals().len(), sig_cap.max(1));
+        assert_eq!(rt.outbox().signals().len(), 1);
+        assert_eq!(
+            rt.outbox_signals_capacity(),
+            cap,
+            "outbox capacity must not grow after bind"
+        );
     }
 }
 
@@ -47,10 +50,12 @@ fn delay_ring_sized_at_bind() {
         .build()
         .unwrap();
     let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    assert_eq!(rt.delay_buf_len(), 8);
+    let dlen = rt.delay_buf_len();
     for t in 0..16u64 {
         rt.begin_frame(HostTime { tick: t });
         rt.loom(&weave).unwrap();
+        assert_eq!(rt.delay_buf_len(), dlen);
     }
-    // If bind pre-sized the ring, loom does not panic or re-reserve topology.
     assert_eq!(rt.outbox().signals().len(), 1);
 }

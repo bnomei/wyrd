@@ -34,8 +34,7 @@ fn chain_not(n: usize) -> (Weave, Runtime) {
     (weave, rt)
 }
 
-// Budget hard max knots is 256 (constant + n Nots + out).
-/// `n` = number of Not knots (total knots ≈ n + 2).
+/// `n` = number of Not knots (total knots ≈ n + 2). Depth budget raised via BindOpts.
 #[divan::bench(args = [16, 64, 128])]
 fn settle_not_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_not(n);
