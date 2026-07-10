@@ -6,10 +6,12 @@
 extern crate no_std_compat as std;
 
 mod bind;
+mod host;
 mod loom;
 mod outbox;
 
 pub use bind::{BindOpts, Runtime};
+pub use host::{outbox_to_commands, tick_once, Host, HostCommand};
 pub use outbox::{Emit, Outbox, PortWriter, SignalOutSample};
 
 pub use wyrd_core::{
