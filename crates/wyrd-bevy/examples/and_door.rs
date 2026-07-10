@@ -102,7 +102,7 @@ fn apply_door(
         return;
     };
     for mut door in &mut q {
-        if apply_signal_bool(inst, binding.door_path, &mut door.open) {
+        if apply_signal_bool(inst, binding.door_path, &mut door.open).expect("bound door path") {
             confirms.write(WyrdSignalConfirm {
                 path: binding.door_path,
                 truthy: door.open,

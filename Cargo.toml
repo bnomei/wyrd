@@ -24,6 +24,7 @@ wyrd-core = { path = "crates/wyrd-core", version = "0.2.0", default-features = f
 wyrd-graph = { path = "crates/wyrd-graph", version = "0.2.0", default-features = false }
 wyrd-runtime = { path = "crates/wyrd-runtime", version = "0.2.0", default-features = false }
 no-std-compat = { version = "0.4", default-features = false }
+libm = { version = "0.2.16", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 ron = { version = "0.8", default-features = false }
 serde_json = { version = "1", default-features = false, features = ["std"] }

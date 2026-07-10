@@ -138,22 +138,34 @@ pub fn set_sense_bool(inst: &mut WyrdInstance, id: SenseId, on: bool) -> Result<
 }
 
 /// Read truthy SignalOut by HostPathId.
-pub fn signal_truthy(inst: &WyrdInstance, path: HostPathId) -> bool {
-    inst.runtime
+///
+/// Returns [`HandleError::ForeignRuntime`] when `path` belongs to another
+/// instance, and [`HandleError::InvalidHostPath`] for an invalid local path.
+pub fn signal_truthy(inst: &WyrdInstance, path: HostPathId) -> Result<bool, HandleError> {
+    inst.runtime.path_name(path)?;
+    Ok(inst
+        .runtime
         .outbox()
         .signals()
         .iter()
         .find(|s| s.path == path)
         .map(|s| wyrd_core::is_truthy(s.value))
-        .unwrap_or(false)
+        .unwrap_or(false))
 }
 
 /// Apply a SignalOut level into a host `bool`, returning `true` if the value changed.
-pub fn apply_signal_bool(inst: &WyrdInstance, path: HostPathId, slot: &mut bool) -> bool {
-    let next = signal_truthy(inst, path);
+///
+/// Returns the same handle validation errors as [`signal_truthy`] and leaves
+/// `slot` unchanged when validation fails.
+pub fn apply_signal_bool(
+    inst: &WyrdInstance,
+    path: HostPathId,
+    slot: &mut bool,
+) -> Result<bool, HandleError> {
+    let next = signal_truthy(inst, path)?;
     let changed = *slot != next;
     *slot = next;
-    changed
+    Ok(changed)
 }
 
 #[cfg(test)]
@@ -207,7 +219,7 @@ mod tests {
         let Some(inst) = world.instances.get(binding.instance) else {
             return;
         };
-        door.0 = signal_truthy(inst, binding.door_path);
+        door.0 = signal_truthy(inst, binding.door_path).expect("bound door path");
     }
 
     fn apply_door_component(
@@ -220,7 +232,8 @@ mod tests {
             return;
         };
         for mut door in &mut q {
-            if apply_signal_bool(inst, binding.door_path, &mut door.open) {
+            if apply_signal_bool(inst, binding.door_path, &mut door.open).expect("bound door path")
+            {
                 confirms.write(WyrdSignalConfirm {
                     path: binding.door_path,
                     truthy: door.open,
@@ -247,7 +260,20 @@ mod tests {
             instance: 0,
         };
         let foreign = WyrdInstance::new("foreign", and_door_weave()).unwrap();
-        assert!(!signal_truthy(&inst, foreign.path_id("door.open").unwrap()));
+        assert_eq!(
+            signal_truthy(&inst, foreign.path_id("door.open").unwrap()),
+            Err(HandleError::ForeignRuntime {
+                handle: "host path"
+            })
+        );
+        let mut open = true;
+        assert_eq!(
+            apply_signal_bool(&inst, foreign.path_id("door.open").unwrap(), &mut open),
+            Err(HandleError::ForeignRuntime {
+                handle: "host path"
+            })
+        );
+        assert!(open, "a rejected handle must not mutate host state");
 
         app.world_mut()
             .resource_mut::<WyrdWorld>()

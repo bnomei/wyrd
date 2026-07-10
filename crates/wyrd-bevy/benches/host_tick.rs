@@ -58,7 +58,8 @@ fn apply_door_component(
         return;
     };
     for mut door in &mut q {
-        let _ = apply_signal_bool(inst, binding.door_path, &mut door.open);
+        let _ =
+            apply_signal_bool(inst, binding.door_path, &mut door.open).expect("bound door path");
     }
 }
 

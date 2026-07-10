@@ -24,7 +24,8 @@ WyrdSet::Apply   → read outbox → mutate Components → optional Messages
 **Door is a host effect.** The demo `Door` component is not a Knot; the Weave
 only has `SignalOut("door.open")`.
 
-Helpers: `set_sense_bool`, `signal_truthy`, `apply_signal_bool`.
+Helpers: `set_sense_bool`, `signal_truthy`, `apply_signal_bool`. Each returns a
+`Result` and rejects a handle resolved from a different `WyrdInstance`.
 
 ## Numeric path: **signal-f32 only**
 

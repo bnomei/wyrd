@@ -723,11 +723,40 @@ fn sqrt_f32(value: f32) -> f32 {
     }
     #[cfg(not(feature = "std"))]
     {
-        let mut estimate = if value >= 1.0 { value } else { 1.0 };
-        for _ in 0..12 {
-            estimate = 0.5 * (estimate + value / estimate);
+        libm::sqrtf(value)
+    }
+}
+
+#[cfg(all(test, feature = "signal-f32"))]
+mod sqrt_f32_tests {
+    #[test]
+    fn libm_matches_std_across_f32_magnitudes() {
+        let values = [
+            f32::from_bits(1),
+            f32::MIN_POSITIVE,
+            1.0e-20,
+            0.25,
+            2.0,
+            1.0e20,
+            f32::MAX,
+        ];
+
+        for value in values {
+            let expected = value.sqrt();
+            let actual = libm::sqrtf(value);
+            let tolerance = expected.abs() * (4.0 * f32::EPSILON);
+            assert!(
+                (actual - expected).abs() <= tolerance,
+                "sqrt({value:e}): expected {expected:e}, got {actual:e}"
+            );
         }
-        estimate
+    }
+
+    #[test]
+    fn std_dispatch_preserves_native_sqrt_semantics() {
+        for value in [f32::from_bits(1), 2.0, f32::MAX] {
+            assert_eq!(super::sqrt_f32(value), value.sqrt());
+        }
     }
 }
 
