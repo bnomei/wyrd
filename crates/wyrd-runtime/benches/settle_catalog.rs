@@ -4,8 +4,8 @@
 mod common;
 
 use common::{
-    calc_abs_chain, chain_calc_mul, chain_digitize, chain_map, chain_sqrt, fanout_nots,
-    map_digitize_chain, threshold_simple,
+    calc_abs_chain, chain_calc_div, chain_calc_mul, chain_digitize, chain_map, chain_sqrt,
+    fanout_nots, map_digitize_chain, threshold_simple,
 };
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
@@ -142,6 +142,22 @@ fn settle_sqrt_chain(bencher: Bencher, n: usize) {
         .bench_local(|| {
             rt.begin_frame(HostTime { tick: 0 });
             // Positive level: f32 sqrtf; i32 integer isqrt on bits.
+            rt.port_writer().set_sense(id, ONE);
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+/// P1: SignalIn → Calc(Div) × n with ONE divisor (dual-path non-zero).
+#[divan::bench(args = [16, 64])]
+fn settle_calc_div_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_calc_div(n);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
             rt.port_writer().set_sense(id, ONE);
             rt.loom(black_box(&weave)).unwrap();
             black_box(rt.outbox().signals().len());

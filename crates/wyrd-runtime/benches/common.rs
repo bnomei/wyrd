@@ -3,7 +3,9 @@
 //! Not a stand-alone bench target (`autobenches = false` in Cargo.toml).
 #![allow(dead_code)] // each bench binary uses a subset of helpers
 
-use wyrd_core::{from_count, CalcOp, KnotKind, Seed, ONE, ZERO};
+use wyrd_core::{
+    from_count, CalcOp, FlagPriority, KnotKind, Seed, TimerMode, ONE, ZERO,
+};
 use wyrd_graph::{Budget, Weave};
 use wyrd_runtime::{BindOpts, Runtime};
 
@@ -345,6 +347,104 @@ pub fn chain_delays(n: usize, ticks: u16) -> (Weave, Runtime) {
         .min(u16::MAX as u32) as u16;
     let rt = bind_scaled(&weave, |bud| {
         bud.max_delay_path_sum = path_sum.max(32);
+    });
+    (weave, rt)
+}
+
+// ---------------------------------------------------------------------------
+// P1: product stateful + emit storm
+// ---------------------------------------------------------------------------
+
+/// Puzzle-kit weave: Counter, Flag, PulseHold, FedCountdown + Rising edge.
+///
+/// Senses: `start` (edge into rising/flag/pulse), `feed` (fed timer + flag reset).
+/// Outs: `count`, `flag`, `pulse`, `fed`.
+pub fn stateful_kit() -> (Weave, Runtime) {
+    let (b, _) = Weave::builder("kit")
+        .knot("start", KnotKind::signal_in())
+        .unwrap();
+    let (b, _) = b.knot("feed", KnotKind::signal_in()).unwrap();
+    let (b, _) = b.knot("rise", KnotKind::rising_from_zero()).unwrap();
+    let (b, _) = b.knot("cnt", KnotKind::counter()).unwrap();
+    let (b, _) = b
+        .knot("flg", KnotKind::flag(FlagPriority::SetWins, false))
+        .unwrap();
+    let (b, _) = b
+        .knot("pulse", KnotKind::timer(TimerMode::PulseHold, 2))
+        .unwrap();
+    let (b, _) = b
+        .knot("fed", KnotKind::timer(TimerMode::FedCountdown, 3))
+        .unwrap();
+    let (b, _) = b.knot("out_c", KnotKind::signal_out("count")).unwrap();
+    let (b, _) = b.knot("out_f", KnotKind::signal_out("flag")).unwrap();
+    let (b, _) = b.knot("out_p", KnotKind::signal_out("pulse")).unwrap();
+    let (b, _) = b.knot("out_d", KnotKind::signal_out("fed")).unwrap();
+    let weave = b
+        .wire_named("start", "out", "rise", "in")
+        .wire_named("rise", "out", "cnt", "inc")
+        .wire_named("start", "out", "flg", "set")
+        .wire_named("feed", "out", "flg", "reset")
+        .wire_named("rise", "out", "pulse", "start")
+        .wire_named("feed", "out", "fed", "feed")
+        .wire_named("cnt", "count", "out_c", "in")
+        .wire_named("flg", "out", "out_f", "in")
+        .wire_named("pulse", "active", "out_p", "in")
+        .wire_named("fed", "active", "out_d", "in")
+        .build()
+        .unwrap();
+    let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    (weave, rt)
+}
+
+/// Shared gate → n EmitCommand (raise max_emits_per_tick).
+pub fn emit_storm(n: usize) -> (Weave, Runtime) {
+    let (mut b, _) = Weave::builder("em")
+        .knot("g", KnotKind::signal_in())
+        .unwrap();
+    for i in 0..n {
+        let id = format!("e{i}");
+        let (b2, _) = b
+            .knot(&id, KnotKind::emit_command(format!("cmd{i}")))
+            .unwrap();
+        b = b2.wire_named("g", "out", &id, "trigger");
+    }
+    let weave = b.build().unwrap();
+    let mut budget = deep_budget();
+    budget.max_fan_out = (n as u16).saturating_add(4).max(16);
+    budget.soft_fan_out = budget.max_fan_out;
+    let rt = Runtime::bind(
+        &weave,
+        BindOpts {
+            budget,
+            max_emits_per_tick: (n as u16).saturating_add(1).max(8),
+            ..BindOpts::default()
+        },
+    )
+    .unwrap();
+    (weave, rt)
+}
+
+/// SignalIn → Calc(Div) × n with shared ONE divisor (non-zero dual-path).
+pub fn chain_calc_div(n: usize) -> (Weave, Runtime) {
+    let (mut b, _) = Weave::builder("cdiv")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let (b2, _) = b.knot("one", KnotKind::constant(ONE)).unwrap();
+    b = b2;
+    let mut prev = "in".to_string();
+    for i in 0..n {
+        let id = format!("div{i}");
+        let (b2, _) = b.knot(&id, KnotKind::Calc { op: CalcOp::Div }).unwrap();
+        b = b2
+            .wire_named(&prev, "out", &id, "a")
+            .wire_named("one", "out", &id, "b");
+        prev = id;
+    }
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
+    let rt = bind_scaled(&weave, |bud| {
+        bud.max_fan_out = (n as u16).saturating_add(4).max(16);
+        bud.soft_fan_out = bud.max_fan_out;
     });
     (weave, rt)
 }

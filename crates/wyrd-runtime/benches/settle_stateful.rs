@@ -1,9 +1,9 @@
-//! Stateful settle: Delay rings, gated Random; P0 scaled delay chain.
+//! Stateful settle: Delay, Random; P0 delay chain; P1 kit + emit storm.
 
 #[path = "common.rs"]
 mod common;
 
-use common::{chain_delays, delay_chain, random_gated};
+use common::{chain_delays, delay_chain, emit_storm, random_gated, stateful_kit};
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
 use wyrd_core::{HostTime, ONE, ZERO};
@@ -47,25 +47,84 @@ fn settle_delay_chain(bencher: Bencher, n: usize) {
 }
 
 /// Rising gate each tick so Random samples every settle.
+/// **Two looms per sample** (fall then rise) — items/s not 1:1 with other rows.
 #[divan::bench]
 fn settle_random_gated(bencher: Bencher) {
     let (weave, mut rt) = random_gated();
     let g = rt.sense_id("g").unwrap();
     let knots = weave.knots.len() as u64;
-    let mut phase = false;
     bencher
         .counter(ItemsCount::new(knots))
         .bench_local(|| {
-            // 0 → 1 rising edge each iteration.
+            // 0 → 1 rising edge each iteration (two settles).
             rt.begin_frame(HostTime { tick: 0 });
             rt.port_writer().set_sense(g, ZERO);
             rt.loom(black_box(&weave)).unwrap();
 
-            phase = !phase;
             rt.begin_frame(HostTime { tick: 1 });
             rt.port_writer().set_sense(g, ONE);
             rt.loom(black_box(&weave)).unwrap();
             black_box(rt.outbox().signals().len());
+        });
+}
+
+// --- P1: stateful kit + emit storm ---
+
+/// Counter / Flag / PulseHold / FedCountdown with a 4-phase sense script.
+/// One loom per sample; phase advances so edges fire over iterations.
+#[divan::bench]
+fn settle_stateful_kit(bencher: Bencher) {
+    let (weave, mut rt) = stateful_kit();
+    let start = rt.sense_id("start").unwrap();
+    let feed = rt.sense_id("feed").unwrap();
+    let knots = weave.knots.len() as u64;
+    // 0: idle, 1: start rise, 2: hold start+feed, 3: release start keep feed
+    let mut phase = 0u8;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            let (sv, fv) = match phase % 4 {
+                0 => (ZERO, ZERO),
+                1 => (ONE, ZERO),
+                2 => (ONE, ONE),
+                _ => (ZERO, ONE),
+            };
+            phase = phase.wrapping_add(1);
+            rt.begin_frame(HostTime { tick: 0 });
+            {
+                let mut w = rt.port_writer();
+                w.set_sense(start, sv);
+                w.set_sense(feed, fv);
+            }
+            rt.loom(black_box(&weave)).unwrap();
+            black_box((
+                rt.outbox().signals().len(),
+                rt.outbox().emits().len(),
+            ));
+        });
+}
+
+/// Shared gate → n EmitCommands; one rising edge per sample (1 loom).
+/// ItemsCount = **knots** (includes gate + n emits) for suite comparability.
+#[divan::bench(args = [8, 32])]
+fn settle_emit_storm(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = emit_storm(n);
+    let g = rt.sense_id("g").unwrap();
+    let knots = weave.knots.len() as u64;
+    let mut high = false;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            // Alternate so every sample is a rising edge (prev low, now high).
+            // Odd samples fall (no emit); even samples rise.
+            // Prefer always-rise: force low then high would be 2 looms — instead
+            // keep prev_in by toggling so only rising samples emit; count all samples.
+            high = !high;
+            rt.begin_frame(HostTime { tick: 0 });
+            rt.port_writer()
+                .set_sense(g, if high { ONE } else { ZERO });
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().emits().len());
         });
 }
 

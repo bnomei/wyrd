@@ -10,8 +10,8 @@ Bench targets are **split** so the suite can grow without one mega-file. Shared 
 | Target | Path | Focus |
 | --- | --- | --- |
 | `settle_chain` | `benches/settle_chain.rs` | Not depth, And door, host `tick_once` |
-| `settle_catalog` | `benches/settle_catalog.rs` | Micro Map/Digitize/Calc/Threshold + **scaled** Map/Digitize/Mul/Sqrt chains + fan-out |
-| `settle_stateful` | `benches/settle_stateful.rs` | Delay micro + **scaled Delay×n**, gated Random |
+| `settle_catalog` | `benches/settle_catalog.rs` | Micro probes + **scaled** Map/Digitize/Mul/Div/Sqrt + fan-out |
+| `settle_stateful` | `benches/settle_stateful.rs` | Delay, Random, **stateful kit**, **emit storm** |
 | `bind` | `benches/bind.rs` | Load path: validate + topo + buffers |
 
 ```bash
@@ -164,6 +164,37 @@ Filter runs:
 cargo bench -p wyrd-runtime --bench settle_catalog -- \
   settle_map_chain settle_digitize_chain settle_calc_mul_chain settle_sqrt_chain
 cargo bench -p wyrd-runtime --bench settle_stateful -- settle_delay_chain
+```
+
+## P1 — Stateful kit + emit storm + Calc Div
+
+### f32
+
+| Bench | Notes | Median | ~items/s (knots) |
+| --- | --- | ---: | ---: |
+| `settle_stateful_kit` | 11 knots; 4-phase start/feed script | ~76 ns | ~145 M |
+| `settle_emit_storm` | 8 emits (+gate) | ~57 ns | ~157 M |
+| `settle_emit_storm` | 32 emits | ~239 ns | ~138 M |
+| `settle_calc_div_chain` | N=16 Div (ONE divisor) | ~139 ns | ~137 M |
+| `settle_calc_div_chain` | N=64 | ~536 ns | ~125 M |
+
+### i32 Q16
+
+| Bench | Median | ~items/s |
+| --- | ---: | ---: |
+| `settle_stateful_kit` | ~69 ns | ~159 M |
+| `settle_emit_storm` 8 / 32 | ~56 / ~229 ns | ~160 / ~144 M |
+| `settle_calc_div_chain` 16 / 64 | ~259 / ~1.11 µs | ~73 / ~60 M |
+
+**Notes**
+
+- **Stateful kit** one loom/sample; phase cycles idle → start → start+feed → feed so Rising/Counter/Flag/Timers exercise over iterations.
+- **Emit storm** ItemsCount = knots (gate + n EmitCommands), not emit count; alternate levels so half of samples are rising edges.
+- **Calc Div** on i32 is slower than f32 at N=64 here (Q-div vs float `/`).
+
+```bash
+cargo bench -p wyrd-runtime --bench settle_stateful -- settle_stateful_kit settle_emit_storm
+cargo bench -p wyrd-runtime --bench settle_catalog -- settle_calc_div_chain
 ```
 
 ## Adding a new bench
