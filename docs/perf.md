@@ -197,6 +197,64 @@ cargo bench -p wyrd-runtime --bench settle_stateful -- settle_stateful_kit settl
 cargo bench -p wyrd-runtime --bench settle_catalog -- settle_calc_div_chain
 ```
 
+## P2 — Edges + remaining catalog kinds
+
+### f32
+
+| Bench | Median | ~items/s |
+| --- | ---: | ---: |
+| `settle_edges_pack` | ~34 ns | ~203 M |
+| `settle_logic_pack` | ~82 ns | ~134 M |
+| `settle_clamp_neg_chain` 16 / 64 | ~207 / ~838 ns | ~165 / ~155 M |
+| `settle_compare_chain` 16 / 64 | ~155 / ~614 ns | ~116 / ~107 M |
+| `settle_onstart` | ~8.8 ns | ~227 M |
+
+### i32
+
+| Bench | Median | ~items/s |
+| --- | ---: | ---: |
+| `settle_edges_pack` | ~38 ns | ~182 M |
+| `settle_logic_pack` | ~90 ns | ~123 M |
+| `settle_clamp_neg_chain` 16 / 64 | ~196 / ~734 ns | ~173 / ~177 M |
+| `settle_compare_chain` 16 / 64 | ~130 / ~442 ns | ~139 / ~149 M |
+| `settle_onstart` | ~9.6 ns | ~209 M |
+
+### Catalog completeness (`KnotKind` → bench)
+
+| Kind | Bench graph(s) |
+| --- | --- |
+| Constant | many (mul/div/logic) |
+| SignalIn | most settle benches |
+| OnStart | `settle_onstart` |
+| Not | `settle_not_chain`, fanout |
+| And | `settle_and_door` |
+| Or | `settle_logic_pack` |
+| Compare | `settle_compare_chain` |
+| RisingFromZero | `settle_edges_pack`, stateful kit |
+| FallingToZero | `settle_edges_pack` |
+| Change | `settle_edges_pack` |
+| Flag | `settle_stateful_kit` |
+| Counter | `settle_stateful_kit` |
+| Timer (PulseHold + FedCountdown) | `settle_stateful_kit` |
+| Delay | `settle_delay`, `settle_delay_chain` |
+| Calc Add | `settle_calc_abs` |
+| Calc Mul / Div | scaled chains |
+| Calc Sub | **skip** (same path as Add; not separate) |
+| Map | micro + `settle_map_chain` |
+| Abs / Neg | calc_abs / clamp_neg chain |
+| Select / Xor | `settle_logic_pack` |
+| Digitize | micro + chain |
+| Threshold | `settle_threshold` |
+| Random | `settle_random_gated` |
+| Sqrt | `settle_sqrt_chain` |
+| Clamp | `settle_clamp_neg_chain` |
+| SignalOut | most settle graphs |
+| EmitCommand | `settle_emit_storm` |
+
+```bash
+cargo bench -p wyrd-runtime --bench settle_catalog -- settle_edges_pack settle_logic_pack
+```
+
 ## Adding a new bench
 
 1. Add a builder in `benches/common.rs` if the Weave is reusable.

@@ -4,7 +4,7 @@
 #![allow(dead_code)] // each bench binary uses a subset of helpers
 
 use wyrd_core::{
-    from_count, CalcOp, FlagPriority, KnotKind, Seed, TimerMode, ONE, ZERO,
+    from_count, CalcOp, CompareOp, FlagPriority, KnotKind, Seed, TimerMode, ONE, ZERO,
 };
 use wyrd_graph::{Budget, Weave};
 use wyrd_runtime::{BindOpts, Runtime};
@@ -447,6 +447,137 @@ pub fn chain_calc_div(n: usize) -> (Weave, Runtime) {
         bud.max_fan_out = (n as u16).saturating_add(4).max(16);
         bud.soft_fan_out = bud.max_fan_out;
     });
+    (weave, rt)
+}
+
+// ---------------------------------------------------------------------------
+// P2: edges + remaining catalog surface
+// ---------------------------------------------------------------------------
+
+/// SignalIn → Rising / Falling / Change → three SignalOuts.
+pub fn edges_pack() -> (Weave, Runtime) {
+    let (b, _) = Weave::builder("edg")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let (b, _) = b.knot("r", KnotKind::rising_from_zero()).unwrap();
+    let (b, _) = b.knot("f", KnotKind::falling_to_zero()).unwrap();
+    let (b, _) = b.knot("c", KnotKind::change()).unwrap();
+    let (b, _) = b.knot("or", KnotKind::signal_out("rise")).unwrap();
+    let (b, _) = b.knot("of", KnotKind::signal_out("fall")).unwrap();
+    let (b, _) = b.knot("oc", KnotKind::signal_out("chg")).unwrap();
+    let weave = b
+        .wire_named("in", "out", "r", "in")
+        .wire_named("in", "out", "f", "in")
+        .wire_named("in", "out", "c", "in")
+        .wire_named("r", "out", "or", "in")
+        .wire_named("f", "out", "of", "in")
+        .wire_named("c", "out", "oc", "in")
+        .build()
+        .unwrap();
+    let mut budget = deep_budget();
+    budget.max_fan_out = 16;
+    budget.soft_fan_out = 16;
+    let rt = Runtime::bind(
+        &weave,
+        BindOpts {
+            budget,
+            ..BindOpts::default()
+        },
+    )
+    .unwrap();
+    (weave, rt)
+}
+
+/// Or(2), Xor, Select with constants + SignalIn sel/a.
+pub fn logic_pack() -> (Weave, Runtime) {
+    let (b, _) = Weave::builder("log")
+        .knot("a", KnotKind::signal_in())
+        .unwrap();
+    let (b, _) = b.knot("b", KnotKind::signal_in()).unwrap();
+    let (b, _) = b.knot("sel", KnotKind::signal_in()).unwrap();
+    let (b, _) = b.knot("or", KnotKind::or2()).unwrap();
+    let (b, _) = b.knot("xor", KnotKind::xor()).unwrap();
+    let (b, _) = b.knot("selk", KnotKind::select()).unwrap();
+    let (b, _) = b.knot("ca", KnotKind::constant(ZERO)).unwrap();
+    let (b, _) = b.knot("cb", KnotKind::constant(ONE)).unwrap();
+    let (b, _) = b.knot("oo", KnotKind::signal_out("or")).unwrap();
+    let (b, _) = b.knot("ox", KnotKind::signal_out("xor")).unwrap();
+    let (b, _) = b.knot("os", KnotKind::signal_out("sel")).unwrap();
+    let weave = b
+        .wire_named("a", "out", "or", "in_0")
+        .wire_named("b", "out", "or", "in_1")
+        .wire_named("a", "out", "xor", "a")
+        .wire_named("b", "out", "xor", "b")
+        .wire_named("sel", "out", "selk", "sel")
+        .wire_named("ca", "out", "selk", "a")
+        .wire_named("cb", "out", "selk", "b")
+        .wire_named("or", "out", "oo", "in")
+        .wire_named("xor", "out", "ox", "in")
+        .wire_named("selk", "out", "os", "in")
+        .build()
+        .unwrap();
+    let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    (weave, rt)
+}
+
+/// SignalIn → (Neg → Clamp) × n layers → Out.
+pub fn chain_clamp_neg(n: usize) -> (Weave, Runtime) {
+    let (mut b, _) = Weave::builder("ccl")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let mut prev = "in".to_string();
+    for i in 0..n {
+        let neg = format!("n{i}");
+        let cl = format!("c{i}");
+        let (b2, _) = b.knot(&neg, KnotKind::Neg).unwrap();
+        let (b3, _) = b2
+            .knot(
+                &cl,
+                KnotKind::clamp(from_count(-2), from_count(2)),
+            )
+            .unwrap();
+        b = b3
+            .wire_named(&prev, "out", &neg, "in")
+            .wire_named(&neg, "out", &cl, "in");
+        prev = cl;
+    }
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
+    let rt = bind_scaled(&weave, |_| {});
+    (weave, rt)
+}
+
+/// SignalIn → Compare(Gte, rhs_const=0) × n → Out.
+pub fn chain_compare(n: usize) -> (Weave, Runtime) {
+    let (mut b, _) = Weave::builder("ccmp")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let mut prev = "in".to_string();
+    for i in 0..n {
+        let id = format!("cmp{i}");
+        let (b2, _) = b
+            .knot(
+                &id,
+                KnotKind::compare(CompareOp::Gte, Some(0)),
+            )
+            .unwrap();
+        b = b2.wire_named(&prev, "out", &id, "lhs");
+        prev = id;
+    }
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
+    let rt = bind_scaled(&weave, |_| {});
+    (weave, rt)
+}
+
+/// OnStart → SignalOut (first-frame pulse; low value as ongoing bench).
+pub fn onstart_out() -> (Weave, Runtime) {
+    let (b, _) = Weave::builder("ons")
+        .knot("s", KnotKind::OnStart)
+        .unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named("s", "out", "out", "in").build().unwrap();
+    let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
     (weave, rt)
 }
 

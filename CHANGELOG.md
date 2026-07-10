@@ -54,3 +54,4 @@
 - Measured f32 + i32 tables in local `docs/perf.md`
 - **P0 scaled chains**: Map / Digitize / Calc(Mul) / Sqrt / Delay×n (amortized arm cost)
 - **P1**: stateful kit (Counter/Flag/Timers), emit storm, Calc(Div) chain
+- **P2**: edges pack, Or/Xor/Select, Clamp/Neg chain, Compare chain, OnStart; completeness table
