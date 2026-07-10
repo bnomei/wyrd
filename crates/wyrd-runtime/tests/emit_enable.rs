@@ -64,6 +64,42 @@ fn enable_low_suppresses_emit() {
 }
 
 #[test]
+fn enable_open_while_trigger_held_does_not_emit() {
+    // Rising edge consumed while disabled; enable alone must not fire.
+    let (b, _) = Weave::builder("e")
+        .knot("btn", KnotKind::signal_in())
+        .unwrap();
+    let (b, _) = b.knot("en", KnotKind::signal_in()).unwrap();
+    let (b, _) = b.knot("em", KnotKind::emit_command("fire")).unwrap();
+    let weave = b
+        .wire_named("btn", "out", "em", "trigger")
+        .wire_named("en", "out", "em", "enable")
+        .build()
+        .unwrap();
+    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let btn = rt.sense_id("btn").unwrap();
+    let en = rt.sense_id("en").unwrap();
+
+    rt.begin_frame(HostTime { tick: 0 });
+    {
+        let mut w = rt.port_writer();
+        w.set_sense(btn, ONE);
+        w.set_sense(en, ZERO);
+    }
+    rt.loom(&weave).unwrap();
+    assert_eq!(rt.outbox().emits().len(), 0);
+
+    rt.begin_frame(HostTime { tick: 1 });
+    {
+        let mut w = rt.port_writer();
+        w.set_sense(btn, ONE); // held
+        w.set_sense(en, ONE);  // enable opens
+    }
+    rt.loom(&weave).unwrap();
+    assert_eq!(rt.outbox().emits().len(), 0);
+}
+
+#[test]
 fn enable_high_allows_emit() {
     let (b, _) = Weave::builder("e")
         .knot("btn", KnotKind::signal_in())
