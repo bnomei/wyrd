@@ -271,5 +271,10 @@ mod tests {
         let _ = KnotKind::timer(TimerMode::PulseHold, 1);
         let _ = KnotKind::flag(FlagPriority::SetWins, false);
         let _ = KnotKind::constant(ONE);
+        let _ = KnotKind::select();
+        let _ = KnotKind::digitize(4);
+        let _ = KnotKind::threshold_default();
+        let _ = KnotKind::random(false);
     }
 }
+

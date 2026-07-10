@@ -81,6 +81,42 @@ fn gate_rising_samples_once() {
 }
 
 #[test]
+fn random_with_min_max_ports() {
+    let (b, _) = Weave::builder("r")
+        .knot("lo", KnotKind::constant(ZERO))
+        .unwrap();
+    let (b, _) = b.knot("hi", KnotKind::constant(ONE)).unwrap();
+    let (b, _) = b.knot("rnd", KnotKind::random(false)).unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b
+        .wire_named("lo", "out", "rnd", "min")
+        .wire_named("hi", "out", "rnd", "max")
+        .wire_named("rnd", "out", "out", "in")
+        .build()
+        .unwrap();
+    let mut rt = Runtime::bind(
+        &weave,
+        BindOpts {
+            seed: Some(Seed(99)),
+            ..BindOpts::default()
+        },
+    )
+    .unwrap();
+    rt.begin_frame(HostTime { tick: 0 });
+    rt.loom(&weave).unwrap();
+    let v = out_v(&rt, "y");
+    // In [ZERO, ONE]
+    #[cfg(feature = "signal-f32")]
+    {
+        assert!(v >= 0.0 && v <= 1.0);
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        assert!(v >= ZERO && v <= ONE);
+    }
+}
+
+#[test]
 fn reseed_resets_stream() {
     let weave = random_weave(false);
     let mut rt = Runtime::bind(

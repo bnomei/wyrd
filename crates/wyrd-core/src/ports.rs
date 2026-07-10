@@ -200,6 +200,15 @@ mod tests {
         assert_eq!(ports_of(&KnotKind::Neg)[0].name, "in");
         assert_eq!(port_slot(&KnotKind::select(), "sel"), Some(PortSlot(0)));
         assert_eq!(port_slot(&KnotKind::select(), "b"), Some(PortSlot(2)));
+        assert_eq!(
+            port_slot(&KnotKind::random(false), "gate"),
+            Some(PortSlot(2))
+        );
+        assert_eq!(
+            ports_of(&KnotKind::threshold_default())[2].name,
+            "crossed_up"
+        );
+        assert_eq!(ports_of(&KnotKind::digitize(4))[0].name, "in");
         assert_eq!(ports_of(&KnotKind::constant(crate::ONE))[0].name, "out");
         assert_eq!(ports_of(&KnotKind::signal_in())[0].name, "out");
         assert_eq!(ports_of(&KnotKind::OnStart)[0].name, "out");
