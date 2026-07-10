@@ -58,9 +58,23 @@ they are **never** Weave Threads.
 cargo run -p wyrd-bevy --example and_door   # Door component + confirmation Message
 ```
 
-## Features
+## First five Weaves
 
-| Feature | Meaning |
+CI recipes in `crates/wyrd-runtime/tests/patterns_cookbook.rs`:
+
+| # | Recipe | Knots |
+| --- | --- | --- |
+| 1 | Monostable (Pattern) | RisingFromZero → PulseHold |
+| 2 | Two-plate door | SignalIn ×2 → And → SignalOut |
+| 3 | Flag toggle | rising toggle + reset |
+| 4 | Counter threshold | edge → Counter → Compare |
+| 5 | Delayed pulse | Delay Rune |
+
+```bash
+cargo test -p wyrd-runtime --test patterns_cookbook
+```
+
+## Features
 | --- | --- |
 | `std` (default) | Desktop / tests via `no-std-compat` |
 | `signal-f32` (default) | Float wire path |
