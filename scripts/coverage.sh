@@ -4,7 +4,7 @@
 #   ./scripts/coverage.sh              # f32 core + fail-under 100
 #   ./scripts/coverage.sh --i32        # also i32 suite
 #   ./scripts/coverage.sh --bevy       # also wyrd-bevy
-#   ./scripts/coverage.sh --all        # f32 + i32 + bevy + serde-ron
+#   ./scripts/coverage.sh --all        # f32 + i32 + bevy + serde-ron + serde-json
 #   ./scripts/coverage.sh --open       # open HTML in browser (macOS)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -61,6 +61,8 @@ fi
 if [[ "$DO_SERDE" == 1 ]]; then
   run_one serde-ron -p wyrd-graph \
     --no-default-features --features "std,signal-f32,serde-ron"
+  run_one serde-json -p wyrd-graph \
+    --no-default-features --features "std,signal-f32,serde-json"
 fi
 
 if [[ "$DO_BEVY" == 1 ]]; then

@@ -7,6 +7,7 @@ Use `./scripts/coverage.sh` (`cargo-llvm-cov`). CI fails under **100% lines** fo
 | f32 core/graph/runtime | `cargo llvm-cov --workspace --exclude wyrd-bevy --fail-under-lines 100` |
 | i32 core/graph/runtime | `… --no-default-features --features std,signal-i32` |
 | serde-ron (graph) | `… -p wyrd-graph --features std,signal-f32,serde-ron` |
+| serde-json (graph) | `… -p wyrd-graph --features std,signal-f32,serde-json` |
 | bevy | `cargo llvm-cov -p wyrd-bevy --fail-under-lines 100` |
 
 ```bash
