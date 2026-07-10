@@ -1,9 +1,12 @@
-//! Catalog math settle: Map/Digitize, Calc/Abs, Threshold, fan-out.
+//! Catalog math settle: micro overhead probes + scaled chains (P0).
 
 #[path = "common.rs"]
 mod common;
 
-use common::{calc_abs_chain, fanout_nots, map_digitize_chain, threshold_simple};
+use common::{
+    calc_abs_chain, chain_calc_mul, chain_digitize, chain_map, chain_sqrt, fanout_nots,
+    map_digitize_chain, threshold_simple,
+};
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
 use wyrd_core::{from_count, HostTime, ONE, ZERO};
@@ -71,6 +74,73 @@ fn settle_fanout_nots(bencher: Bencher, n: usize) {
         .counter(ItemsCount::new(knots))
         .bench_local(|| {
             rt.begin_frame(HostTime { tick: 0 });
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+// --- P0: scaled chains (amortize fixed loom tax) ---
+
+/// SignalIn → Map × n → Out. Args = number of Map knots.
+#[divan::bench(args = [16, 64])]
+fn settle_map_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_map(n);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
+            rt.port_writer().set_sense(id, ONE);
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+/// SignalIn → Digitize(steps=8) × n → Out.
+#[divan::bench(args = [16, 64])]
+fn settle_digitize_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_digitize(n, 8);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
+            rt.port_writer().set_sense(id, from_count(1));
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+/// SignalIn → Calc(Mul) × n with level ONE on `b` (i32 Q-mul safe).
+#[divan::bench(args = [16, 64])]
+fn settle_calc_mul_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_calc_mul(n);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
+            rt.port_writer().set_sense(id, ONE);
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+/// SignalIn → Sqrt × n → Out (positive input).
+#[divan::bench(args = [16, 64])]
+fn settle_sqrt_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_sqrt(n);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
+            // Positive level: f32 sqrtf; i32 integer isqrt on bits.
+            rt.port_writer().set_sense(id, ONE);
             rt.loom(black_box(&weave)).unwrap();
             black_box(rt.outbox().signals().len());
         });

@@ -206,6 +206,149 @@ pub fn fanout_nots(n: usize) -> (Weave, Runtime) {
     (weave, rt)
 }
 
+// ---------------------------------------------------------------------------
+// P0: scaled chains (amortize fixed loom tax)
+// ---------------------------------------------------------------------------
+
+fn bind_scaled(weave: &Weave, extra: impl FnOnce(&mut Budget)) -> Runtime {
+    let mut budget = deep_budget();
+    extra(&mut budget);
+    Runtime::bind(
+        weave,
+        BindOpts {
+            budget,
+            ..BindOpts::default()
+        },
+    )
+    .unwrap()
+}
+
+/// SignalIn → Map × n → SignalOut (identity-ish linear map).
+pub fn chain_map(n: usize) -> (Weave, Runtime) {
+    let (mut b, _) = Weave::builder("cmap")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let mut prev = "in".to_string();
+    for i in 0..n {
+        let id = format!("m{i}");
+        let (b2, _) = b
+            .knot(
+                &id,
+                KnotKind::Map {
+                    in_min: ZERO,
+                    in_max: ONE,
+                    out_min: ZERO,
+                    out_max: ONE,
+                },
+            )
+            .unwrap();
+        b = b2.wire_named(&prev, "out", &id, "in");
+        prev = id;
+    }
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
+    let rt = bind_scaled(&weave, |_| {});
+    (weave, rt)
+}
+
+/// SignalIn → Digitize × n → SignalOut.
+pub fn chain_digitize(n: usize, steps: u16) -> (Weave, Runtime) {
+    let (mut b, _) = Weave::builder("cdig")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let mut prev = "in".to_string();
+    for i in 0..n {
+        let id = format!("d{i}");
+        let (b2, _) = b
+            .knot(
+                &id,
+                KnotKind::Digitize {
+                    steps,
+                    in_min: ZERO,
+                    in_max: ONE,
+                    out_min: ZERO,
+                    out_max: ONE,
+                },
+            )
+            .unwrap();
+        b = b2.wire_named(&prev, "out", &id, "in");
+        prev = id;
+    }
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
+    let rt = bind_scaled(&weave, |_| {});
+    (weave, rt)
+}
+
+/// SignalIn → Calc(Mul) × n with shared Constant(ONE) on every `b` port.
+///
+/// Uses **level** `ONE` so Q-mul stays non-zero under `signal-i32` (`ONE*ONE=ONE`).
+/// Whole-count mul would collapse to 0 on i32 (documented dual-path trap).
+pub fn chain_calc_mul(n: usize) -> (Weave, Runtime) {
+    let (mut b, _) = Weave::builder("cmul")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let (b2, _) = b.knot("one", KnotKind::constant(ONE)).unwrap();
+    b = b2;
+    let mut prev = "in".to_string();
+    for i in 0..n {
+        let id = format!("mul{i}");
+        let (b2, _) = b.knot(&id, KnotKind::Calc { op: CalcOp::Mul }).unwrap();
+        b = b2
+            .wire_named(&prev, "out", &id, "a")
+            .wire_named("one", "out", &id, "b");
+        prev = id;
+    }
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
+    let rt = bind_scaled(&weave, |bud| {
+        bud.max_fan_out = (n as u16).saturating_add(4).max(16);
+        bud.soft_fan_out = bud.max_fan_out;
+    });
+    (weave, rt)
+}
+
+/// SignalIn → Sqrt × n → SignalOut (feed positive levels).
+pub fn chain_sqrt(n: usize) -> (Weave, Runtime) {
+    let (mut b, _) = Weave::builder("csqrt")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let mut prev = "in".to_string();
+    for i in 0..n {
+        let id = format!("s{i}");
+        let (b2, _) = b.knot(&id, KnotKind::sqrt()).unwrap();
+        b = b2.wire_named(&prev, "out", &id, "in");
+        prev = id;
+    }
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
+    let rt = bind_scaled(&weave, |_| {});
+    (weave, rt)
+}
+
+/// SignalIn → Delay(ticks) × n → SignalOut (ring traffic scales with n).
+pub fn chain_delays(n: usize, ticks: u16) -> (Weave, Runtime) {
+    let (mut b, _) = Weave::builder("cdel")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let mut prev = "in".to_string();
+    for i in 0..n {
+        let id = format!("dl{i}");
+        let (b2, _) = b.knot(&id, KnotKind::Delay { ticks }).unwrap();
+        b = b2.wire_named(&prev, "out", &id, "in");
+        prev = id;
+    }
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
+    let path_sum = (n as u32)
+        .saturating_mul(ticks as u32)
+        .min(u16::MAX as u32) as u16;
+    let rt = bind_scaled(&weave, |bud| {
+        bud.max_delay_path_sum = path_sum.max(32);
+    });
+    (weave, rt)
+}
+
 /// Small authored graph used for bind-cost benches (not deep).
 pub fn small_authored_weave() -> Weave {
     let (b, _) = Weave::builder("bind_me")

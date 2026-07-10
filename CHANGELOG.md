@@ -52,3 +52,4 @@
 - Divan suite **split**: `settle_chain`, `settle_catalog`, `settle_stateful`, `bind`
   (shared `benches/common.rs`; `autobenches = false`)
 - Measured f32 + i32 tables in local `docs/perf.md`
+- **P0 scaled chains**: Map / Digitize / Calc(Mul) / Sqrt / Delay×n (amortized arm cost)

@@ -121,6 +121,49 @@ Until a committed flamegraph SVG lives under `docs/` or CI artifacts, use this c
 
 Re-run flamegraph after KindTag caching or clear/gather fusion and update this table with real symbols + % time.
 
+## Scaled catalog / delay (P0 — amortized)
+
+These chains use **N copies** of the interesting arm so fixed loom tax is amortized. Compare ns/knot to `settle_not_chain` of similar size.
+
+### f32
+
+| Bench | N (kind nodes) | Median | ~items/s (knots) |
+| --- | ---: | ---: | ---: |
+| `settle_map_chain` | 16 | ~196 ns | ~92 M |
+| `settle_map_chain` | 64 | ~656 ns | ~101 M |
+| `settle_digitize_chain` | 16 | ~317 ns | ~57 M |
+| `settle_digitize_chain` | 64 | ~1.16 µs | ~57 M |
+| `settle_calc_mul_chain` | 16 | ~192 ns | ~99 M |
+| `settle_calc_mul_chain` | 64 | ~541 ns | ~124 M |
+| `settle_sqrt_chain` | 16 | ~284 ns | ~63 M |
+| `settle_sqrt_chain` | 64 | ~1.26 µs | ~52 M |
+| `settle_delay_chain` (ticks=4) | 8 delays | ~55 ns | ~183 M |
+| `settle_delay_chain` (ticks=4) | 32 delays | ~209 ns | ~163 M |
+
+### i32 Q16
+
+| Bench | N | Median | ~items/s |
+| --- | ---: | ---: | ---: |
+| `settle_map_chain` | 16 / 64 | ~109 / ~643 ns | ~165 / ~103 M |
+| `settle_digitize_chain` | 16 / 64 | ~216 / ~869 ns | ~83 / ~76 M |
+| `settle_calc_mul_chain` | 16 / 64 | ~242 / ~561 ns | ~79 / ~119 M |
+| `settle_sqrt_chain` | 16 / 64 | ~238 / ~562 ns | ~76 / ~117 M |
+| `settle_delay_chain` | 8 / 32 | ~54 / ~203 ns | ~186 / ~168 M |
+
+**Notes**
+
+- **Digitize** and **Sqrt (f32 libm)** are clearly heavier than Map/Not on this host (~half the knot/s of Not chains).
+- **Sqrt i32** (integer isqrt) is faster than f32 at N=64 here — dual-path cost is not uniform.
+- **Calc Mul** uses level `ONE` on the `b` port so i32 Q-mul stays non-zero (`ONE*ONE=ONE`). Whole-count mul would collapse to 0 on i32.
+- **Delay chain** scales with **number of Delay knots**, unlike the single-delay microbench (often flat).
+
+Filter runs:
+
+```bash
+cargo bench -p wyrd-runtime --bench settle_catalog -- settle_map_chain settle_digitize_chain
+cargo bench -p wyrd-runtime --bench settle_stateful -- settle_delay_chain
+```
+
 ## Adding a new bench
 
 1. Add a builder in `benches/common.rs` if the Weave is reusable.
@@ -130,4 +173,4 @@ Re-run flamegraph after KindTag caching or clear/gather fusion and update this t
 
 ## Next measurement / opt candidates
 
-See earlier perf discussion: cache `KindTag` at bind, reduce clear+gather traffic, flat inbound CSR, unchecked port access on the hot path. Re-baseline this doc after each change.
+P1–P3 expand product/stateful/emit/pattern/Bevy coverage. After that: cache `KindTag` at bind, reduce clear+gather traffic, flat inbound CSR — prioritize where **scaled** benches show tax (Digitize/Sqrt first).
