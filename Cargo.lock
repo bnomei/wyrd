@@ -1924,6 +1924,7 @@ name = "wyrd-bevy"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "divan",
  "wyrd-core",
  "wyrd-graph",
  "wyrd-runtime",
