@@ -394,6 +394,19 @@ impl Runtime {
                 self.prev_in[ki] = i;
                 self.set_port(kid, PortSlot(1), o);
             }
+            KindTag::Clamp { min, max } => {
+                let i = self.get_port(kid, PortSlot(0));
+                let lo = if min <= max { min } else { max };
+                let hi = if min <= max { max } else { min };
+                let o = if i < lo {
+                    lo
+                } else if i > hi {
+                    hi
+                } else {
+                    i
+                };
+                self.set_port(kid, PortSlot(1), o);
+            }
             KindTag::SignalOut => {
                 let v = self.get_port(kid, PortSlot(0));
                 if let Some(path) = self.knots[ki].path {
@@ -471,6 +484,7 @@ enum KindTag {
     Xor,
     FallingToZero,
     Change,
+    Clamp { min: Signal, max: Signal },
     SignalOut,
     EmitCommand,
 }
@@ -544,6 +558,10 @@ impl KindTag {
             KnotKind::Xor => KindTag::Xor,
             KnotKind::FallingToZero => KindTag::FallingToZero,
             KnotKind::Change => KindTag::Change,
+            KnotKind::Clamp { min, max } => KindTag::Clamp {
+                min: *min,
+                max: *max,
+            },
             KnotKind::SignalOut { .. } => KindTag::SignalOut,
             KnotKind::EmitCommand { .. } => KindTag::EmitCommand,
         }

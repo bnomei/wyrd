@@ -169,6 +169,9 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
             } if *use_hysteresis && low > high => {
                 return Err(WyrdError::InvalidParam);
             }
+            KnotKind::Clamp { min, max } if min > max => {
+                return Err(WyrdError::InvalidParam);
+            }
             _ => {}
         }
     }

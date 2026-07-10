@@ -130,6 +130,10 @@ pub enum KnotKind {
     Xor,
     FallingToZero,
     Change,
+    Clamp {
+        min: Signal,
+        max: Signal,
+    },
     SignalOut {
         path: std::string::String,
     },
@@ -252,6 +256,10 @@ impl KnotKind {
         KnotKind::Change
     }
 
+    pub fn clamp(min: Signal, max: Signal) -> Self {
+        KnotKind::Clamp { min, max }
+    }
+
     pub fn arity(&self) -> Option<u8> {
         match self {
             KnotKind::And { arity } => Some(*arity),
@@ -299,6 +307,7 @@ mod tests {
         let _ = KnotKind::xor();
         let _ = KnotKind::falling_to_zero();
         let _ = KnotKind::change();
+        let _ = KnotKind::clamp(crate::ZERO, ONE);
     }
 }
 
