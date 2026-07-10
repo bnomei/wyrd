@@ -53,16 +53,23 @@ pub struct Runtime {
     /// Threads: (from_knot, from_slot, to_knot, to_slot) — retained for debug; loom uses `inbound`.
     #[allow(dead_code)]
     pub(crate) threads: Vec<(KnotId, PortSlot, KnotId, PortSlot)>,
-    /// Per-knot inbound edges: (from, from_slot, to_slot). Built at bind for O(edges) gather.
-    pub(crate) inbound: Vec<Vec<(KnotId, PortSlot, PortSlot)>>,
-    /// Input slots to clear each loom (no ports_of scan required for zeroing).
+    /// CSR inbound: edges in `inbound_edges[inbound_off[ki]..inbound_off[ki+1]]`.
+    /// Each edge is (from_knot, from_slot, to_slot).
+    pub(crate) inbound_off: Vec<u32>,
+    pub(crate) inbound_edges: Vec<(KnotId, PortSlot, PortSlot)>,
+    /// Absolute `port_vals` indices of In ports to zero each loom (flat, bind-sized).
+    pub(crate) clear_port_idx: Vec<usize>,
+    /// Per-knot input slots (retained for diagnostics; clear uses `clear_port_idx`).
+    #[allow(dead_code)]
     pub(crate) input_slots: Vec<Vec<PortSlot>>,
     pub(crate) topo: Vec<KnotId>,
+    /// Bind-time kind dispatch tags (one per knot; no per-tick from_kind).
+    pub(crate) kind_tags: Vec<crate::kind_tag::KindTag>,
     /// Host-fed sense outputs (SignalIn).
     pub(crate) sense_values: Vec<Signal>,
     /// Port value store: indexed by (knot_idx * MAX_PORTS + slot)
-    port_vals: Vec<Signal>,
-    max_ports: usize,
+    pub(crate) port_vals: Vec<Signal>,
+    pub(crate) max_ports: usize,
     /// Knot state for stateful runes
     pub(crate) prev_in: Vec<Signal>,
     pub(crate) prev_dec: Vec<Signal>,
@@ -154,18 +161,33 @@ impl Runtime {
         let topo = topo_order(knots.len(), &threads)?;
 
         let n = knots.len();
-        let mut inbound: Vec<Vec<(KnotId, PortSlot, PortSlot)>> = vec![Vec::new(); n];
+        // CSR inbound (dense offsets + flat edges).
+        let mut inbound_lists: Vec<Vec<(KnotId, PortSlot, PortSlot)>> = vec![Vec::new(); n];
         for &(f, fs, t, ts) in &threads {
-            inbound[t.0 as usize].push((f, fs, ts));
+            inbound_lists[t.0 as usize].push((f, fs, ts));
         }
+        let mut inbound_off = Vec::with_capacity(n + 1);
+        let mut inbound_edges = Vec::with_capacity(threads.len());
+        inbound_off.push(0);
+        for list in &inbound_lists {
+            inbound_edges.extend_from_slice(list);
+            inbound_off.push(inbound_edges.len() as u32);
+        }
+
         let mut input_slots: Vec<Vec<PortSlot>> = Vec::with_capacity(n);
+        let mut clear_port_idx = Vec::new();
         let mut act_signals = 0usize;
         let mut act_emits = 0usize;
-        for k in &knots {
+        let kind_tags: Vec<crate::kind_tag::KindTag> = knots
+            .iter()
+            .map(|k| crate::kind_tag::KindTag::from_kind(&k.kind))
+            .collect();
+        for (ki, k) in knots.iter().enumerate() {
             let mut slots = Vec::new();
             for p in ports_of(&k.kind) {
                 if p.dir == PortDir::In {
                     slots.push(p.slot);
+                    clear_port_idx.push(ki * MAX_PORTS + p.slot.0 as usize);
                 }
             }
             input_slots.push(slots);
@@ -207,9 +229,12 @@ impl Runtime {
             path_names,
             cmd_names,
             threads,
-            inbound,
+            inbound_off,
+            inbound_edges,
+            clear_port_idx,
             input_slots,
             topo,
+            kind_tags,
             sense_values: vec![ZERO; n],
             port_vals: vec![ZERO; n * MAX_PORTS],
             max_ports: MAX_PORTS,
@@ -300,16 +325,71 @@ impl Runtime {
         self.delay_buf.len()
     }
 
-    pub(crate) fn get_port(&self, knot: KnotId, slot: PortSlot) -> Signal {
-        let i = knot.0 as usize * self.max_ports + slot.0 as usize;
+    #[inline]
+    pub(crate) fn port_index(&self, knot: KnotId, slot: PortSlot) -> usize {
+        knot.0 as usize * self.max_ports + slot.0 as usize
+    }
+
+    /// Safe OOB-tolerant read (returns ZERO past end). Used by tests and host tooling.
+    #[inline]
+    pub fn get_port_checked(&self, knot: KnotId, slot: PortSlot) -> Signal {
+        let i = self.port_index(knot, slot);
         self.port_vals.get(i).copied().unwrap_or(ZERO)
     }
 
-    pub(crate) fn set_port(&mut self, knot: KnotId, slot: PortSlot, v: Signal) {
-        let i = knot.0 as usize * self.max_ports + slot.0 as usize;
+    /// Safe OOB-tolerant write (no-op past end). Used by tests and host tooling.
+    #[inline]
+    pub fn set_port_checked(&mut self, knot: KnotId, slot: PortSlot, v: Signal) {
+        let i = self.port_index(knot, slot);
         if let Some(p) = self.port_vals.get_mut(i) {
             *p = v;
         }
+    }
+
+    /// Alias for checked get (bind-unit tests + OOB safety).
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn get_port(&self, knot: KnotId, slot: PortSlot) -> Signal {
+        self.get_port_checked(knot, slot)
+    }
+
+    /// Alias for checked set (bind-unit tests + OOB safety).
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn set_port(&mut self, knot: KnotId, slot: PortSlot, v: Signal) {
+        self.set_port_checked(knot, slot, v);
+    }
+
+    /// Number of bind-time kind tags (equals knot count after successful bind).
+    pub fn kind_tag_count(&self) -> usize {
+        self.kind_tags.len()
+    }
+
+    /// Flat clear-index count (all In ports across the weave).
+    pub fn clear_port_index_count(&self) -> usize {
+        self.clear_port_idx.len()
+    }
+
+    /// CSR inbound edge count.
+    pub fn inbound_edge_count(&self) -> usize {
+        self.inbound_edges.len()
+    }
+
+    /// Hot-path port read when `knot`/`slot` are bind-validated (in-range).
+    #[inline]
+    pub(crate) fn get_port_hot(&self, knot: KnotId, slot: PortSlot) -> Signal {
+        let i = self.port_index(knot, slot);
+        // Bind-sized port_vals; indices from closed port tables are in range.
+        debug_assert!(i < self.port_vals.len());
+        self.port_vals[i]
+    }
+
+    /// Hot-path port write when `knot`/`slot` are bind-validated.
+    #[inline]
+    pub(crate) fn set_port_hot(&mut self, knot: KnotId, slot: PortSlot, v: Signal) {
+        let i = self.port_index(knot, slot);
+        debug_assert!(i < self.port_vals.len());
+        self.port_vals[i] = v;
     }
 
     pub(crate) fn push_signal_out(&mut self, path: HostPathId, value: Signal) {
@@ -415,5 +495,32 @@ mod tests {
         assert_eq!(rt.get_port(far, PortSlot(0)), ZERO);
         rt.set_port(far, PortSlot(0), ONE); // no panic
         let _ = FlagPriority::SetWins;
+    }
+
+    /// Bind builds KindTag cache, flat clear indices, and CSR inbound.
+    #[test]
+    fn bind_builds_hot_path_tables() {
+        let (b, _) = Weave::builder("h")
+            .knot("a", KnotKind::signal_in())
+            .unwrap();
+        let (b, _) = b.knot("n", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
+        let weave = b
+            .wire_named("a", "out", "n", "in")
+            .wire_named("n", "out", "o", "in")
+            .build()
+            .unwrap();
+        let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        assert_eq!(rt.kind_tag_count(), weave.knots.len());
+        // Not has 1 In, SignalOut has 1 In → 2 clear indices.
+        assert_eq!(rt.clear_port_index_count(), 2);
+        // Two threads → two CSR edges.
+        assert_eq!(rt.inbound_edge_count(), 2);
+        assert_eq!(rt.inbound_off.len(), weave.knots.len() + 1);
+        // Hot port round-trip on Not input (bind-validated index).
+        let n_id = KnotId(1);
+        rt.set_port_hot(n_id, PortSlot(0), ONE);
+        assert_eq!(rt.get_port_hot(n_id, PortSlot(0)), ONE);
+        assert_eq!(rt.get_port_checked(n_id, PortSlot(0)), ONE);
     }
 }

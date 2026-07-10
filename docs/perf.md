@@ -12,6 +12,7 @@ Bench targets are **split** so the suite can grow without one mega-file. Shared 
 | `settle_chain` | `benches/settle_chain.rs` | Not depth, And door, host `tick_once` |
 | `settle_catalog` | `benches/settle_catalog.rs` | Micro + scaled Map/Digitize/Mul/Div/Sqrt + edges/logic packs + Compare/Clamp chains + OnStart |
 | `settle_stateful` | `benches/settle_stateful.rs` | Delay, Random, **stateful kit**, **emit storm** |
+| `settle_iso` | `benches/settle_iso.rs` | Isolation: Not structural, fan-out, Digitize/Sqrt/Map eval |
 | `bind` | `benches/bind.rs` | Load path: validate + topo + buffers + **pattern expand/include** |
 | `host_tick` (`wyrd-bevy`) | `crates/wyrd-bevy/benches/host_tick.rs` | Headless Bevy door update (f32 only) |
 
@@ -115,12 +116,56 @@ Until a committed flamegraph SVG lives under `docs/` or CI artifacts, use this c
 
 | Likely hot | Role |
 | --- | --- |
-| `Runtime::loom` | Clear inputs → seed senses → topo loop |
-| `Runtime::gather_inputs` | Inbound edge walk + port copy |
-| `Runtime::eval_knot` / `KindTag::from_kind` | Per-knot dispatch (from_kind every tick) |
-| `Runtime::get_port` / `set_port` | Dense port store access |
+| `Runtime::loom` | Flat clear → seed senses → topo loop |
+| `Runtime::gather_inputs` | CSR inbound walk + hot port copy |
+| `Runtime::eval_knot` | Match on **bind-time** `kind_tags[ki]` (no per-tick `from_kind`) |
+| `get_port_hot` / `set_port_hot` | Dense port store (debug_assert in-range) |
 
-Re-run flamegraph after KindTag caching or clear/gather fusion and update this table with real symbols + % time.
+### Structural settle pass (post P0–P3)
+
+**Learning that drove the work:** scaled Digitize/Sqrt rows were ~2× slower than Not; short microbenches were too noisy — use **scaled N** + longer Divan weight.
+
+**Shipped changes**
+
+1. **KindTag cache** at bind (`kind_tags: Vec<KindTag>`) — zero `from_kind` per tick  
+2. **CSR inbound** (`inbound_off` + `inbound_edges`) — flatter gather  
+3. **Flat clear list** (`clear_port_idx`) — no per-knot input_slots walk each loom  
+4. **Hot port access** on eval path; safe checked APIs retained for OOB tests  
+5. **Skip Sense** in topo (already seeded)  
+6. **Digitize** early-exit for `steps<=1` + tighter bin cast  
+
+**Measurement settings (decision runs):**  
+`cargo bench -p wyrd-runtime --bench settle_iso -- --sample-count 300 --min-time 1`  
+(same weight on catalog filters). Two consecutive f32 after-runs agreed on go.
+
+| Bench (f32) | Before (P0 short) | After (long, median) | Notes |
+| --- | ---: | ---: | --- |
+| `settle_not_chain` 64 | ~343 ns | ~317–338 ns | structural |
+| `settle_digitize_chain` 64 | ~1.16 µs | **~1.10 µs** | + digitise path |
+| `settle_sqrt_chain` 64 | ~1.26 µs | **~1.08 µs** | mostly structural |
+| `settle_map_chain` 64 | ~656 ns | ~651 ns | small |
+
+| Bench (i32) | Before | After (long) |
+| --- | ---: | ---: |
+| `settle_digitize_chain` 64 | ~869 ns | **~396 ns** |
+| `settle_sqrt_chain` 64 | ~562 ns | ~562 ns (flat) |
+| `settle_not_chain` 64 | ~341 ns | ~346 ns (flat) |
+
+### Isolation sub-benches (`settle_iso`)
+
+| Name | Isolates |
+| --- | --- |
+| `iso_struct_not_chain` | Structural clear+gather+Not (N=64/128) |
+| `iso_gather_fanout` | Wide fan-out / outbox (N=32/64) |
+| `iso_eval_digitize_chain` | Digitize eval stack (N=64) |
+| `iso_eval_sqrt_chain` | Sqrt eval stack (N=64) |
+| `iso_eval_map_chain` | Lighter eval control (N=64) |
+
+```bash
+cargo bench -p wyrd-runtime --bench settle_iso -- --sample-count 300 --min-time 1
+```
+
+Local Divan only — **not** run in CI.
 
 ## Scaled catalog / delay (P0 — amortized)
 
@@ -132,12 +177,12 @@ These chains use **N copies** of the interesting arm so fixed loom tax is amorti
 | --- | ---: | ---: | ---: | ---: |
 | `settle_map_chain` | 16 | 18 | ~196 ns | ~92 M |
 | `settle_map_chain` | 64 | 66 | ~656 ns | ~101 M |
-| `settle_digitize_chain` | 16 | 18 | ~317 ns | ~57 M |
-| `settle_digitize_chain` | 64 | 66 | ~1.16 µs | ~57 M |
+| `settle_digitize_chain` | 16 | 18 | ~252 ns | ~71 M |
+| `settle_digitize_chain` | 64 | 66 | ~1.10 µs | ~60 M |
 | `settle_calc_mul_chain` | 16 | 19 (+const ONE) | ~192 ns | ~99 M |
 | `settle_calc_mul_chain` | 64 | 67 | ~541 ns | ~124 M |
-| `settle_sqrt_chain` | 16 | 18 | ~284 ns | ~63 M |
-| `settle_sqrt_chain` | 64 | 66 | ~1.26 µs | ~52 M |
+| `settle_sqrt_chain` | 16 | 18 | ~253 ns | ~71 M |
+| `settle_sqrt_chain` | 64 | 66 | ~1.08 µs | ~61 M |
 | `settle_delay_chain` (ticks=4) | 8 | 10 | ~55 ns | ~183 M |
 | `settle_delay_chain` (ticks=4) | 32 | 34 | ~209 ns | ~163 M |
 
@@ -145,10 +190,10 @@ These chains use **N copies** of the interesting arm so fixed loom tax is amorti
 
 | Bench | N | Median | ~items/s |
 | --- | ---: | ---: | ---: |
-| `settle_map_chain` | 16 / 64 | ~109 / ~643 ns | ~165 / ~103 M |
-| `settle_digitize_chain` | 16 / 64 | ~216 / ~869 ns | ~83 / ~76 M |
+| `settle_map_chain` | 16 / 64 | ~86 / ~552 ns | ~210 / ~120 M |
+| `settle_digitize_chain` | 16 / 64 | ~86 / ~396 ns | ~210 / ~167 M |
 | `settle_calc_mul_chain` | 16 / 64 | ~242 / ~561 ns | ~79 / ~119 M |
-| `settle_sqrt_chain` | 16 / 64 | ~238 / ~562 ns | ~76 / ~117 M |
+| `settle_sqrt_chain` | 16 / 64 | ~205 / ~562 ns | ~88 / ~117 M |
 | `settle_delay_chain` | 8 / 32 | ~54 / ~203 ns | ~186 / ~168 M |
 
 **Notes**
@@ -296,4 +341,4 @@ Benches are **local-only** (not run in CI). Use the commands above when measurin
 
 ## Next measurement / opt candidates
 
-P1–P3 expand product/stateful/emit/pattern/Bevy coverage. After that: cache `KindTag` at bind, reduce clear+gather traffic, flat inbound CSR — prioritize where **scaled** benches show tax (Digitize/Sqrt first).
+Structural KindTag/CSR/clear landed (see above). Further: Digitize/Sqrt **math-only** kernels if still hot in flamegraph; Bevy host path is a separate budget (~50× loom).

@@ -213,7 +213,8 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 - [x] Steady-state buffer stability proven (capacity/delay_buf); global alloc hook open
 - [x] Measured settle + bind numbers in `docs/perf.md` (local host)
 - [ ] Parallel settle — *(later; default single-threaded for determinism)*
-- [ ] KindTag-at-bind / gather+clear fusion — *(next opt pass; Digitize/Sqrt first)*
+- [x] KindTag-at-bind + CSR inbound + flat clear + hot ports (settle structural pass)
+- [x] Isolation benches (`settle_iso`) + long Divan decision runs documented
 - ~~Optional Criterion / bench CI~~ — **not planned** (local Divan only)
 
 ---

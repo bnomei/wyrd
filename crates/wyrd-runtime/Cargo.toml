@@ -46,3 +46,8 @@ harness = false
 name = "bind"
 path = "benches/bind.rs"
 harness = false
+
+[[bench]]
+name = "settle_iso"
+path = "benches/settle_iso.rs"
+harness = false

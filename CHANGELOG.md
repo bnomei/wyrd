@@ -56,3 +56,5 @@
 - **P1**: stateful kit (Counter/Flag/Timers), emit storm, Calc(Div) chain
 - **P2**: edges pack, Or/Xor/Select, Clamp/Neg chain, Compare chain, OnStart; completeness table
 - **P3**: pattern expand/include bind benches; Bevy headless `host_tick`
+- **Settle structural pass**: bind-time `KindTag` cache, CSR inbound, flat clear indices,
+  hot port access, Sense skip in topo; Digitize bin path tweak; `settle_iso` isolation benches

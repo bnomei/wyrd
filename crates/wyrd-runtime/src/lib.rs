@@ -7,6 +7,7 @@ extern crate no_std_compat as std;
 
 mod bind;
 mod host;
+mod kind_tag;
 mod loom;
 mod outbox;
 
