@@ -98,7 +98,7 @@ Enable exactly one of `signal-f32` / `signal-i32`.
 cargo test --workspace
 cargo test -p wyrd-graph --features serde-ron
 cargo test -p wyrd-graph --features serde-json
-cargo bench -p wyrd-runtime --bench settle
+cargo bench -p wyrd-runtime   # settle_chain | settle_catalog | settle_stateful | bind
 cargo test -p wyrd-bevy
 cargo run -p wyrd-bevy --example and_door
 ```

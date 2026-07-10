@@ -6,6 +6,8 @@ license.workspace = true
 rust-version.workspace = true
 description = "Wyrd loom: bind, settle, outbox"
 readme = "README.md"
+# Only explicit [[bench]] targets; shared helpers in benches/common.rs.
+autobenches = false
 
 [features]
 default = ["std", "signal-f32"]
@@ -23,6 +25,24 @@ libm = { workspace = true }
 [dev-dependencies]
 divan = "0.1"
 
+# Split bench binaries so the suite can grow without one mega-file.
+# Shared builders: benches/common.rs (#[path] include per binary).
 [[bench]]
-name = "settle"
+name = "settle_chain"
+path = "benches/settle_chain.rs"
+harness = false
+
+[[bench]]
+name = "settle_catalog"
+path = "benches/settle_catalog.rs"
+harness = false
+
+[[bench]]
+name = "settle_stateful"
+path = "benches/settle_stateful.rs"
+harness = false
+
+[[bench]]
+name = "bind"
+path = "benches/bind.rs"
 harness = false

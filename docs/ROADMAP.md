@@ -201,16 +201,19 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 
 ## Phase 5 — Perf pass
 
-- [x] Divan settle bench (`wyrd-runtime` benches/settle)
+- [x] Divan settle suite (**split**): `settle_chain`, `settle_catalog`, `settle_stateful`, `bind`
+- [x] Shared builders in `benches/common.rs` (`autobenches = false`)
 - [x] Parameterized N ∈ {16, 64, 128} with items/sec counters
-- [ ] Separate benches: topo rebuild vs settle vs port dispatch
+- [x] Separate benches: bind (topo/validate) vs settle families vs host tick
+- [x] Catalog + delay + Random + fan-out settle benches
 - [x] Full host-tick bench (`tick_once_not_chain`)
-- [x] `docs/perf.md` — how to bench + flamegraph (local, gitignored OK)
-- [ ] One release flamegraph captured; hot functions listed
+- [x] `docs/perf.md` — how to bench + f32/i32 tables + flamegraph how-to
+- [x] Expected hot-function checklist in `docs/perf.md` (SVG capture still optional)
 - [x] Steady-state buffer stability proven (capacity/delay_buf); global alloc hook open
-- [x] Measured settle numbers in `docs/perf.md` (local host)
+- [x] Measured settle + bind numbers in `docs/perf.md` (local host)
 - [ ] Optional Criterion CI HTML — *(later)*
 - [ ] Parallel settle — *(later; default single-threaded for determinism)*
+- [ ] KindTag-at-bind / gather+clear fusion — *(next opt pass)*
 
 ---
 

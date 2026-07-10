@@ -49,4 +49,6 @@
 ### Tests / perf
 
 - `zero_alloc_loom` — outbox capacity + delay_buf length stability
-- Divan: `settle_not_chain`, `settle_and_door`, `tick_once_not_chain`
+- Divan suite **split**: `settle_chain`, `settle_catalog`, `settle_stateful`, `bind`
+  (shared `benches/common.rs`; `autobenches = false`)
+- Measured f32 + i32 tables in local `docs/perf.md`
