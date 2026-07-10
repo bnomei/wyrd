@@ -107,7 +107,9 @@ fn settle_digitize_chain(bencher: Bencher, n: usize) {
         .counter(ItemsCount::new(knots))
         .bench_local(|| {
             rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer().set_sense(id, from_count(1));
+            // Level ONE so f32 and i32 both sit at the high end of ZERO..ONE
+            // (from_count(1) is ~0 on Q16, not equivalent to f32 1.0).
+            rt.port_writer().set_sense(id, ONE);
             rt.loom(black_box(&weave)).unwrap();
             black_box(rt.outbox().signals().len());
         });

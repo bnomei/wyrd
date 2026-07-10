@@ -10,8 +10,8 @@ Bench targets are **split** so the suite can grow without one mega-file. Shared 
 | Target | Path | Focus |
 | --- | --- | --- |
 | `settle_chain` | `benches/settle_chain.rs` | Not depth, And door, host `tick_once` |
-| `settle_catalog` | `benches/settle_catalog.rs` | Map/Digitize, Calc/Abs, Threshold, fan-out |
-| `settle_stateful` | `benches/settle_stateful.rs` | Delay rings, gated Random |
+| `settle_catalog` | `benches/settle_catalog.rs` | Micro Map/Digitize/Calc/Threshold + **scaled** Map/Digitize/Mul/Sqrt chains + fan-out |
+| `settle_stateful` | `benches/settle_stateful.rs` | Delay micro + **scaled Delay×n**, gated Random |
 | `bind` | `benches/bind.rs` | Load path: validate + topo + buffers |
 
 ```bash
@@ -127,18 +127,18 @@ These chains use **N copies** of the interesting arm so fixed loom tax is amorti
 
 ### f32
 
-| Bench | N (kind nodes) | Median | ~items/s (knots) |
-| --- | ---: | ---: | ---: |
-| `settle_map_chain` | 16 | ~196 ns | ~92 M |
-| `settle_map_chain` | 64 | ~656 ns | ~101 M |
-| `settle_digitize_chain` | 16 | ~317 ns | ~57 M |
-| `settle_digitize_chain` | 64 | ~1.16 µs | ~57 M |
-| `settle_calc_mul_chain` | 16 | ~192 ns | ~99 M |
-| `settle_calc_mul_chain` | 64 | ~541 ns | ~124 M |
-| `settle_sqrt_chain` | 16 | ~284 ns | ~63 M |
-| `settle_sqrt_chain` | 64 | ~1.26 µs | ~52 M |
-| `settle_delay_chain` (ticks=4) | 8 delays | ~55 ns | ~183 M |
-| `settle_delay_chain` (ticks=4) | 32 delays | ~209 ns | ~163 M |
+| Bench | N (arm copies) | Total knots ≈ | Median | ~items/s (**all** knots) |
+| --- | ---: | ---: | ---: | ---: |
+| `settle_map_chain` | 16 | 18 | ~196 ns | ~92 M |
+| `settle_map_chain` | 64 | 66 | ~656 ns | ~101 M |
+| `settle_digitize_chain` | 16 | 18 | ~317 ns | ~57 M |
+| `settle_digitize_chain` | 64 | 66 | ~1.16 µs | ~57 M |
+| `settle_calc_mul_chain` | 16 | 19 (+const ONE) | ~192 ns | ~99 M |
+| `settle_calc_mul_chain` | 64 | 67 | ~541 ns | ~124 M |
+| `settle_sqrt_chain` | 16 | 18 | ~284 ns | ~63 M |
+| `settle_sqrt_chain` | 64 | 66 | ~1.26 µs | ~52 M |
+| `settle_delay_chain` (ticks=4) | 8 | 10 | ~55 ns | ~183 M |
+| `settle_delay_chain` (ticks=4) | 32 | 34 | ~209 ns | ~163 M |
 
 ### i32 Q16
 
@@ -154,13 +154,15 @@ These chains use **N copies** of the interesting arm so fixed loom tax is amorti
 
 - **Digitize** and **Sqrt (f32 libm)** are clearly heavier than Map/Not on this host (~half the knot/s of Not chains).
 - **Sqrt i32** (integer isqrt) is faster than f32 at N=64 here — dual-path cost is not uniform.
-- **Calc Mul** uses level `ONE` on the `b` port so i32 Q-mul stays non-zero (`ONE*ONE=ONE`). Whole-count mul would collapse to 0 on i32.
+- **Calc Mul** uses level `ONE` on the `b` port so i32 Q-mul stays non-zero (`ONE*ONE=ONE`). Whole-count mul would collapse to 0 on i32. Total knots = N muls + in + const + out.
 - **Delay chain** scales with **number of Delay knots**, unlike the single-delay microbench (often flat).
+- Digitize/Map/Sqrt/Mul benches feed **level `ONE`** (not `from_count(1)`) so f32 and i32 sit at the same end of ZERO..ONE.
 
 Filter runs:
 
 ```bash
-cargo bench -p wyrd-runtime --bench settle_catalog -- settle_map_chain settle_digitize_chain
+cargo bench -p wyrd-runtime --bench settle_catalog -- \
+  settle_map_chain settle_digitize_chain settle_calc_mul_chain settle_sqrt_chain
 cargo bench -p wyrd-runtime --bench settle_stateful -- settle_delay_chain
 ```
 
