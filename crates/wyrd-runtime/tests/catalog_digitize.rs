@@ -1,7 +1,7 @@
 //! Digitize: quantize into steps over a range.
 
 use wyrd_core::{from_count, HostTime, KnotKind, ONE, ZERO};
-use wyrd_graph::{validate, Budget, Weave};
+use wyrd_graph::{ValidationError, Weave};
 use wyrd_runtime::{BindOpts, Runtime};
 
 fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
@@ -16,55 +16,55 @@ fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
 
 #[test]
 fn digitize_two_steps_endpoints() {
-    // steps=2 over 0..ONE → bins 0 and 1 map to ZERO and ONE
-    let (b, _) = Weave::builder("d")
-        .knot("in", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("dig", KnotKind::digitize(2)).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("in", "out", "dig", "in")
-        .wire_named("dig", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut b = Weave::builder("d").unwrap();
+    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_dig = b.knot("dig", KnotKind::digitize(2)).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_in, "out").unwrap();
+    let to = b.input(&k_dig, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_dig, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let id = rt.sense_id("in").unwrap();
 
     rt.begin_frame(HostTime { tick: 0 });
-    rt.port_writer().set_sense(id, ZERO);
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, ZERO).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "y"), ZERO);
 
     rt.begin_frame(HostTime { tick: 1 });
-    rt.port_writer().set_sense(id, ONE);
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, ONE).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "y"), ONE);
 }
 
 #[test]
 fn digitize_one_step_is_out_min() {
-    let (b, _) = Weave::builder("d")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b.knot("dig", KnotKind::digitize(1)).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("c", "out", "dig", "in")
-        .wire_named("dig", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut b = Weave::builder("d").unwrap();
+    let k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let k_dig = b.knot("dig", KnotKind::digitize(1)).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_c, "out").unwrap();
+    let to = b.input(&k_dig, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_dig, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "y"), ZERO);
 }
 
 #[test]
 fn digitize_zero_span_is_out_min() {
-    let (b, _) = Weave::builder("d")
-        .knot("c", KnotKind::constant(from_count(1)))
-        .unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("d").unwrap();
+    let k_c = b.knot("c", KnotKind::constant(from_count(1))).unwrap();
+    let k_dig = b
         .knot(
             "dig",
             KnotKind::Digitize {
@@ -76,25 +76,25 @@ fn digitize_zero_span_is_out_min() {
             },
         )
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("c", "out", "dig", "in")
-        .wire_named("dig", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_c, "out").unwrap();
+    let to = b.input(&k_dig, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_dig, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "y"), from_count(5));
 }
 
 #[test]
 fn digitize_mid_bins_custom_out_range() {
-    // steps=4 over count 0..4 → bins 0..=3 map to out 0,10,20,30 (endpoints included).
-    let (b, _) = Weave::builder("d")
-        .knot("in", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("d").unwrap();
+    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_dig = b
         .knot(
             "dig",
             KnotKind::Digitize {
@@ -106,13 +106,15 @@ fn digitize_mid_bins_custom_out_range() {
             },
         )
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("in", "out", "dig", "in")
-        .wire_named("dig", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_in, "out").unwrap();
+    let to = b.input(&k_dig, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_dig, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let id = rt.sense_id("in").unwrap();
 
     for (input, expect) in [
@@ -123,18 +125,17 @@ fn digitize_mid_bins_custom_out_range() {
         (from_count(4), from_count(30)),
     ] {
         rt.begin_frame(HostTime { tick: 0 });
-        rt.port_writer().set_sense(id, input);
-        rt.loom(&weave).unwrap();
+        rt.port_writer().set_sense(id, input).unwrap();
+        rt.loom();
         assert_eq!(out_v(&rt, "y"), expect, "input bin mapping");
     }
 }
 
 #[test]
 fn digitize_steps_zero_rejected_at_validate() {
-    let (b, _) = Weave::builder("d")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("d").unwrap();
+    let k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let k_dig = b
         .knot(
             "dig",
             KnotKind::Digitize {
@@ -146,24 +147,24 @@ fn digitize_steps_zero_rejected_at_validate() {
             },
         )
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("c", "out", "dig", "in")
-        .wire_named("dig", "out", "out", "in")
-        .build()
-        .unwrap();
-    assert_eq!(
-        validate(&weave, &Budget::default()),
-        Err(wyrd_core::WyrdError::InvalidParam)
-    );
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_c, "out").unwrap();
+    let to = b.input(&k_dig, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_dig, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    assert!(matches!(
+        b.build(),
+        Err(ValidationError::InvalidParameter { .. })
+    ));
 }
 
 #[test]
 fn digitize_inverted_in_range_rejected() {
-    let (b, _) = Weave::builder("d")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("d").unwrap();
+    let k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let k_dig = b
         .knot(
             "dig",
             KnotKind::Digitize {
@@ -175,24 +176,24 @@ fn digitize_inverted_in_range_rejected() {
             },
         )
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("c", "out", "dig", "in")
-        .wire_named("dig", "out", "out", "in")
-        .build()
-        .unwrap();
-    assert_eq!(
-        validate(&weave, &Budget::default()),
-        Err(wyrd_core::WyrdError::InvalidParam)
-    );
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_c, "out").unwrap();
+    let to = b.input(&k_dig, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_dig, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    assert!(matches!(
+        b.build(),
+        Err(ValidationError::InvalidParameter { .. })
+    ));
 }
 
 #[test]
 fn map_inverted_in_range_rejected() {
-    let (b, _) = Weave::builder("m")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("m").unwrap();
+    let k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let k_map = b
         .knot(
             "map",
             KnotKind::Map {
@@ -203,14 +204,15 @@ fn map_inverted_in_range_rejected() {
             },
         )
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("c", "out", "map", "in")
-        .wire_named("map", "out", "out", "in")
-        .build()
-        .unwrap();
-    assert_eq!(
-        validate(&weave, &Budget::default()),
-        Err(wyrd_core::WyrdError::InvalidParam)
-    );
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_c, "out").unwrap();
+    let to = b.input(&k_map, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_map, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    assert!(matches!(
+        b.build(),
+        Err(ValidationError::InvalidParameter { .. })
+    ));
 }

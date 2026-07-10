@@ -22,56 +22,60 @@ fn truthy(rt: &Runtime, path: &str) -> bool {
 
 #[test]
 fn or_and_onstart() {
-    let (b, _) = Weave::builder("o")
-        .knot("a", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("b", KnotKind::signal_in()).unwrap();
-    let (b, _) = b.knot("or", KnotKind::or2()).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let (b, _) = b.knot("start", KnotKind::OnStart).unwrap();
-    let (b, _) = b.knot("sout", KnotKind::signal_out("s")).unwrap();
-    let weave = b
-        .wire_named("a", "out", "or", "in_0")
-        .wire_named("b", "out", "or", "in_1")
-        .wire_named("or", "out", "out", "in")
-        .wire_named("start", "out", "sout", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut b = Weave::builder("o").unwrap();
+    let k_a = b.knot("a", KnotKind::signal_in()).unwrap();
+    let k_b = b.knot("b", KnotKind::signal_in()).unwrap();
+    let k_or = b.knot("or", KnotKind::or2()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_start = b.knot("start", KnotKind::OnStart).unwrap();
+    let k_sout = b.knot("sout", KnotKind::signal_out("s")).unwrap();
+    let from = b.output(&k_a, "out").unwrap();
+    let to = b.input(&k_or, "in_0").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_b, "out").unwrap();
+    let to = b.input(&k_or, "in_1").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_or, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_start, "out").unwrap();
+    let to = b.input(&k_sout, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let a = rt.sense_id("a").unwrap();
     let b_id = rt.sense_id("b").unwrap();
 
-    // OnStart first frame
     rt.begin_frame(HostTime { tick: 0 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(a, ZERO);
-        w.set_sense(b_id, ZERO);
+        w.set_sense(a, ZERO).unwrap();
+        w.set_sense(b_id, ZERO).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert!(truthy(&rt, "s"));
     assert!(!truthy(&rt, "y"));
 
-    // Or true when one high; OnStart false after first
     rt.begin_frame(HostTime { tick: 1 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(a, ONE);
-        w.set_sense(b_id, ZERO);
+        w.set_sense(a, ONE).unwrap();
+        w.set_sense(b_id, ZERO).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert!(!truthy(&rt, "s"));
     assert!(truthy(&rt, "y"));
 }
 
 #[test]
 fn map_abs_neg_calc_all() {
-    let (b, _) = Weave::builder("m")
+    let mut b = Weave::builder("m").unwrap();
+    let k_neg_in = b
         .knot("neg_in", KnotKind::constant(from_count(-4)))
         .unwrap();
-    let (b, _) = b.knot("abs", KnotKind::Abs).unwrap();
-    let (b, _) = b.knot("neg", KnotKind::Neg).unwrap();
-    let (b, _) = b
+    let k_abs = b.knot("abs", KnotKind::Abs).unwrap();
+    let k_neg = b.knot("neg", KnotKind::Neg).unwrap();
+    let k_map = b
         .knot(
             "map",
             KnotKind::Map {
@@ -82,38 +86,66 @@ fn map_abs_neg_calc_all() {
             },
         )
         .unwrap();
-    let (b, _) = b.knot("c2", KnotKind::constant(from_count(2))).unwrap();
-    let (b, _) = b.knot("c3", KnotKind::constant(from_count(3))).unwrap();
-    let (b, _) = b.knot("add", KnotKind::Calc { op: CalcOp::Add }).unwrap();
-    let (b, _) = b.knot("sub", KnotKind::Calc { op: CalcOp::Sub }).unwrap();
-    let (b, _) = b.knot("mul", KnotKind::Calc { op: CalcOp::Mul }).unwrap();
-    let (b, _) = b.knot("out_abs", KnotKind::signal_out("abs")).unwrap();
-    let (b, _) = b.knot("out_neg", KnotKind::signal_out("neg")).unwrap();
-    let (b, _) = b.knot("out_map", KnotKind::signal_out("map")).unwrap();
-    let (b, _) = b.knot("out_add", KnotKind::signal_out("add")).unwrap();
-    let (b, _) = b.knot("out_sub", KnotKind::signal_out("sub")).unwrap();
-    let (b, _) = b.knot("out_mul", KnotKind::signal_out("mul")).unwrap();
-    let weave = b
-        .wire_named("neg_in", "out", "abs", "in")
-        .wire_named("neg_in", "out", "neg", "in")
-        .wire_named("abs", "out", "map", "in")
-        .wire_named("c2", "out", "add", "a")
-        .wire_named("c3", "out", "add", "b")
-        .wire_named("c3", "out", "sub", "a")
-        .wire_named("c2", "out", "sub", "b")
-        .wire_named("c2", "out", "mul", "a")
-        .wire_named("c3", "out", "mul", "b")
-        .wire_named("abs", "out", "out_abs", "in")
-        .wire_named("neg", "out", "out_neg", "in")
-        .wire_named("map", "out", "out_map", "in")
-        .wire_named("add", "out", "out_add", "in")
-        .wire_named("sub", "out", "out_sub", "in")
-        .wire_named("mul", "out", "out_mul", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_c2 = b.knot("c2", KnotKind::constant(from_count(2))).unwrap();
+    let k_c3 = b.knot("c3", KnotKind::constant(from_count(3))).unwrap();
+    let k_add = b.knot("add", KnotKind::Calc { op: CalcOp::Add }).unwrap();
+    let k_sub = b.knot("sub", KnotKind::Calc { op: CalcOp::Sub }).unwrap();
+    let k_mul = b.knot("mul", KnotKind::Calc { op: CalcOp::Mul }).unwrap();
+    let k_out_abs = b.knot("out_abs", KnotKind::signal_out("abs")).unwrap();
+    let k_out_neg = b.knot("out_neg", KnotKind::signal_out("neg")).unwrap();
+    let k_out_map = b.knot("out_map", KnotKind::signal_out("map")).unwrap();
+    let k_out_add = b.knot("out_add", KnotKind::signal_out("add")).unwrap();
+    let k_out_sub = b.knot("out_sub", KnotKind::signal_out("sub")).unwrap();
+    let k_out_mul = b.knot("out_mul", KnotKind::signal_out("mul")).unwrap();
+    let from = b.output(&k_neg_in, "out").unwrap();
+    let to = b.input(&k_abs, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_neg_in, "out").unwrap();
+    let to = b.input(&k_neg, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_abs, "out").unwrap();
+    let to = b.input(&k_map, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_c2, "out").unwrap();
+    let to = b.input(&k_add, "a").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_c3, "out").unwrap();
+    let to = b.input(&k_add, "b").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_c3, "out").unwrap();
+    let to = b.input(&k_sub, "a").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_c2, "out").unwrap();
+    let to = b.input(&k_sub, "b").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_c2, "out").unwrap();
+    let to = b.input(&k_mul, "a").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_c3, "out").unwrap();
+    let to = b.input(&k_mul, "b").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_abs, "out").unwrap();
+    let to = b.input(&k_out_abs, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_neg, "out").unwrap();
+    let to = b.input(&k_out_neg, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_map, "out").unwrap();
+    let to = b.input(&k_out_map, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_add, "out").unwrap();
+    let to = b.input(&k_out_add, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_sub, "out").unwrap();
+    let to = b.input(&k_out_sub, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_mul, "out").unwrap();
+    let to = b.input(&k_out_mul, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "abs"), from_count(4));
     assert_eq!(out_v(&rt, "neg"), from_count(4)); // -(-4) under f32; under i32 saturating_neg of -4 = 4
     assert_eq!(out_v(&rt, "map"), from_count(40)); // 4 maps to 40
@@ -123,78 +155,84 @@ fn map_abs_neg_calc_all() {
     assert_eq!(out_v(&rt, "mul"), from_count(6));
     #[cfg(feature = "signal-i32")]
     {
-        // Q-mul of whole 2*3 = 0
         assert_eq!(out_v(&rt, "mul"), from_count(0));
     }
 }
 
 #[test]
 fn flag_setwins_and_counter_dec() {
-    let (b, _) = Weave::builder("f")
-        .knot("set", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("rst", KnotKind::signal_in()).unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("f").unwrap();
+    let k_set = b.knot("set", KnotKind::signal_in()).unwrap();
+    let k_rst = b.knot("rst", KnotKind::signal_in()).unwrap();
+    let k_flag = b
         .knot("flag", KnotKind::flag(FlagPriority::SetWins, false))
         .unwrap();
-    let (b, _) = b.knot("fout", KnotKind::signal_out("flag")).unwrap();
-    let (b, _) = b.knot("inc", KnotKind::signal_in()).unwrap();
-    let (b, _) = b.knot("dec", KnotKind::signal_in()).unwrap();
-    let (b, _) = b.knot("cnt", KnotKind::counter()).unwrap();
-    let (b, _) = b.knot("cout", KnotKind::signal_out("count")).unwrap();
-    let weave = b
-        .wire_named("set", "out", "flag", "set")
-        .wire_named("rst", "out", "flag", "reset")
-        .wire_named("flag", "out", "fout", "in")
-        .wire_named("inc", "out", "cnt", "inc")
-        .wire_named("dec", "out", "cnt", "dec")
-        .wire_named("cnt", "count", "cout", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_fout = b.knot("fout", KnotKind::signal_out("flag")).unwrap();
+    let k_inc = b.knot("inc", KnotKind::signal_in()).unwrap();
+    let k_dec = b.knot("dec", KnotKind::signal_in()).unwrap();
+    let k_cnt = b.knot("cnt", KnotKind::counter()).unwrap();
+    let k_cout = b.knot("cout", KnotKind::signal_out("count")).unwrap();
+    let from = b.output(&k_set, "out").unwrap();
+    let to = b.input(&k_flag, "set").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_rst, "out").unwrap();
+    let to = b.input(&k_flag, "reset").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_flag, "out").unwrap();
+    let to = b.input(&k_fout, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_inc, "out").unwrap();
+    let to = b.input(&k_cnt, "inc").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_dec, "out").unwrap();
+    let to = b.input(&k_cnt, "dec").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_cnt, "count").unwrap();
+    let to = b.input(&k_cout, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let set = rt.sense_id("set").unwrap();
     let rst = rt.sense_id("rst").unwrap();
     let inc = rt.sense_id("inc").unwrap();
     let dec = rt.sense_id("dec").unwrap();
 
-    // SetWins: set wins over reset same tick
     rt.begin_frame(HostTime { tick: 0 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(set, ONE);
-        w.set_sense(rst, ONE);
-        w.set_sense(inc, ZERO);
-        w.set_sense(dec, ZERO);
+        w.set_sense(set, ONE).unwrap();
+        w.set_sense(rst, ONE).unwrap();
+        w.set_sense(inc, ZERO).unwrap();
+        w.set_sense(dec, ZERO).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert!(truthy(&rt, "flag"));
 
-    // counter: inc then dec
     rt.begin_frame(HostTime { tick: 1 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(set, ZERO);
-        w.set_sense(rst, ZERO);
-        w.set_sense(inc, ONE);
-        w.set_sense(dec, ZERO);
+        w.set_sense(set, ZERO).unwrap();
+        w.set_sense(rst, ZERO).unwrap();
+        w.set_sense(inc, ONE).unwrap();
+        w.set_sense(dec, ZERO).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "count"), from_count(1));
 
     rt.begin_frame(HostTime { tick: 2 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(inc, ZERO);
-        w.set_sense(dec, ZERO);
+        w.set_sense(inc, ZERO).unwrap();
+        w.set_sense(dec, ZERO).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     rt.begin_frame(HostTime { tick: 3 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(inc, ZERO);
-        w.set_sense(dec, ONE);
+        w.set_sense(inc, ZERO).unwrap();
+        w.set_sense(dec, ONE).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "count"), from_count(0));
 }
 
@@ -209,124 +247,129 @@ fn compare_all_ops_wired_rhs() {
         (CompareOp::Gte, 2, 2, true),
         (CompareOp::Eq, 1, 2, false),
     ] {
-        let (b, _) = Weave::builder("c")
-            .knot("l", KnotKind::constant(from_count(lhs)))
-            .unwrap();
-        let (b, _) = b.knot("r", KnotKind::constant(from_count(rhs))).unwrap();
-        let (b, _) = b.knot("cmp", KnotKind::compare(op, None)).unwrap();
-        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-        let weave = b
-            .wire_named("l", "out", "cmp", "lhs")
-            .wire_named("r", "out", "cmp", "rhs")
-            .wire_named("cmp", "out", "out", "in")
-            .build()
-            .unwrap();
-        let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        let mut b = Weave::builder("c").unwrap();
+        let k_l = b.knot("l", KnotKind::constant(from_count(lhs))).unwrap();
+        let k_r = b.knot("r", KnotKind::constant(from_count(rhs))).unwrap();
+        let k_cmp = b.knot("cmp", KnotKind::compare(op, None)).unwrap();
+        let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let from = b.output(&k_l, "out").unwrap();
+        let to = b.input(&k_cmp, "lhs").unwrap();
+        b.connect(from, to).unwrap();
+        let from = b.output(&k_r, "out").unwrap();
+        let to = b.input(&k_cmp, "rhs").unwrap();
+        b.connect(from, to).unwrap();
+        let from = b.output(&k_cmp, "out").unwrap();
+        let to = b.input(&k_out, "in").unwrap();
+        b.connect(from, to).unwrap();
+        let weave = b.build().unwrap();
+        let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
         rt.begin_frame(HostTime { tick: 0 });
-        rt.loom(&weave).unwrap();
+        rt.loom();
         assert_eq!(truthy(&rt, "y"), expect, "{op:?}");
     }
 }
 
 #[test]
 fn flag_setwins_reset_and_toggle_and_resetwins_set() {
-    // SetWins: pure reset (no set) clears; pure toggle flips.
-    let (b, _) = Weave::builder("sw")
-        .knot("set", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("rst", KnotKind::signal_in()).unwrap();
-    let (b, _) = b.knot("tog", KnotKind::signal_in()).unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("sw").unwrap();
+    let k_set = b.knot("set", KnotKind::signal_in()).unwrap();
+    let k_rst = b.knot("rst", KnotKind::signal_in()).unwrap();
+    let k_tog = b.knot("tog", KnotKind::signal_in()).unwrap();
+    let k_flag = b
         .knot("flag", KnotKind::flag(FlagPriority::SetWins, true))
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("set", "out", "flag", "set")
-        .wire_named("rst", "out", "flag", "reset")
-        .wire_named("tog", "out", "flag", "toggle")
-        .wire_named("flag", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_set, "out").unwrap();
+    let to = b.input(&k_flag, "set").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_rst, "out").unwrap();
+    let to = b.input(&k_flag, "reset").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_tog, "out").unwrap();
+    let to = b.input(&k_flag, "toggle").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_flag, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let set = rt.sense_id("set").unwrap();
     let rst = rt.sense_id("rst").unwrap();
     let tog = rt.sense_id("tog").unwrap();
 
-    // set only → on
     rt.begin_frame(HostTime { tick: 0 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(set, ONE);
-        w.set_sense(rst, ZERO);
-        w.set_sense(tog, ZERO);
+        w.set_sense(set, ONE).unwrap();
+        w.set_sense(rst, ZERO).unwrap();
+        w.set_sense(tog, ZERO).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert!(truthy(&rt, "y"));
 
-    // SetWins pure reset → off
     rt.begin_frame(HostTime { tick: 1 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(set, ZERO);
-        w.set_sense(rst, ONE);
-        w.set_sense(tog, ZERO);
+        w.set_sense(set, ZERO).unwrap();
+        w.set_sense(rst, ONE).unwrap();
+        w.set_sense(tog, ZERO).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert!(!truthy(&rt, "y"));
 
-    // SetWins pure toggle rising → on
     rt.begin_frame(HostTime { tick: 2 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(set, ZERO);
-        w.set_sense(rst, ZERO);
-        w.set_sense(tog, ZERO);
+        w.set_sense(set, ZERO).unwrap();
+        w.set_sense(rst, ZERO).unwrap();
+        w.set_sense(tog, ZERO).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     rt.begin_frame(HostTime { tick: 3 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(set, ZERO);
-        w.set_sense(rst, ZERO);
-        w.set_sense(tog, ONE);
+        w.set_sense(set, ZERO).unwrap();
+        w.set_sense(rst, ZERO).unwrap();
+        w.set_sense(tog, ONE).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert!(truthy(&rt, "y"));
 
-    // ResetWins: set without reset turns on (covers set-only arm).
-    let (b, _) = Weave::builder("rw")
-        .knot("set", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("rst", KnotKind::signal_in()).unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("rw").unwrap();
+    let k_set = b.knot("set", KnotKind::signal_in()).unwrap();
+    let k_rst = b.knot("rst", KnotKind::signal_in()).unwrap();
+    let k_flag = b
         .knot("flag", KnotKind::flag(FlagPriority::ResetWins, false))
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("set", "out", "flag", "set")
-        .wire_named("rst", "out", "flag", "reset")
-        .wire_named("flag", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_set, "out").unwrap();
+    let to = b.input(&k_flag, "set").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_rst, "out").unwrap();
+    let to = b.input(&k_flag, "reset").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_flag, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let set = rt.sense_id("set").unwrap();
     let rst = rt.sense_id("rst").unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     {
         let mut w = rt.port_writer();
-        w.set_sense(set, ONE);
-        w.set_sense(rst, ZERO);
+        w.set_sense(set, ONE).unwrap();
+        w.set_sense(rst, ZERO).unwrap();
     }
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert!(truthy(&rt, "y"));
 }
 
 #[test]
 fn map_zero_span_and_delay_one() {
-    let (b, _) = Weave::builder("z")
-        .knot("c", KnotKind::constant(from_count(1)))
-        .unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("z").unwrap();
+    let k_c = b.knot("c", KnotKind::constant(from_count(1))).unwrap();
+    let k_map = b
         .knot(
             "map",
             KnotKind::Map {
@@ -337,32 +380,37 @@ fn map_zero_span_and_delay_one() {
             },
         )
         .unwrap();
-    let (b, _) = b.knot("d", KnotKind::Delay { ticks: 1 }).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let (b, _) = b.knot("dout", KnotKind::signal_out("d")).unwrap();
-    let weave = b
-        .wire_named("c", "out", "map", "in")
-        .wire_named("map", "out", "out", "in")
-        .wire_named("c", "out", "d", "in")
-        .wire_named("d", "out", "dout", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_d = b.knot("d", KnotKind::Delay { ticks: 1 }).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_dout = b.knot("dout", KnotKind::signal_out("d")).unwrap();
+    let from = b.output(&k_c, "out").unwrap();
+    let to = b.input(&k_map, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_map, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_c, "out").unwrap();
+    let to = b.input(&k_d, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_d, "out").unwrap();
+    let to = b.input(&k_dout, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "y"), from_count(7));
     assert_eq!(out_v(&rt, "d"), ZERO); // delay 1
     rt.begin_frame(HostTime { tick: 1 });
-    rt.loom(&weave).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "d"), from_count(1));
 }
 
 #[test]
 fn digitize_four_steps_mid_bin() {
-    let (b, _) = Weave::builder("dig")
-        .knot("in", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("dig").unwrap();
+    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_d = b
         .knot(
             "d",
             KnotKind::Digitize {
@@ -374,16 +422,18 @@ fn digitize_four_steps_mid_bin() {
             },
         )
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("in", "out", "d", "in")
-        .wire_named("d", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_in, "out").unwrap();
+    let to = b.input(&k_d, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_d, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let id = rt.sense_id("in").unwrap();
     rt.begin_frame(HostTime { tick: 0 });
-    rt.port_writer().set_sense(id, from_count(2));
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, from_count(2)).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "y"), from_count(20));
 }

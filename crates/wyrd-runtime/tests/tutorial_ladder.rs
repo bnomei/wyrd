@@ -6,7 +6,6 @@
 
 use wyrd_runtime::cookbook::{tier_a, tier_b, tier_c};
 
-// --- Tier A ---
 #[test]
 fn a01_hello_invert() {
     tier_a::run_a01_hello_invert().unwrap();
@@ -28,7 +27,6 @@ fn a05_validate_fails() {
     tier_a::run_a05_validate_fails().unwrap();
 }
 
-// --- Tier B ---
 #[test]
 fn b01_monostable_pattern() {
     tier_b::run_b01_monostable_pattern().unwrap();
@@ -50,7 +48,6 @@ fn b05_delayed_pulse() {
     tier_b::run_b05_delayed_pulse().unwrap();
 }
 
-// --- Tier C ---
 #[test]
 fn c01_multi_switch_latch() {
     tier_c::run_c01_multi_switch_latch().unwrap();

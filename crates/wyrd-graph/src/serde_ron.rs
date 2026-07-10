@@ -1,99 +1,73 @@
-//! RON load/save for author Weaves (feature `serde-ron`).
+//! RON load/save for weaves with validate-on-decode (`serde-ron` feature).
+
+use core::fmt;
 
 use std::string::String;
 
-use wyrd_core::{NumericPath, Result, WyrdError};
+use crate::{ValidationError, Weave, WeaveDef};
 
-use crate::validate::{validate, Budget};
-use crate::weave::Weave;
-
-/// Deserialize Weave from RON text. Rejects numeric path mismatch vs compiled feature.
-pub fn from_ron(text: &str) -> Result<Weave> {
-    let weave: Weave = ron::from_str(text).map_err(|_| WyrdError::Parse)?;
-    if weave.numeric != NumericPath::compiled() {
-        return Err(WyrdError::NumericMismatch);
-    }
-    validate(&weave, &Budget::default())?;
-    Ok(weave)
+/// RON parse, serialize, or post-parse validation failure.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum RonCodecError {
+    Parse {
+        source: ron::error::SpannedError,
+        line: usize,
+        column: usize,
+    },
+    Validation(ValidationError),
+    Serialize(ron::Error),
 }
 
-/// Serialize Weave to RON (pretty).
-///
-/// Returns `Ok` for any well-formed `Weave`. Serialization failure is treated
-/// as a programmer error (types are always RON-representable).
-pub fn to_ron(weave: &Weave) -> Result<String> {
-    Ok(
-        ron::ser::to_string_pretty(weave, ron::ser::PrettyConfig::default())
-            .expect("Weave is RON-serializable"),
-    )
+impl fmt::Display for RonCodecError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Parse {
+                source,
+                line,
+                column,
+            } => write!(
+                f,
+                "RON parse error at line {line}, column {column}: {source}"
+            ),
+            Self::Validation(error) => write!(f, "invalid RON weave: {error}"),
+            Self::Serialize(error) => write!(f, "RON serialization error: {error}"),
+        }
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Weave;
-    use wyrd_core::{KnotKind, ONE};
-
-    #[test]
-    fn round_trip_and_door() {
-        let (b, pa) = Weave::builder("door")
-            .knot("plate_a", KnotKind::signal_in())
-            .unwrap();
-        let (b, pb) = b.knot("plate_b", KnotKind::signal_in()).unwrap();
-        let (b, _) = b.and2("both", pa, pb).unwrap();
-        let (b, _) = b.knot("door", KnotKind::signal_out("door.open")).unwrap();
-        let w = b.wire_named("both", "out", "door", "in").build().unwrap();
-        let s = to_ron(&w).unwrap();
-        let w2 = from_ron(&s).unwrap();
-        assert_eq!(w.id, w2.id);
-        assert_eq!(w.knots.len(), w2.knots.len());
-        let _ = ONE;
+impl std::error::Error for RonCodecError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Parse { source, .. } => Some(source),
+            Self::Validation(source) => Some(source),
+            Self::Serialize(source) => Some(source),
+        }
     }
+}
 
-    #[test]
-    fn wrong_numeric_rejected() {
-        let (b, _) = Weave::builder("x")
-            .knot("c", KnotKind::constant(ONE))
-            .unwrap();
-        let w = b.build().unwrap();
-        let s = to_ron(&w).unwrap();
-        // Flip numeric tag in serialized form (feature-specific tag).
-        #[cfg(feature = "signal-f32")]
-        let wrong = s.replace("f32", "i32q16");
-        #[cfg(feature = "signal-i32")]
-        let wrong = s.replace("i32q16", "f32");
-        let err = from_ron(&wrong);
-        assert!(
-            matches!(err, Err(WyrdError::NumericMismatch)),
-            "got {err:?}"
-        );
+impl From<ValidationError> for RonCodecError {
+    fn from(value: ValidationError) -> Self {
+        Self::Validation(value)
     }
+}
 
-    #[test]
-    fn parse_error_on_garbage() {
-        assert_eq!(from_ron("not ron {{{"), Err(WyrdError::Parse));
-    }
+/// Parse RON text as a [`WeaveDef`] and validate into a [`Weave`].
+pub fn from_ron(text: &str) -> Result<Weave, RonCodecError> {
+    let def: WeaveDef = ron::from_str(text).map_err(|source: ron::error::SpannedError| {
+        let line = source.position.line;
+        let column = source.position.col;
+        RonCodecError::Parse {
+            source,
+            line,
+            column,
+        }
+    })?;
+    Ok(Weave::try_from(def)?)
+}
 
-    #[test]
-    fn validate_failure_after_parse() {
-        // Valid RON / invalid weave (empty knots). Numeric tag must match compiled path.
-        #[cfg(feature = "signal-f32")]
-        let text = r#"(
-            id: "e",
-            knots: [],
-            threads: [],
-            numeric: f32,
-        )"#;
-        #[cfg(feature = "signal-i32")]
-        let text = r#"(
-            id: "e",
-            knots: [],
-            threads: [],
-            numeric: i32q16,
-        )"#;
-        assert!(matches!(
-            from_ron(text),
-            Err(WyrdError::Empty) | Err(WyrdError::Parse)
-        ));
-    }
+/// Pretty-print a weave definition as RON.
+pub fn to_ron(weave: &Weave) -> Result<String, RonCodecError> {
+    ron::ser::to_string_pretty(&weave.to_def(), ron::ser::PrettyConfig::default())
+        .map_err(RonCodecError::Serialize)
 }

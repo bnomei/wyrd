@@ -1,458 +1,373 @@
-//! Validate edge cases (integration; kept out of validate.rs for coverage hygiene).
-
-use std::format;
-use std::vec;
-use wyrd_core::{CompareOp, KnotKind, NumericPath, WyrdError, ONE};
+use wyrd_core::{KnotKind, NumericPath, PortDir, TimerMode, ONE, ZERO};
 use wyrd_graph::{
-    validate, validate_report, Budget, BudgetWarning, KnotDef, PortRefAuthor, ThreadDef, Weave,
+    validate, validate_report, Budget, BudgetWarning, BuildError, KnotDef, Pattern, PatternDef,
+    PatternExportDef, PortRefDef, ThreadDef, ValidationError, Weave, WeaveBuilder, WeaveDef,
 };
 
-#[test]
-fn hello_ok() {
-    let (b, c) = Weave::builder("h")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, n) = b.knot("n", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("o", KnotKind::signal_out("debug")).unwrap();
-    let w = b
-        .wire_named("c", "out", "n", "in")
-        .wire_named("n", "out", "o", "in")
-        .build()
-        .unwrap();
-    validate(&w, &Budget::default()).unwrap();
-    let _ = (c, n);
+fn def(knots: Vec<KnotDef>, threads: Vec<ThreadDef>) -> WeaveDef {
+    WeaveDef {
+        id: "test".into(),
+        numeric: NumericPath::compiled(),
+        knots,
+        threads,
+    }
+}
+
+fn knot(id: &str, kind: KnotKind) -> KnotDef {
+    KnotDef {
+        id: id.into(),
+        kind,
+    }
+}
+
+fn thread(from_knot: &str, from_port: &str, to_knot: &str, to_port: &str) -> ThreadDef {
+    ThreadDef {
+        from: PortRefDef::new(from_knot, from_port),
+        to: PortRefDef::new(to_knot, to_port),
+    }
 }
 
 #[test]
-fn fan_in_rejects() {
-    let (b, _) = Weave::builder("h")
-        .knot("a", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b.knot("b", KnotKind::constant(ONE)).unwrap();
-    let (b, _) = b.knot("n", KnotKind::not()).unwrap();
-    let w = b
-        .wire_named("a", "out", "n", "in")
-        .wire_named("b", "out", "n", "in")
-        .build()
-        .unwrap();
-    assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::FanIn));
+fn validated_weave_has_read_only_accessors_and_definition_round_trip() {
+    let weave = Weave::try_from(def(vec![knot("one", KnotKind::constant(ONE))], vec![])).unwrap();
+    assert_eq!(weave.id(), "test");
+    assert_eq!(weave.numeric(), NumericPath::compiled());
+    assert_eq!(weave.knots()[0].id, "one");
+    assert!(weave.threads().is_empty());
+    assert_eq!(Weave::try_from(weave.to_def()).unwrap(), weave);
 }
 
 #[test]
-fn folklore_port_rejects() {
-    let (b, _) = Weave::builder("h")
-        .knot("a", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("and", KnotKind::and2()).unwrap();
-    let w = b
-        .wire_named("a", "out", "and", "a") // folklore — must be in_0
-        .build()
-        .unwrap();
-    assert_eq!(
-        validate(&w, &Budget::default()),
-        Err(WyrdError::UnknownPort)
-    );
-
-    // Unknown *from* port name (fs path).
-    let w_from = Weave {
-        id: "hf".into(),
-        knots: vec![
-            KnotDef {
-                id: "a".into(),
-                kind: KnotKind::signal_in(),
-            },
-            KnotDef {
-                id: "n".into(),
-                kind: KnotKind::not(),
-            },
+fn definition_rejects_empty_duplicate_and_numeric_mismatch() {
+    assert!(matches!(
+        Weave::try_from(def(vec![], vec![])),
+        Err(ValidationError::EmptyWeave { .. })
+    ));
+    let duplicate = def(
+        vec![
+            knot("x", KnotKind::constant(ONE)),
+            knot("x", KnotKind::constant(ZERO)),
         ],
-        threads: vec![ThreadDef {
-            from: PortRefAuthor::new("a", "nope"),
-            to: PortRefAuthor::new("n", "in"),
-        }],
-        numeric: NumericPath::compiled(),
-    };
-    assert_eq!(
-        validate(&w_from, &Budget::default()),
-        Err(WyrdError::UnknownPort)
+        vec![],
     );
-}
-
-#[test]
-fn empty_weave_rejects() {
-    let w = Weave {
-        id: "e".into(),
-        knots: vec![],
-        threads: vec![],
-        numeric: NumericPath::compiled(),
-    };
-    assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::Empty));
-}
-
-#[test]
-fn budget_knots_and_threads() {
-    let (b, _) = Weave::builder("b")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let w = b.build().unwrap();
-    let tight = Budget {
-        max_knots: 0,
-        ..Budget::default()
-    };
-    assert_eq!(validate(&w, &tight), Err(WyrdError::Budget));
-
-    let (b, _) = Weave::builder("b2")
-        .knot("a", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b.knot("n", KnotKind::not()).unwrap();
-    let w = b.wire_named("a", "out", "n", "in").build().unwrap();
-    let tight_t = Budget {
-        max_threads: 0,
-        ..Budget::default()
-    };
-    assert_eq!(validate(&w, &tight_t), Err(WyrdError::Budget));
-}
-
-#[test]
-fn fan_out_budget_hard() {
-    let (b, _) = Weave::builder("f")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("n2", KnotKind::not()).unwrap();
-    // one source fans out to 3 Not ins
-    let w = b
-        .wire_named("c", "out", "n0", "in")
-        .wire_named("c", "out", "n1", "in")
-        .wire_named("c", "out", "n2", "in")
-        .build()
-        .unwrap();
-    let bud = Budget {
-        max_fan_out: 2,
-        ..Budget::default()
-    };
-    assert_eq!(validate(&w, &bud), Err(WyrdError::Budget));
-}
-
-#[test]
-fn chain_depth_budget_hard() {
-    // c → n0 → n1 → n2 : depth 3 edges
-    let (b, _) = Weave::builder("d")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("n2", KnotKind::not()).unwrap();
-    let w = b
-        .wire_named("c", "out", "n0", "in")
-        .wire_named("n0", "out", "n1", "in")
-        .wire_named("n1", "out", "n2", "in")
-        .build()
-        .unwrap();
-    let bud = Budget {
-        max_chain_depth: 2,
-        ..Budget::default()
-    };
-    assert_eq!(validate(&w, &bud), Err(WyrdError::Budget));
-}
-
-#[test]
-fn soft_warnings_do_not_fail_validate() {
-    // 3 edges, soft_chain_depth 2 → warning, still Ok.
-    let (b, _) = Weave::builder("d")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("n2", KnotKind::not()).unwrap();
-    let w = b
-        .wire_named("c", "out", "n0", "in")
-        .wire_named("n0", "out", "n1", "in")
-        .wire_named("n1", "out", "n2", "in")
-        .build()
-        .unwrap();
-    let bud = Budget {
-        soft_chain_depth: 2,
-        soft_knots: 2, // also soft knots (4 knots)
-        ..Budget::default()
-    };
-    validate(&w, &bud).unwrap();
-    let rep = validate_report(&w, &bud).unwrap();
-    assert!(!rep.ok());
-    assert!(rep.warnings.iter().any(|w| matches!(
-        w,
-        BudgetWarning::SoftChainDepth {
-            depth: 3,
-            soft: 2,
-            ..
-        }
-    )));
-    assert!(rep
-        .warnings
-        .iter()
-        .any(|w| matches!(w, BudgetWarning::SoftKnots { count: 4, soft: 2 })));
-    let s = format!("{rep}");
-    assert!(s.contains("soft chain depth"));
-    assert!(s.contains("soft knot"));
     assert!(
-        s.contains("; "),
-        "multi-warning Display joins with semicolon"
+        matches!(Weave::try_from(duplicate), Err(ValidationError::DuplicateKnotId { knot_id }) if knot_id == "x")
+    );
+    let mut wrong = def(vec![knot("x", KnotKind::constant(ONE))], vec![]);
+    wrong.numeric = match NumericPath::compiled() {
+        NumericPath::F32 => NumericPath::I32Q16,
+        NumericPath::I32Q16 => NumericPath::F32,
+    };
+    assert!(matches!(
+        Weave::try_from(wrong),
+        Err(ValidationError::NumericMismatch { .. })
+    ));
+}
+
+#[test]
+fn definition_rejects_empty_author_ids() {
+    let mut empty_weave = def(vec![knot("x", KnotKind::constant(ONE))], vec![]);
+    empty_weave.id.clear();
+    assert!(matches!(
+        Weave::try_from(empty_weave),
+        Err(ValidationError::InvalidWeaveId { .. })
+    ));
+    assert!(matches!(
+        Weave::try_from(def(vec![knot("", KnotKind::constant(ONE))], vec![])),
+        Err(ValidationError::InvalidKnotId { .. })
+    ));
+}
+
+#[test]
+fn definition_reports_unknown_knots_ports_and_direction() {
+    let unknown_knot = def(
+        vec![knot("x", KnotKind::constant(ONE))],
+        vec![thread("missing", "out", "x", "out")],
+    );
+    assert!(
+        matches!(Weave::try_from(unknown_knot), Err(ValidationError::UnknownKnot { knot_id }) if knot_id == "missing")
+    );
+
+    let unknown_port = def(
+        vec![
+            knot("x", KnotKind::constant(ONE)),
+            knot("n", KnotKind::not()),
+        ],
+        vec![thread("x", "bad", "n", "in")],
+    );
+    assert!(
+        matches!(Weave::try_from(unknown_port), Err(ValidationError::UnknownPort { port, .. }) if port == "bad")
+    );
+
+    let reversed = def(
+        vec![
+            knot("a", KnotKind::signal_in()),
+            knot("b", KnotKind::signal_in()),
+        ],
+        vec![thread("a", "out", "b", "out")],
+    );
+    assert!(matches!(
+        Weave::try_from(reversed),
+        Err(ValidationError::WrongPortDirection {
+            expected: PortDir::In,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn definition_rejects_fan_in_missing_required_and_cycles() {
+    let fan_in = def(
+        vec![
+            knot("a", KnotKind::constant(ONE)),
+            knot("b", KnotKind::constant(ZERO)),
+            knot("n", KnotKind::not()),
+        ],
+        vec![thread("a", "out", "n", "in"), thread("b", "out", "n", "in")],
+    );
+    assert!(
+        matches!(Weave::try_from(fan_in), Err(ValidationError::FanIn { knot_id, port }) if knot_id == "n" && port == "in")
+    );
+    assert!(matches!(
+        Weave::try_from(def(vec![knot("n", KnotKind::not())], vec![])),
+        Err(ValidationError::UnconnectedRequired { .. })
+    ));
+
+    let cycle = def(
+        vec![knot("a", KnotKind::not()), knot("b", KnotKind::not())],
+        vec![thread("a", "out", "b", "in"), thread("b", "out", "a", "in")],
+    );
+    assert!(matches!(
+        Weave::try_from(cycle),
+        Err(ValidationError::Cycle { .. })
+    ));
+}
+
+#[test]
+fn definition_rejects_invalid_catalog_parameters() {
+    let cases = [
+        KnotKind::Digitize {
+            steps: 0,
+            in_min: ZERO,
+            in_max: ONE,
+            out_min: ZERO,
+            out_max: ONE,
+        },
+        KnotKind::Map {
+            in_min: ONE,
+            in_max: ZERO,
+            out_min: ZERO,
+            out_max: ONE,
+        },
+        KnotKind::Clamp {
+            min: ONE,
+            max: ZERO,
+        },
+        KnotKind::Threshold {
+            high: ZERO,
+            low: ONE,
+            use_hysteresis: true,
+        },
+        KnotKind::And { arity: 5 },
+    ];
+    for kind in cases {
+        assert!(matches!(
+            Weave::try_from(def(vec![knot("bad", kind)], vec![])),
+            Err(ValidationError::InvalidParameter { .. })
+        ));
+    }
+}
+
+#[test]
+fn typed_builder_checks_direction_port_and_owner_immediately() {
+    let mut first = WeaveBuilder::new("first").unwrap();
+    let source = first.knot("source", KnotKind::signal_in()).unwrap();
+    let sink = first.knot("sink", KnotKind::signal_out("x")).unwrap();
+    assert!(matches!(
+        first.input(&source, "out"),
+        Err(BuildError::WrongPortDirection { .. })
+    ));
+    assert!(matches!(
+        first.output(&source, "missing"),
+        Err(BuildError::UnknownPort { .. })
+    ));
+
+    let mut second = WeaveBuilder::new("second").unwrap();
+    let other = second.knot("other", KnotKind::signal_in()).unwrap();
+    assert_eq!(first.output(&other, "out"), Err(BuildError::ForeignHandle));
+    let foreign = second.output(&other, "out").unwrap();
+    let input = first.input(&sink, "in").unwrap();
+    assert_eq!(
+        first.connect(foreign, input).map(|_| ()),
+        Err(BuildError::ForeignHandle)
     );
 }
 
 #[test]
-fn soft_threads_warns_and_ok_display() {
-    let (b, _) = Weave::builder("t")
-        .knot("a", KnotKind::constant(ONE))
+fn typed_builder_constructs_a_valid_graph() {
+    let mut builder = WeaveBuilder::new("door").unwrap();
+    let a = builder.knot("a", KnotKind::signal_in()).unwrap();
+    let b = builder.knot("b", KnotKind::signal_in()).unwrap();
+    let both = builder.knot("both", KnotKind::and2()).unwrap();
+    let door = builder
+        .knot("door", KnotKind::signal_out("door.open"))
         .unwrap();
-    let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
-    // 2 threads; soft_threads = 1
-    let w = b
-        .wire_named("a", "out", "n0", "in")
-        .wire_named("n0", "out", "n1", "in")
-        .build()
+    builder
+        .connect(
+            builder.output(&a, "out").unwrap(),
+            builder.input(&both, "in_0").unwrap(),
+        )
         .unwrap();
-    let bud = Budget {
-        soft_threads: 1,
+    builder
+        .connect(
+            builder.output(&b, "out").unwrap(),
+            builder.input(&both, "in_1").unwrap(),
+        )
+        .unwrap();
+    builder
+        .connect(
+            builder.output(&both, "out").unwrap(),
+            builder.input(&door, "in").unwrap(),
+        )
+        .unwrap();
+    let weave = builder.build().unwrap();
+    assert_eq!(weave.knots().len(), 4);
+    assert_eq!(weave.threads().len(), 3);
+}
+
+fn monostable() -> Pattern {
+    Pattern::try_from(PatternDef {
+        id: "mono".into(),
+        inner: def(
+            vec![
+                knot("edge", KnotKind::rising_from_zero()),
+                knot("timer", KnotKind::timer(TimerMode::PulseHold, 2)),
+            ],
+            vec![thread("edge", "out", "timer", "start")],
+        ),
+        inputs: vec![PatternExportDef::new("start", "edge", "in")],
+        outputs: vec![PatternExportDef::new("active", "timer", "active")],
+    })
+    .unwrap()
+}
+
+#[test]
+fn patterns_validate_exports_and_connect_end_to_end() {
+    let pattern = monostable();
+    assert_eq!(pattern.id(), "mono");
+    let mut builder = WeaveBuilder::new("pattern-host").unwrap();
+    let trigger = builder.knot("trigger", KnotKind::signal_in()).unwrap();
+    let sink = builder
+        .knot("sink", KnotKind::signal_out("active"))
+        .unwrap();
+    let first = builder.include("first", &pattern).unwrap();
+    let second = builder.include("second", &pattern).unwrap();
+    builder
+        .connect(
+            builder.output(&trigger, "out").unwrap(),
+            first.input("start").unwrap(),
+        )
+        .unwrap();
+    builder
+        .connect(
+            first.output("active").unwrap(),
+            second.input("start").unwrap(),
+        )
+        .unwrap();
+    builder
+        .connect(
+            second.output("active").unwrap(),
+            builder.input(&sink, "in").unwrap(),
+        )
+        .unwrap();
+    let weave = builder.build().unwrap();
+    assert!(weave.knots().iter().any(|knot| knot.id == "first/edge"));
+    assert!(weave.knots().iter().any(|knot| knot.id == "second/timer"));
+}
+
+#[test]
+fn pattern_validation_is_contextual() {
+    let mut pattern = monostable().to_def();
+    pattern
+        .inputs
+        .push(PatternExportDef::new("start", "edge", "in"));
+    assert!(
+        matches!(Pattern::try_from(pattern), Err(ValidationError::DuplicateExport { export }) if export == "start")
+    );
+    let mut pattern = monostable().to_def();
+    pattern.outputs[0] = PatternExportDef::new("active", "edge", "in");
+    assert!(matches!(
+        Pattern::try_from(pattern),
+        Err(ValidationError::WrongPortDirection { .. })
+    ));
+}
+
+#[test]
+fn budgets_are_separate_from_structural_validation() {
+    let weave = Weave::try_from(def(
+        vec![
+            knot("a", KnotKind::constant(ONE)),
+            knot("b", KnotKind::not()),
+            knot("c", KnotKind::not()),
+        ],
+        vec![thread("a", "out", "b", "in"), thread("b", "out", "c", "in")],
+    ))
+    .unwrap();
+    let tight = Budget {
+        max_chain_depth: 1,
         ..Budget::default()
     };
-    let rep = validate_report(&w, &bud).unwrap();
-    assert!(rep
+    assert!(matches!(
+        validate(&weave, &tight),
+        Err(ValidationError::BudgetExceeded {
+            metric: "chain depth",
+            actual: 2,
+            limit: 1,
+            ..
+        })
+    ));
+    let soft = Budget {
+        soft_knots: 1,
+        soft_chain_depth: 0,
+        ..Budget::default()
+    };
+    let report = validate_report(&weave, &soft).unwrap();
+    assert!(report
         .warnings
         .iter()
-        .any(|w| matches!(w, BudgetWarning::SoftThreads { count: 2, soft: 1 })));
-    assert!(format!("{}", rep.warnings[0]).contains("soft thread"));
-
-    let clean = validate_report(&w, &Budget::default()).unwrap();
-    assert!(clean.ok());
-    assert_eq!(format!("{clean}"), "validate ok");
+        .any(|w| matches!(w, BudgetWarning::SoftKnots { count: 3, soft: 1 })));
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| matches!(w, BudgetWarning::SoftChainDepth { .. })));
 }
 
+#[cfg(feature = "serde-json")]
 #[test]
-fn soft_fan_out_warns() {
-    let (b, _) = Weave::builder("f")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("n2", KnotKind::not()).unwrap();
-    let w = b
-        .wire_named("c", "out", "n0", "in")
-        .wire_named("c", "out", "n1", "in")
-        .wire_named("c", "out", "n2", "in")
-        .build()
-        .unwrap();
-    let bud = Budget {
-        soft_fan_out: 2,
-        max_fan_out: 8,
-        ..Budget::default()
-    };
-    let rep = validate_report(&w, &bud).unwrap();
-    assert!(rep.warnings.iter().any(|w| matches!(
-        w,
-        BudgetWarning::SoftFanOut {
-            fan_out: 3,
-            soft: 2,
-            at_knot
-        } if at_knot == "c"
-    )));
-    assert!(format!("{}", rep.warnings[0]).contains("'c'"));
-}
-
-#[test]
-fn unknown_from_or_to_knot_rejects() {
-    let w = Weave {
-        id: "u".into(),
-        knots: vec![KnotDef {
-            id: "c".into(),
-            kind: KnotKind::constant(ONE),
-        }],
-        threads: vec![ThreadDef {
-            from: PortRefAuthor::new("missing", "out"),
-            to: PortRefAuthor::new("c", "out"), // wrong dir/port too, but knot first
-        }],
-        numeric: NumericPath::compiled(),
-    };
-    assert_eq!(
-        validate(&w, &Budget::default()),
-        Err(WyrdError::UnknownKnot)
-    );
-
-    let w2 = Weave {
-        id: "u2".into(),
-        knots: vec![KnotDef {
-            id: "c".into(),
-            kind: KnotKind::constant(ONE),
-        }],
-        threads: vec![ThreadDef {
-            from: PortRefAuthor::new("c", "out"),
-            to: PortRefAuthor::new("gone", "in"),
-        }],
-        numeric: NumericPath::compiled(),
-    };
-    assert_eq!(
-        validate(&w2, &Budget::default()),
-        Err(WyrdError::UnknownKnot)
-    );
-}
-
-#[test]
-fn delay_path_sum_budget_hard() {
-    let (b, _) = Weave::builder("d")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b.knot("d0", KnotKind::Delay { ticks: 10 }).unwrap();
-    let (b, _) = b.knot("d1", KnotKind::Delay { ticks: 10 }).unwrap();
-    let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
-    let w = b
-        .wire_named("c", "out", "d0", "in")
-        .wire_named("d0", "out", "d1", "in")
-        .wire_named("d1", "out", "o", "in")
-        .build()
-        .unwrap();
-    let bud = Budget {
-        max_delay_path_sum: 15,
-        ..Budget::default()
-    };
-    assert_eq!(validate(&w, &bud), Err(WyrdError::Budget));
-}
-
-#[test]
-fn numeric_mismatch_rejects() {
-    let (b, _) = Weave::builder("n")
-        .knot("c", KnotKind::constant(ONE))
-        .unwrap();
-    let mut w = b.build().unwrap();
-    #[cfg(feature = "signal-f32")]
-    {
-        w.numeric = NumericPath::I32Q16;
+fn json_codec_preserves_parse_context_and_validates() {
+    let weave = Weave::try_from(def(vec![knot("one", KnotKind::constant(ONE))], vec![])).unwrap();
+    let text = wyrd_graph::to_json(&weave).unwrap();
+    assert_eq!(wyrd_graph::from_json(&text).unwrap(), weave);
+    match wyrd_graph::from_json("{ bad") {
+        Err(wyrd_graph::JsonCodecError::Parse { line, column, .. }) => {
+            assert_eq!(line, 1);
+            assert!(column > 0);
+        }
+        other => panic!("unexpected result: {other:?}"),
     }
-    #[cfg(feature = "signal-i32")]
-    {
-        w.numeric = NumericPath::F32;
+}
+
+#[cfg(feature = "serde-ron")]
+#[test]
+fn ron_codec_preserves_parse_context_and_validates() {
+    let weave = Weave::try_from(def(vec![knot("one", KnotKind::constant(ONE))], vec![])).unwrap();
+    let text = wyrd_graph::to_ron(&weave).unwrap();
+    assert_eq!(wyrd_graph::from_ron(&text).unwrap(), weave);
+    match wyrd_graph::from_ron("(bad:") {
+        Err(wyrd_graph::RonCodecError::Parse { line, column, .. }) => {
+            assert_eq!(line, 1);
+            assert!(column > 0);
+        }
+        other => panic!("unexpected result: {other:?}"),
     }
-    assert_eq!(
-        validate(&w, &Budget::default()),
-        Err(WyrdError::NumericMismatch)
-    );
-}
-
-#[test]
-fn duplicate_knot_id_rejects() {
-    let w = Weave {
-        id: "d".into(),
-        knots: vec![
-            KnotDef {
-                id: "a".into(),
-                kind: KnotKind::constant(ONE),
-            },
-            KnotDef {
-                id: "a".into(),
-                kind: KnotKind::constant(ONE),
-            },
-        ],
-        threads: vec![],
-        numeric: NumericPath::compiled(),
-    };
-    assert_eq!(
-        validate(&w, &Budget::default()),
-        Err(WyrdError::DuplicateKnotId)
-    );
-}
-
-#[test]
-fn unsupported_arity_rejects() {
-    let (b, _) = Weave::builder("a")
-        .knot("x", KnotKind::And { arity: 5 })
-        .unwrap();
-    let w = b.build().unwrap();
-    assert_eq!(
-        validate(&w, &Budget::default()),
-        Err(WyrdError::UnknownPort)
-    );
-}
-
-#[test]
-fn wrong_port_direction_rejects() {
-    // Wire in → in (not Out→In).
-    let (b, _) = Weave::builder("d")
-        .knot("a", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("n", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("m", KnotKind::not()).unwrap();
-    // valid wire a.out→n.in, then n.in→m.in is wrong dir on from (in is In)
-    let w = b
-        .wire_named("a", "out", "n", "in")
-        .wire_named("n", "in", "m", "in")
-        .build()
-        .unwrap();
-    assert_eq!(
-        validate(&w, &Budget::default()),
-        Err(WyrdError::UnknownPort)
-    );
-}
-
-#[test]
-fn unconnected_required_rejects() {
-    let (b, _) = Weave::builder("u").knot("n", KnotKind::not()).unwrap();
-    let w = b.build().unwrap();
-    assert_eq!(
-        validate(&w, &Budget::default()),
-        Err(WyrdError::UnconnectedRequired)
-    );
-}
-
-#[test]
-fn self_loop_and_multi_cycle() {
-    let (b, _) = Weave::builder("c").knot("n", KnotKind::not()).unwrap();
-    let w = b.wire_named("n", "out", "n", "in").build().unwrap();
-    assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::Cycle));
-
-    let (b, _) = Weave::builder("c2").knot("a", KnotKind::not()).unwrap();
-    let (b, _) = b.knot("b", KnotKind::not()).unwrap();
-    let w = b
-        .wire_named("a", "out", "b", "in")
-        .wire_named("b", "out", "a", "in")
-        .build()
-        .unwrap();
-    assert_eq!(validate(&w, &Budget::default()), Err(WyrdError::Cycle));
-}
-
-#[test]
-fn compare_rhs_const_skips_required_wire() {
-    let (b, _) = Weave::builder("cmp")
-        .knot("l", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b
-        .knot("c", KnotKind::compare(CompareOp::Eq, Some(1)))
-        .unwrap();
-    let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
-    let w = b
-        .wire_named("l", "out", "c", "lhs")
-        // rhs not wired — allowed when rhs_const is Some
-        .wire_named("c", "out", "o", "in")
-        .build()
-        .unwrap();
-    validate(&w, &Budget::default()).unwrap();
-}
-
-#[test]
-fn compare_rhs_wired_required_when_no_const() {
-    let (b, _) = Weave::builder("cmp")
-        .knot("l", KnotKind::constant(ONE))
-        .unwrap();
-    let (b, _) = b.knot("c", KnotKind::compare(CompareOp::Eq, None)).unwrap();
-    let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
-    let w = b
-        .wire_named("l", "out", "c", "lhs")
-        .wire_named("c", "out", "o", "in")
-        .build()
-        .unwrap();
-    // rhs required and missing
-    assert_eq!(
-        validate(&w, &Budget::default()),
-        Err(WyrdError::UnconnectedRequired)
-    );
 }

@@ -13,16 +13,16 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/bnomei/wyrd"
 rust-version = "1.75"
 
 [workspace.dependencies]
-wyrd-core = { path = "crates/wyrd-core", version = "0.1.0", default-features = false }
-wyrd-graph = { path = "crates/wyrd-graph", version = "0.1.0", default-features = false }
-wyrd-runtime = { path = "crates/wyrd-runtime", version = "0.1.0", default-features = false }
+wyrd-core = { path = "crates/wyrd-core", version = "0.2.0", default-features = false }
+wyrd-graph = { path = "crates/wyrd-graph", version = "0.2.0", default-features = false }
+wyrd-runtime = { path = "crates/wyrd-runtime", version = "0.2.0", default-features = false }
 no-std-compat = { version = "0.4", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 ron = { version = "0.8", default-features = false }

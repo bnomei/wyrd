@@ -14,53 +14,54 @@ fn out_val(rt: &Runtime, path: &str) -> wyrd_core::Signal {
         .unwrap_or(ZERO)
 }
 
-fn tick(rt: &mut Runtime, weave: &Weave, t: u64, v: wyrd_core::Signal) {
+fn tick(rt: &mut Runtime, t: u64, v: wyrd_core::Signal) {
     rt.begin_frame(HostTime { tick: t });
     let id = rt.sense_id("in").unwrap();
-    rt.port_writer().set_sense(id, v);
-    rt.loom(weave).unwrap();
+    rt.port_writer().set_sense(id, v).unwrap();
+    rt.loom();
 }
 
 #[test]
 fn delay_zero_is_passthrough() {
-    let (b, _) = Weave::builder("d0")
-        .knot("in", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("d", KnotKind::Delay { ticks: 0 }).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("in", "out", "d", "in")
-        .wire_named("d", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
-    tick(&mut rt, &weave, 0, ONE);
+    let mut b = Weave::builder("d0").unwrap();
+    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_d = b.knot("d", KnotKind::Delay { ticks: 0 }).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_in, "out").unwrap();
+    let to = b.input(&k_d, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_d, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
+    tick(&mut rt, 0, ONE);
     assert!(wyrd_core::is_truthy(out_val(&rt, "y")));
 }
 
 #[test]
 fn delay_three_ticks() {
-    let (b, _) = Weave::builder("d3")
-        .knot("in", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("d", KnotKind::Delay { ticks: 3 }).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("in", "out", "d", "in")
-        .wire_named("d", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut b = Weave::builder("d3").unwrap();
+    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_d = b.knot("d", KnotKind::Delay { ticks: 3 }).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_in, "out").unwrap();
+    let to = b.input(&k_d, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_d, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
 
-    tick(&mut rt, &weave, 0, ONE);
+    tick(&mut rt, 0, ONE);
     assert!(!wyrd_core::is_truthy(out_val(&rt, "y")));
-    tick(&mut rt, &weave, 1, ZERO);
+    tick(&mut rt, 1, ZERO);
     assert!(!wyrd_core::is_truthy(out_val(&rt, "y")));
-    tick(&mut rt, &weave, 2, ZERO);
+    tick(&mut rt, 2, ZERO);
     assert!(!wyrd_core::is_truthy(out_val(&rt, "y")));
-    // 3rd loom after inject: ONE appears
-    tick(&mut rt, &weave, 3, ZERO);
+    tick(&mut rt, 3, ZERO);
     assert!(wyrd_core::is_truthy(out_val(&rt, "y")));
-    tick(&mut rt, &weave, 4, ZERO);
+    tick(&mut rt, 4, ZERO);
     assert!(!wyrd_core::is_truthy(out_val(&rt, "y")));
 }

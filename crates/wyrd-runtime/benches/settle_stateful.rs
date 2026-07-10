@@ -13,13 +13,15 @@ use wyrd_core::{HostTime, ONE, ZERO};
 fn settle_delay(bencher: Bencher, ticks: u16) {
     let (weave, mut rt) = delay_chain(ticks);
     let id = rt.sense_id("in").unwrap();
-    let knots = weave.knots.len() as u64;
+    let knots = weave.knots().len() as u64;
     let mut on = true;
     bencher.counter(ItemsCount::new(knots)).bench_local(|| {
         rt.begin_frame(HostTime { tick: 0 });
-        rt.port_writer().set_sense(id, if on { ONE } else { ZERO });
+        rt.port_writer()
+            .set_sense(id, if on { ONE } else { ZERO })
+            .unwrap();
         on = !on;
-        rt.loom(black_box(&weave)).unwrap();
+        rt.loom();
         black_box(rt.outbox().signals().len());
     });
 }
@@ -29,13 +31,15 @@ fn settle_delay(bencher: Bencher, ticks: u16) {
 fn settle_delay_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_delays(n, 4);
     let id = rt.sense_id("in").unwrap();
-    let knots = weave.knots.len() as u64;
+    let knots = weave.knots().len() as u64;
     let mut on = true;
     bencher.counter(ItemsCount::new(knots)).bench_local(|| {
         rt.begin_frame(HostTime { tick: 0 });
-        rt.port_writer().set_sense(id, if on { ONE } else { ZERO });
+        rt.port_writer()
+            .set_sense(id, if on { ONE } else { ZERO })
+            .unwrap();
         on = !on;
-        rt.loom(black_box(&weave)).unwrap();
+        rt.loom();
         black_box(rt.outbox().signals().len());
     });
 }
@@ -46,21 +50,18 @@ fn settle_delay_chain(bencher: Bencher, n: usize) {
 fn settle_random_gated(bencher: Bencher) {
     let (weave, mut rt) = random_gated();
     let g = rt.sense_id("g").unwrap();
-    let knots = weave.knots.len() as u64;
+    let knots = weave.knots().len() as u64;
     bencher.counter(ItemsCount::new(knots)).bench_local(|| {
-        // 0 → 1 rising edge each iteration (two settles).
         rt.begin_frame(HostTime { tick: 0 });
-        rt.port_writer().set_sense(g, ZERO);
-        rt.loom(black_box(&weave)).unwrap();
+        rt.port_writer().set_sense(g, ZERO).unwrap();
+        rt.loom();
 
         rt.begin_frame(HostTime { tick: 1 });
-        rt.port_writer().set_sense(g, ONE);
-        rt.loom(black_box(&weave)).unwrap();
+        rt.port_writer().set_sense(g, ONE).unwrap();
+        rt.loom();
         black_box(rt.outbox().signals().len());
     });
 }
-
-// --- P1: stateful kit + emit storm ---
 
 /// Counter / Flag / PulseHold / FedCountdown with a 4-phase sense script.
 /// One loom per sample; phase advances so edges fire over iterations.
@@ -69,7 +70,7 @@ fn settle_stateful_kit(bencher: Bencher) {
     let (weave, mut rt) = stateful_kit();
     let start = rt.sense_id("start").unwrap();
     let feed = rt.sense_id("feed").unwrap();
-    let knots = weave.knots.len() as u64;
+    let knots = weave.knots().len() as u64;
     // 0: idle, 1: start rise, 2: hold start+feed, 3: release start keep feed
     let mut phase = 0u8;
     bencher.counter(ItemsCount::new(knots)).bench_local(|| {
@@ -83,10 +84,10 @@ fn settle_stateful_kit(bencher: Bencher) {
         rt.begin_frame(HostTime { tick: 0 });
         {
             let mut w = rt.port_writer();
-            w.set_sense(start, sv);
-            w.set_sense(feed, fv);
+            w.set_sense(start, sv).unwrap();
+            w.set_sense(feed, fv).unwrap();
         }
-        rt.loom(black_box(&weave)).unwrap();
+        rt.loom();
         black_box((rt.outbox().signals().len(), rt.outbox().emits().len()));
     });
 }
@@ -97,15 +98,15 @@ fn settle_stateful_kit(bencher: Bencher) {
 fn settle_emit_storm(bencher: Bencher, n: usize) {
     let (weave, mut rt) = emit_storm(n);
     let g = rt.sense_id("g").unwrap();
-    let knots = weave.knots.len() as u64;
+    let knots = weave.knots().len() as u64;
     bencher.counter(ItemsCount::new(knots)).bench_local(|| {
         rt.begin_frame(HostTime { tick: 0 });
-        rt.port_writer().set_sense(g, ZERO);
-        rt.loom(black_box(&weave)).unwrap();
+        rt.port_writer().set_sense(g, ZERO).unwrap();
+        rt.loom();
 
         rt.begin_frame(HostTime { tick: 1 });
-        rt.port_writer().set_sense(g, ONE);
-        rt.loom(black_box(&weave)).unwrap();
+        rt.port_writer().set_sense(g, ONE).unwrap();
+        rt.loom();
         black_box(rt.outbox().emits().len());
     });
 }

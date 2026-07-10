@@ -16,51 +16,61 @@ fn out_truthy(rt: &Runtime, path: &str) -> bool {
 
 #[test]
 fn compare_gte_rhs_const() {
-    let (b, _) = Weave::builder("cmp")
-        .knot("n", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("cmp").unwrap();
+    let k_n = b.knot("n", KnotKind::signal_in()).unwrap();
+    let k_cmp = b
         .knot("cmp", KnotKind::compare(CompareOp::Gte, Some(3)))
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("ok")).unwrap();
-    let weave = b
-        .wire_named("n", "out", "cmp", "lhs")
-        .wire_named("cmp", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("ok")).unwrap();
+    let from = b.output(&k_n, "out").unwrap();
+    let to = b.input(&k_cmp, "lhs").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_cmp, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let id = rt.sense_id("n").unwrap();
 
     rt.begin_frame(HostTime { tick: 0 });
-    rt.port_writer().set_sense(id, wyrd_core::from_count(2));
-    rt.loom(&weave).unwrap();
+    rt.port_writer()
+        .set_sense(id, wyrd_core::from_count(2))
+        .unwrap();
+    rt.loom();
     assert!(!out_truthy(&rt, "ok"));
 
     rt.begin_frame(HostTime { tick: 1 });
-    rt.port_writer().set_sense(id, wyrd_core::from_count(3));
-    rt.loom(&weave).unwrap();
+    rt.port_writer()
+        .set_sense(id, wyrd_core::from_count(3))
+        .unwrap();
+    rt.loom();
     assert!(out_truthy(&rt, "ok"));
 }
 
 #[test]
 fn calc_add_and_div0() {
-    let (b, _) = Weave::builder("calc")
+    let mut b = Weave::builder("calc").unwrap();
+    let k_a = b
         .knot("a", KnotKind::constant(wyrd_core::from_count(6)))
         .unwrap();
-    let (b, _) = b
+    let k_b = b
         .knot("b", KnotKind::constant(wyrd_core::from_count(0)))
         .unwrap();
-    let (b, _) = b.knot("div", KnotKind::Calc { op: CalcOp::Div }).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("q")).unwrap();
-    let weave = b
-        .wire_named("a", "out", "div", "a")
-        .wire_named("b", "out", "div", "b")
-        .wire_named("div", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let k_div = b.knot("div", KnotKind::Calc { op: CalcOp::Div }).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("q")).unwrap();
+    let from = b.output(&k_a, "out").unwrap();
+    let to = b.input(&k_div, "a").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_b, "out").unwrap();
+    let to = b.input(&k_div, "b").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_div, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
-    rt.loom(&weave).unwrap();
+    rt.loom();
     let pid = rt.path_id("q").unwrap();
     let v = rt
         .outbox()
@@ -74,26 +84,27 @@ fn calc_add_and_div0() {
 
 #[test]
 fn rising_from_zero_one_tick() {
-    let (b, _) = Weave::builder("rz")
-        .knot("in", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("rz", KnotKind::rising_from_zero()).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("pulse")).unwrap();
-    let weave = b
-        .wire_named("in", "out", "rz", "in")
-        .wire_named("rz", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut b = Weave::builder("rz").unwrap();
+    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_rz = b.knot("rz", KnotKind::rising_from_zero()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("pulse")).unwrap();
+    let from = b.output(&k_in, "out").unwrap();
+    let to = b.input(&k_rz, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_rz, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let id = rt.sense_id("in").unwrap();
 
     rt.begin_frame(HostTime { tick: 0 });
-    rt.port_writer().set_sense(id, ONE);
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, ONE).unwrap();
+    rt.loom();
     assert!(out_truthy(&rt, "pulse"));
 
     rt.begin_frame(HostTime { tick: 1 });
-    rt.port_writer().set_sense(id, ONE);
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, ONE).unwrap();
+    rt.loom();
     assert!(!out_truthy(&rt, "pulse"));
 }

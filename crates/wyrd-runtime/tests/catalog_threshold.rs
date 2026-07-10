@@ -1,7 +1,7 @@
 //! Threshold: gate with optional hysteresis and edge pulses.
 
 use wyrd_core::{from_count, is_truthy, HostTime, KnotKind, ONE, ZERO};
-use wyrd_graph::{validate, Budget, Weave};
+use wyrd_graph::{ValidationError, Weave};
 use wyrd_runtime::{BindOpts, Runtime};
 
 fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
@@ -15,27 +15,32 @@ fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
 }
 
 fn wire_threshold(kind: KnotKind) -> (Weave, Runtime) {
-    let (b, _) = Weave::builder("t")
-        .knot("in", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("th", kind).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("gate")).unwrap();
-    let (b, _) = b.knot("up", KnotKind::signal_out("up")).unwrap();
-    let (b, _) = b.knot("dn", KnotKind::signal_out("dn")).unwrap();
-    let weave = b
-        .wire_named("in", "out", "th", "in")
-        .wire_named("th", "out", "out", "in")
-        .wire_named("th", "crossed_up", "up", "in")
-        .wire_named("th", "crossed_down", "dn", "in")
-        .build()
-        .unwrap();
-    let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut b = Weave::builder("t").unwrap();
+    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_th = b.knot("th", kind).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("gate")).unwrap();
+    let k_up = b.knot("up", KnotKind::signal_out("up")).unwrap();
+    let k_dn = b.knot("dn", KnotKind::signal_out("dn")).unwrap();
+    let from = b.output(&k_in, "out").unwrap();
+    let to = b.input(&k_th, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_th, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_th, "crossed_up").unwrap();
+    let to = b.input(&k_up, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_th, "crossed_down").unwrap();
+    let to = b.input(&k_dn, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     (weave, rt)
 }
 
 #[test]
 fn threshold_simple_no_hysteresis() {
-    let (weave, mut rt) = wire_threshold(KnotKind::Threshold {
+    let (_weave, mut rt) = wire_threshold(KnotKind::Threshold {
         high: from_count(5),
         low: from_count(0),
         use_hysteresis: false,
@@ -43,60 +48,56 @@ fn threshold_simple_no_hysteresis() {
     let id = rt.sense_id("in").unwrap();
 
     rt.begin_frame(HostTime { tick: 0 });
-    rt.port_writer().set_sense(id, from_count(4));
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, from_count(4)).unwrap();
+    rt.loom();
     assert!(!is_truthy(out_v(&rt, "gate")));
 
     rt.begin_frame(HostTime { tick: 1 });
-    rt.port_writer().set_sense(id, from_count(5));
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, from_count(5)).unwrap();
+    rt.loom();
     assert!(is_truthy(out_v(&rt, "gate")));
     assert!(is_truthy(out_v(&rt, "up")));
     assert!(!is_truthy(out_v(&rt, "dn")));
 
     rt.begin_frame(HostTime { tick: 2 });
-    rt.port_writer().set_sense(id, from_count(4));
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, from_count(4)).unwrap();
+    rt.loom();
     assert!(!is_truthy(out_v(&rt, "gate")));
     assert!(is_truthy(out_v(&rt, "dn")));
 }
 
 #[test]
 fn threshold_hysteresis_band() {
-    let (weave, mut rt) = wire_threshold(KnotKind::threshold_default());
+    let (_weave, mut rt) = wire_threshold(KnotKind::threshold_default());
     let id = rt.sense_id("in").unwrap();
 
-    // rise through high
     rt.begin_frame(HostTime { tick: 0 });
-    rt.port_writer().set_sense(id, ONE);
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, ONE).unwrap();
+    rt.loom();
     assert!(is_truthy(out_v(&rt, "gate")));
 
-    // still high while between low and high (0.45 if ONE=1)
     #[cfg(feature = "signal-f32")]
     let mid = 0.45;
     #[cfg(feature = "signal-i32")]
     let mid = ONE / 2 - ONE / 20;
     rt.begin_frame(HostTime { tick: 1 });
-    rt.port_writer().set_sense(id, mid);
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, mid).unwrap();
+    rt.loom();
     assert!(is_truthy(out_v(&rt, "gate")));
     assert!(!is_truthy(out_v(&rt, "dn")));
 
-    // fall below low
     rt.begin_frame(HostTime { tick: 2 });
-    rt.port_writer().set_sense(id, ZERO);
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(id, ZERO).unwrap();
+    rt.loom();
     assert!(!is_truthy(out_v(&rt, "gate")));
     assert!(is_truthy(out_v(&rt, "dn")));
 }
 
 #[test]
 fn threshold_invalid_hysteresis_rejected() {
-    let (b, _) = Weave::builder("t")
-        .knot("in", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b
+    let mut b = Weave::builder("t").unwrap();
+    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_th = b
         .knot(
             "th",
             KnotKind::Threshold {
@@ -106,14 +107,15 @@ fn threshold_invalid_hysteresis_rejected() {
             },
         )
         .unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("in", "out", "th", "in")
-        .wire_named("th", "out", "out", "in")
-        .build()
-        .unwrap();
-    assert_eq!(
-        validate(&weave, &Budget::default()),
-        Err(wyrd_core::WyrdError::InvalidParam)
-    );
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_in, "out").unwrap();
+    let to = b.input(&k_th, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_th, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    assert!(matches!(
+        b.build(),
+        Err(ValidationError::InvalidParameter { .. })
+    ));
 }

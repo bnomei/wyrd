@@ -1,3 +1,10 @@
+//! Bind: turn a validated [`Weave`] into a dense, executable [`Runtime`].
+//!
+//! Interns host paths and command names, builds CSR inbound edges, topo order,
+//! kind-dispatch tags, delay rings, and sense seed lists so [`Runtime::loom`]
+//! allocates no topology after bind. Host resolves `sense_id` / `path_id` once
+//! at setup; the hot path uses only dense ids.
+
 use std::collections::BTreeMap;
 use std::string::String;
 use std::vec;
@@ -5,10 +12,11 @@ use std::vec::Vec;
 
 use wyrd_core::{
     port_slot, ports_of, CalcOp, CmdId, HostPathId, HostTime, KnotId, KnotKind, PortDir, PortSlot,
-    Result, Seed, Signal, WyrdError, ZERO,
+    Seed, SenseId, Signal, ZERO,
 };
 use wyrd_graph::{validate, Budget, Weave};
 
+use crate::error::{BindError, HandleError};
 use crate::outbox::{Emit, Outbox, PortWriter, SignalOutSample};
 
 /// Bind-time sense seed entry — only Sense knots, so loom need not scan all knots.
@@ -48,7 +56,10 @@ pub(crate) struct ResolvedKnot {
     pub(crate) cmd: Option<CmdId>,
 }
 
-/// Bound runtime: dense buffers, topo order, intern tables.
+/// Bound runtime: dense buffers, topo order, intern tables, stateful rune storage.
+///
+/// Sole executable artifact after bind. Sample senses through [`PortWriter`],
+/// settle with [`Self::loom`], then read [`Self::outbox`].
 pub struct Runtime {
     pub(crate) knots: Vec<ResolvedKnot>,
     /// Author name → KnotId
@@ -114,8 +125,18 @@ fn fnv1a64(data: &[u8]) -> u64 {
 }
 
 impl Runtime {
-    pub fn bind(weave: &Weave, opts: BindOpts) -> Result<Self> {
-        validate(weave, &opts.budget)?;
+    /// Validate and consume a weave into dense executable state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BindError`] when budget validation fails, dense capacity is
+    /// exceeded, a port cannot be resolved, or topo order cannot be built.
+    pub fn bind(weave: Weave, opts: BindOpts) -> Result<Self, BindError> {
+        let weave_id = String::from(weave.id());
+        validate(&weave, &opts.budget).map_err(|source| BindError::InvalidWeave {
+            weave_id: weave_id.clone(),
+            source,
+        })?;
 
         let mut name_to_id = BTreeMap::new();
         let mut id_to_name = Vec::new();
@@ -124,27 +145,49 @@ impl Runtime {
         let mut path_index: BTreeMap<String, HostPathId> = BTreeMap::new();
         let mut cmd_index: BTreeMap<String, CmdId> = BTreeMap::new();
 
-        let mut knots = Vec::with_capacity(weave.knots.len());
-        for (i, k) in weave.knots.iter().enumerate() {
-            let id = KnotId(i as u16);
+        let mut knots = Vec::with_capacity(weave.knots().len());
+        for (i, k) in weave.knots().iter().enumerate() {
+            let id = KnotId::try_from(i).map_err(|_| BindError::CapacityExceeded {
+                weave_id: weave_id.clone(),
+                resource: "knot",
+                count: i + 1,
+            })?;
             name_to_id.insert(k.id.clone(), id);
             id_to_name.push(k.id.clone());
 
             let (path, cmd) = match &k.kind {
                 KnotKind::SignalOut { path } => {
-                    let pid = *path_index.entry(path.clone()).or_insert_with(|| {
-                        let id = HostPathId(path_names.len() as u16);
+                    let pid = if let Some(id) = path_index.get(path) {
+                        *id
+                    } else {
+                        let id = HostPathId::try_from(path_names.len()).map_err(|_| {
+                            BindError::CapacityExceeded {
+                                weave_id: weave_id.clone(),
+                                resource: "host path",
+                                count: path_names.len() + 1,
+                            }
+                        })?;
                         path_names.push(path.clone());
+                        path_index.insert(path.clone(), id);
                         id
-                    });
+                    };
                     (Some(pid), None)
                 }
                 KnotKind::EmitCommand { name } => {
-                    let cid = *cmd_index.entry(name.clone()).or_insert_with(|| {
-                        let id = CmdId(cmd_names.len() as u16);
+                    let cid = if let Some(id) = cmd_index.get(name) {
+                        *id
+                    } else {
+                        let id = CmdId::try_from(cmd_names.len()).map_err(|_| {
+                            BindError::CapacityExceeded {
+                                weave_id: weave_id.clone(),
+                                resource: "command",
+                                count: cmd_names.len() + 1,
+                            }
+                        })?;
                         cmd_names.push(name.clone());
+                        cmd_index.insert(name.clone(), id);
                         id
-                    });
+                    };
                     (None, Some(cid))
                 }
                 _ => (None, None),
@@ -158,23 +201,46 @@ impl Runtime {
         }
 
         let mut threads = Vec::new();
-        for t in &weave.threads {
-            let fk = *name_to_id.get(&t.from.knot).ok_or(WyrdError::UnknownKnot)?;
-            let tk = *name_to_id.get(&t.to.knot).ok_or(WyrdError::UnknownKnot)?;
-            let fs = port_slot(&knots[fk.0 as usize].kind, &t.from.port)
-                .ok_or(WyrdError::UnknownPort)?;
-            let ts =
-                port_slot(&knots[tk.0 as usize].kind, &t.to.port).ok_or(WyrdError::UnknownPort)?;
+        for t in weave.threads() {
+            let fk = *name_to_id
+                .get(&t.from.knot)
+                .ok_or_else(|| BindError::InvalidReference {
+                    weave_id: weave_id.clone(),
+                    knot: t.from.knot.clone(),
+                    port: t.from.port.clone(),
+                })?;
+            let tk = *name_to_id
+                .get(&t.to.knot)
+                .ok_or_else(|| BindError::InvalidReference {
+                    weave_id: weave_id.clone(),
+                    knot: t.to.knot.clone(),
+                    port: t.to.port.clone(),
+                })?;
+            let fs = port_slot(&knots[usize::from(fk)].kind, &t.from.port).ok_or_else(|| {
+                BindError::InvalidReference {
+                    weave_id: weave_id.clone(),
+                    knot: t.from.knot.clone(),
+                    port: t.from.port.clone(),
+                }
+            })?;
+            let ts = port_slot(&knots[usize::from(tk)].kind, &t.to.port).ok_or_else(|| {
+                BindError::InvalidReference {
+                    weave_id: weave_id.clone(),
+                    knot: t.to.knot.clone(),
+                    port: t.to.port.clone(),
+                }
+            })?;
             threads.push((fk, fs, tk, ts));
         }
 
-        let topo = topo_order(knots.len(), &threads)?;
+        let topo = topo_order(knots.len(), &threads).ok_or_else(|| BindError::InvalidTopology {
+            weave_id: weave_id.clone(),
+        })?;
 
         let n = knots.len();
-        // CSR inbound (dense offsets + flat edges).
         let mut inbound_lists: Vec<Vec<(KnotId, PortSlot, PortSlot)>> = vec![Vec::new(); n];
         for &(f, fs, t, ts) in &threads {
-            inbound_lists[t.0 as usize].push((f, fs, ts));
+            inbound_lists[usize::from(t)].push((f, fs, ts));
         }
         let mut inbound_off = Vec::with_capacity(n + 1);
         let mut inbound_edges = Vec::with_capacity(threads.len());
@@ -194,16 +260,19 @@ impl Runtime {
             .map(|k| crate::kind_tag::KindTag::from_kind(&k.kind))
             .collect();
         for (ki, k) in knots.iter().enumerate() {
-            let kid = KnotId(ki as u16);
+            let kid = KnotId::try_from(ki).map_err(|_| BindError::CapacityExceeded {
+                weave_id: weave_id.clone(),
+                resource: "knot",
+                count: ki + 1,
+            })?;
             let mut slots = Vec::new();
             for p in ports_of(&k.kind) {
                 if p.dir == PortDir::In {
                     slots.push(p.slot);
-                    // Wired Ins are overwritten by gather each loom — only clear
-                    // unwired Ins (must stay ZERO / default).
+                    // Only unwired Ins are zeroed each loom; wired Ins are gathered.
                     let wired = inbound_lists[ki].iter().any(|&(_, _, ts)| ts == p.slot);
                     if !wired {
-                        clear_port_idx.push(ki * MAX_PORTS + p.slot.0 as usize);
+                        clear_port_idx.push(ki * MAX_PORTS + usize::from(p.slot));
                     }
                 }
             }
@@ -221,19 +290,18 @@ impl Runtime {
                 KnotKind::SignalOut { .. } => act_signals += 1,
                 KnotKind::EmitCommand { .. } => {
                     act_emits += 1;
-                    // Bind-time: is enable port wired? Avoid inbound scan each tick.
                     let enable_wired = inbound_lists[ki]
                         .iter()
-                        .any(|&(_, _, ts)| ts == PortSlot(1));
+                        .any(|&(_, _, ts)| ts == PortSlot::new(1));
                     kind_tags[ki] = crate::kind_tag::KindTag::EmitCommand { enable_wired };
                 }
                 KnotKind::Random { require_gate } => {
                     let mut min_wired = false;
                     let mut max_wired = false;
                     for &(_, _, ts) in &inbound_lists[ki] {
-                        if ts == PortSlot(0) {
+                        if ts == PortSlot::new(0) {
                             min_wired = true;
-                        } else if ts == PortSlot(1) {
+                        } else if ts == PortSlot::new(1) {
                             max_wired = true;
                         }
                     }
@@ -244,12 +312,11 @@ impl Runtime {
                     };
                 }
                 KnotKind::Calc { op: CalcOp::Div } => {
-                    // Specialize when `b` (PortSlot 1) is fed by a Constant.
                     if let Some(&(from, _, _)) = inbound_lists[ki]
                         .iter()
-                        .find(|&&(_, _, ts)| ts == PortSlot(1))
+                        .find(|&&(_, _, ts)| ts == PortSlot::new(1))
                     {
-                        if let KnotKind::Constant { value } = knots[from.0 as usize].kind {
+                        if let KnotKind::Constant { value } = knots[usize::from(from)].kind {
                             kind_tags[ki] =
                                 crate::kind_tag::KindTag::CalcDivConst { divisor: value };
                         }
@@ -278,7 +345,7 @@ impl Runtime {
         let out_emits = Vec::with_capacity(act_emits);
 
         let base = opts.seed.unwrap_or(Seed(0xC0FF_EE00_D15C_AFEDu64));
-        let seed_mix = fnv1a64(weave.id.as_bytes());
+        let seed_mix = fnv1a64(weave.id().as_bytes());
         let rng = (base.0 ^ seed_mix) | 1;
 
         Ok(Runtime {
@@ -322,8 +389,8 @@ impl Runtime {
         self.rng = (seed.0 ^ self.seed_mix) | 1;
     }
 
+    /// Next u32 from the bind-seeded xorshift64 stream (`rng` is never zero).
     pub(crate) fn next_rng_u32(&mut self) -> u32 {
-        // Marsaglia xorshift64
         let mut x = self.rng;
         x ^= x << 13;
         x ^= x >> 7;
@@ -332,42 +399,46 @@ impl Runtime {
         x as u32
     }
 
-    pub fn sense_id(&self, name: &str) -> Option<KnotId> {
-        self.name_to_id.get(name).copied()
+    /// Resolve a `SignalIn` author name to a dense sense id (setup only).
+    pub fn sense_id(&self, name: &str) -> Option<SenseId> {
+        let knot = self.name_to_id.get(name).copied()?;
+        if !matches!(self.knots.get(usize::from(knot))?.kind, KnotKind::SignalIn) {
+            return None;
+        }
+        SenseId::try_from(usize::from(knot)).ok()
     }
 
+    /// Resolve a `SignalOut` path string interned at bind.
     pub fn path_id(&self, path: &str) -> Option<HostPathId> {
         self.path_names
             .iter()
             .position(|p| p == path)
-            .map(|i| HostPathId(i as u16))
+            .and_then(|i| HostPathId::try_from(i).ok())
     }
 
-    pub fn path_name(&self, id: HostPathId) -> &str {
-        self.path_names
-            .get(id.0 as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("")
+    /// Interned path string for a dense host path id.
+    pub fn path_name(&self, id: HostPathId) -> Option<&str> {
+        self.path_names.get(usize::from(id)).map(|s| s.as_str())
     }
 
-    pub fn cmd_name(&self, id: CmdId) -> &str {
-        self.cmd_names
-            .get(id.0 as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("")
+    /// Interned emit command name for a dense command id.
+    pub fn cmd_name(&self, id: CmdId) -> Option<&str> {
+        self.cmd_names.get(usize::from(id)).map(|s| s.as_str())
     }
 
+    /// Start a frame: set tick and clear the outbox for this loom.
     pub fn begin_frame(&mut self, time: HostTime) {
         self.tick = time.tick;
         self.out_signals.clear();
         self.out_emits.clear();
-        // clear non-sense inputs for this frame — refilled from threads during loom
     }
 
+    /// Borrow for host sense writes (`set_sense` with dense ids only).
     pub fn port_writer(&mut self) -> PortWriter<'_> {
         PortWriter { rt: self }
     }
 
+    /// Read-only view of SignalOut samples and EmitCommand entries for this frame.
     pub fn outbox(&self) -> Outbox<'_> {
         Outbox {
             signals: &self.out_signals,
@@ -387,37 +458,71 @@ impl Runtime {
 
     #[inline]
     pub(crate) fn port_index(&self, knot: KnotId, slot: PortSlot) -> usize {
-        knot.0 as usize * self.max_ports + slot.0 as usize
+        usize::from(knot) * self.max_ports + usize::from(slot)
     }
 
     /// Safe OOB-tolerant read (returns ZERO past end). Used by tests and host tooling.
     #[inline]
-    pub fn get_port_checked(&self, knot: KnotId, slot: PortSlot) -> Signal {
+    pub fn get_port_checked(&self, knot: KnotId, slot: PortSlot) -> Result<Signal, HandleError> {
+        let Some(resolved) = self.knots.get(usize::from(knot)) else {
+            return Err(HandleError::InvalidKnot { knot });
+        };
+        if !ports_of(&resolved.kind)
+            .iter()
+            .any(|info| info.slot == slot)
+        {
+            return Err(HandleError::InvalidPort { knot, port: slot });
+        }
         let i = self.port_index(knot, slot);
-        self.port_vals.get(i).copied().unwrap_or(ZERO)
+        self.port_vals
+            .get(i)
+            .copied()
+            .ok_or(HandleError::InvalidPort { knot, port: slot })
     }
 
     /// Safe OOB-tolerant write (no-op past end). Used by tests and host tooling.
     #[inline]
-    pub fn set_port_checked(&mut self, knot: KnotId, slot: PortSlot, v: Signal) {
-        let i = self.port_index(knot, slot);
-        if let Some(p) = self.port_vals.get_mut(i) {
-            *p = v;
+    pub fn set_port_checked(
+        &mut self,
+        knot: KnotId,
+        slot: PortSlot,
+        v: Signal,
+    ) -> Result<(), HandleError> {
+        let Some(resolved) = self.knots.get(usize::from(knot)) else {
+            return Err(HandleError::InvalidKnot { knot });
+        };
+        if !ports_of(&resolved.kind)
+            .iter()
+            .any(|info| info.slot == slot)
+        {
+            return Err(HandleError::InvalidPort { knot, port: slot });
         }
+        let i = self.port_index(knot, slot);
+        let p = self
+            .port_vals
+            .get_mut(i)
+            .ok_or(HandleError::InvalidPort { knot, port: slot })?;
+        *p = v;
+        Ok(())
     }
 
     /// Alias for checked get (bind-unit tests + OOB safety).
     #[inline]
     #[allow(dead_code)]
-    pub(crate) fn get_port(&self, knot: KnotId, slot: PortSlot) -> Signal {
+    pub(crate) fn get_port(&self, knot: KnotId, slot: PortSlot) -> Result<Signal, HandleError> {
         self.get_port_checked(knot, slot)
     }
 
     /// Alias for checked set (bind-unit tests + OOB safety).
     #[inline]
     #[allow(dead_code)]
-    pub(crate) fn set_port(&mut self, knot: KnotId, slot: PortSlot, v: Signal) {
-        self.set_port_checked(knot, slot, v);
+    pub(crate) fn set_port(
+        &mut self,
+        knot: KnotId,
+        slot: PortSlot,
+        v: Signal,
+    ) -> Result<(), HandleError> {
+        self.set_port_checked(knot, slot, v)
     }
 
     /// Number of bind-time kind tags (equals knot count after successful bind).
@@ -439,7 +544,6 @@ impl Runtime {
     #[inline]
     pub(crate) fn get_port_hot(&self, knot: KnotId, slot: PortSlot) -> Signal {
         let i = self.port_index(knot, slot);
-        // Bind-sized port_vals; indices from closed port tables are in range.
         debug_assert!(i < self.port_vals.len());
         self.port_vals[i]
     }
@@ -464,12 +568,12 @@ impl Runtime {
     }
 }
 
-fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Result<Vec<KnotId>> {
+fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Option<Vec<KnotId>> {
     let mut indeg = vec![0u32; n];
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     for &(f, _, t, _) in threads {
-        let a = f.0 as usize;
-        let b = t.0 as usize;
+        let a = usize::from(f);
+        let b = usize::from(t);
         if a != b {
             adj[a].push(b);
             indeg[b] += 1;
@@ -482,7 +586,7 @@ fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Res
         .collect();
     let mut order = Vec::with_capacity(n);
     while let Some(u) = q.pop() {
-        order.push(KnotId(u as u16));
+        order.push(KnotId::try_from(u).ok()?);
         for &v in &adj[u] {
             indeg[v] -= 1;
             if indeg[v] == 0 {
@@ -491,9 +595,9 @@ fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Res
         }
     }
     if order.len() != n {
-        return Err(WyrdError::Cycle);
+        return None;
     }
-    Ok(order)
+    Some(order)
 }
 
 #[cfg(test)]
@@ -504,18 +608,19 @@ mod tests {
 
     #[test]
     fn sense_seeds_lists_only_sense_knots() {
-        let (b, _) = Weave::builder("s")
-            .knot("in", KnotKind::signal_in())
-            .unwrap();
-        let (b, _) = b.knot("c", KnotKind::constant(ONE)).unwrap();
-        let (b, _) = b.knot("n", KnotKind::Not).unwrap();
-        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-        let weave = b
-            .wire_named("in", "out", "n", "in")
-            .wire_named("n", "out", "out", "in")
-            .build()
-            .unwrap();
-        let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        let mut b = Weave::builder("s").unwrap();
+        let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+        let _k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+        let k_n = b.knot("n", KnotKind::Not).unwrap();
+        let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let from = b.output(&k_in, "out").unwrap();
+        let to = b.input(&k_n, "in").unwrap();
+        b.connect(from, to).unwrap();
+        let from = b.output(&k_n, "out").unwrap();
+        let to = b.input(&k_out, "in").unwrap();
+        b.connect(from, to).unwrap();
+        let weave = b.build().unwrap();
+        let rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
         assert_eq!(rt.sense_seeds.len(), 2, "SignalIn + Constant only");
         assert!(rt
             .sense_seeds
@@ -525,22 +630,23 @@ mod tests {
             .sense_seeds
             .iter()
             .any(|s| matches!(s, SenseSeed::Constant { value, .. } if *value == ONE)));
-        // Emit without enable wire → enable_wired false
-        let (b, _) = Weave::builder("e")
-            .knot("btn", KnotKind::signal_in())
-            .unwrap();
-        let (b, _) = b.knot("em", KnotKind::emit_command("fire")).unwrap();
-        let weave = b.wire_named("btn", "out", "em", "trigger").build().unwrap();
+        let mut b = Weave::builder("e").unwrap();
+        let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+        let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
+        let from = b.output(&k_btn, "out").unwrap();
+        let to = b.input(&k_em, "trigger").unwrap();
+        b.connect(from, to).unwrap();
+        let weave = b.build().unwrap();
         let rt = Runtime::bind(
-            &weave,
+            weave.clone(),
             BindOpts {
                 seed: Some(Seed(1)),
                 ..BindOpts::default()
             },
         )
         .unwrap();
-        let em = rt.sense_id("em").expect("em knot");
-        match rt.kind_tags[em.0 as usize] {
+        let em = *rt.name_to_id.get("em").expect("em knot");
+        match rt.kind_tags[usize::from(em)] {
             crate::kind_tag::KindTag::EmitCommand { enable_wired } => {
                 assert!(!enable_wired);
             }
@@ -550,88 +656,101 @@ mod tests {
 
     #[test]
     fn cmd_name_and_path_name_lookup() {
-        let (b, _) = Weave::builder("e")
-            .knot("btn", KnotKind::signal_in())
-            .unwrap();
-        let (b, _) = b.knot("em", KnotKind::emit_command("fire")).unwrap();
-        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-        let weave = b
-            .wire_named("btn", "out", "em", "trigger")
-            .wire_named("btn", "out", "out", "in")
-            .build()
-            .unwrap();
+        let mut b = Weave::builder("e").unwrap();
+        let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+        let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
+        let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let from = b.output(&k_btn, "out").unwrap();
+        let to = b.input(&k_em, "trigger").unwrap();
+        b.connect(from, to).unwrap();
+        let from = b.output(&k_btn, "out").unwrap();
+        let to = b.input(&k_out, "in").unwrap();
+        b.connect(from, to).unwrap();
+        let weave = b.build().unwrap();
         let rt = Runtime::bind(
-            &weave,
+            weave.clone(),
             BindOpts {
                 seed: Some(Seed(1)),
                 ..BindOpts::default()
             },
         )
         .unwrap();
-        let cmd = CmdId(0);
-        assert_eq!(rt.cmd_name(cmd), "fire");
-        assert_eq!(rt.cmd_name(CmdId(99)), "");
-        assert_eq!(rt.path_name(HostPathId(0)), "y");
-        assert_eq!(rt.path_name(HostPathId(99)), "");
+        let cmd = CmdId::try_from(0usize).unwrap();
+        assert_eq!(rt.cmd_name(cmd), Some("fire"));
+        assert_eq!(rt.cmd_name(CmdId::try_from(99usize).unwrap()), None);
+        assert_eq!(
+            rt.path_name(HostPathId::try_from(0usize).unwrap()),
+            Some("y")
+        );
+        assert_eq!(rt.path_name(HostPathId::try_from(99usize).unwrap()), None);
     }
 
     #[test]
     fn topo_order_detects_cycle() {
-        // Defensive path: validate normally rejects cycles before bind.
-        let a = KnotId(0);
-        let b = KnotId(1);
+        let a = KnotId::try_from(0usize).unwrap();
+        let b = KnotId::try_from(1usize).unwrap();
         let threads = [
-            (a, PortSlot(1), b, PortSlot(0)),
-            (b, PortSlot(1), a, PortSlot(0)),
+            (a, PortSlot::new(1), b, PortSlot::new(0)),
+            (b, PortSlot::new(1), a, PortSlot::new(0)),
         ];
-        assert_eq!(topo_order(2, &threads), Err(WyrdError::Cycle));
+        assert_eq!(topo_order(2, &threads), None);
     }
 
     #[test]
-    fn get_set_port_oob_is_safe() {
-        let (b, _) = Weave::builder("x")
-            .knot("c", KnotKind::constant(ONE))
-            .unwrap();
+    fn checked_port_access_reports_oob_without_mutation() {
+        let mut b = Weave::builder("x").unwrap();
+        let _k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
         let weave = b.build().unwrap();
-        let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
-        let far = KnotId(999);
-        assert_eq!(rt.get_port(far, PortSlot(0)), ZERO);
-        rt.set_port(far, PortSlot(0), ONE); // no panic
+        let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
+        let far = KnotId::try_from(999usize).unwrap();
+        assert_eq!(
+            rt.get_port(far, PortSlot::new(0)),
+            Err(HandleError::InvalidKnot { knot: far })
+        );
+        assert_eq!(
+            rt.set_port(far, PortSlot::new(0), ONE),
+            Err(HandleError::InvalidKnot { knot: far })
+        );
         let _ = FlagPriority::SetWins;
     }
 
     #[test]
     fn clear_only_unwired_ins_and_div_const_specializes() {
         use wyrd_core::CalcOp;
-        // Flag with no set/reset/toggle wires → 3 clear slots.
-        let (b, _) = Weave::builder("fl")
+        let mut b = Weave::builder("fl").unwrap();
+        let k_f = b
             .knot("f", KnotKind::flag(FlagPriority::SetWins, false))
             .unwrap();
-        let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
-        let weave = b.wire_named("f", "out", "o", "in").build().unwrap();
-        let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        let k_o = b.knot("o", KnotKind::signal_out("y")).unwrap();
+        let from = b.output(&k_f, "out").unwrap();
+        let to = b.input(&k_o, "in").unwrap();
+        b.connect(from, to).unwrap();
+        let weave = b.build().unwrap();
+        let rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
         assert_eq!(
             rt.clear_port_index_count(),
             3,
             "unwired Flag Ins must clear"
         );
 
-        // Div with Constant ONE on b → CalcDivConst.
-        let (b, _) = Weave::builder("dv")
-            .knot("in", KnotKind::signal_in())
-            .unwrap();
-        let (b, _) = b.knot("one", KnotKind::constant(ONE)).unwrap();
-        let (b, _) = b.knot("d", KnotKind::Calc { op: CalcOp::Div }).unwrap();
-        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-        let weave = b
-            .wire_named("in", "out", "d", "a")
-            .wire_named("one", "out", "d", "b")
-            .wire_named("d", "out", "out", "in")
-            .build()
-            .unwrap();
-        let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
-        let d = rt.sense_id("d").expect("div knot");
-        match rt.kind_tags[d.0 as usize] {
+        let mut b = Weave::builder("dv").unwrap();
+        let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+        let k_one = b.knot("one", KnotKind::constant(ONE)).unwrap();
+        let k_d = b.knot("d", KnotKind::Calc { op: CalcOp::Div }).unwrap();
+        let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let from = b.output(&k_in, "out").unwrap();
+        let to = b.input(&k_d, "a").unwrap();
+        b.connect(from, to).unwrap();
+        let from = b.output(&k_one, "out").unwrap();
+        let to = b.input(&k_d, "b").unwrap();
+        b.connect(from, to).unwrap();
+        let from = b.output(&k_d, "out").unwrap();
+        let to = b.input(&k_out, "in").unwrap();
+        b.connect(from, to).unwrap();
+        let weave = b.build().unwrap();
+        let rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
+        let d = *rt.name_to_id.get("d").expect("div knot");
+        match rt.kind_tags[usize::from(d)] {
             crate::kind_tag::KindTag::CalcDivConst { divisor } => {
                 assert_eq!(divisor, ONE);
             }
@@ -642,27 +761,25 @@ mod tests {
     /// Bind builds KindTag cache, flat clear indices, and CSR inbound.
     #[test]
     fn bind_builds_hot_path_tables() {
-        let (b, _) = Weave::builder("h")
-            .knot("a", KnotKind::signal_in())
-            .unwrap();
-        let (b, _) = b.knot("n", KnotKind::not()).unwrap();
-        let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
-        let weave = b
-            .wire_named("a", "out", "n", "in")
-            .wire_named("n", "out", "o", "in")
-            .build()
-            .unwrap();
-        let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
-        assert_eq!(rt.kind_tag_count(), weave.knots.len());
-        // Both Ins are wired → clear list empty (gather overwrites).
+        let mut b = Weave::builder("h").unwrap();
+        let k_a = b.knot("a", KnotKind::signal_in()).unwrap();
+        let k_n = b.knot("n", KnotKind::not()).unwrap();
+        let k_o = b.knot("o", KnotKind::signal_out("y")).unwrap();
+        let from = b.output(&k_a, "out").unwrap();
+        let to = b.input(&k_n, "in").unwrap();
+        b.connect(from, to).unwrap();
+        let from = b.output(&k_n, "out").unwrap();
+        let to = b.input(&k_o, "in").unwrap();
+        b.connect(from, to).unwrap();
+        let weave = b.build().unwrap();
+        let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
+        assert_eq!(rt.kind_tag_count(), weave.knots().len());
         assert_eq!(rt.clear_port_index_count(), 0);
-        // Two threads → two CSR edges.
         assert_eq!(rt.inbound_edge_count(), 2);
-        assert_eq!(rt.inbound_off.len(), weave.knots.len() + 1);
-        // Hot port round-trip on Not input (bind-validated index).
-        let n_id = KnotId(1);
-        rt.set_port_hot(n_id, PortSlot(0), ONE);
-        assert_eq!(rt.get_port_hot(n_id, PortSlot(0)), ONE);
-        assert_eq!(rt.get_port_checked(n_id, PortSlot(0)), ONE);
+        assert_eq!(rt.inbound_off.len(), weave.knots().len() + 1);
+        let n_id = KnotId::try_from(1usize).unwrap();
+        rt.set_port_hot(n_id, PortSlot::new(0), ONE);
+        assert_eq!(rt.get_port_hot(n_id, PortSlot::new(0)), ONE);
+        assert_eq!(rt.get_port_checked(n_id, PortSlot::new(0)), Ok(ONE));
     }
 }

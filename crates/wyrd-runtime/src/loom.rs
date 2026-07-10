@@ -1,66 +1,77 @@
-use wyrd_core::{is_truthy, CompareOp, FlagPriority, KnotId, PortSlot, Result, Signal, ONE, ZERO};
-use wyrd_graph::Weave;
+//! Single-pass DAG settle: clear unwired ins, seed senses, topo eval, fill outbox.
+//!
+//! After a successful bind, loom is infallible and allocates no graph topology.
+//! Dispatch uses bind-time [`KindTag`]s; inbound edges use CSR tables. Stateful
+//! runes (Flag, Counter, Timer, Delay, edges) update per-knot storage here.
+
+use wyrd_core::{is_truthy, CompareOp, FlagPriority, KnotId, PortSlot, Signal, ONE, ZERO};
 
 use crate::bind::{Runtime, SenseSeed};
 use crate::kind_tag::KindTag;
 
+#[allow(non_snake_case)]
+const fn PortSlot(value: u8) -> PortSlot {
+    PortSlot::new(value)
+}
+
 impl Runtime {
     /// One settle pass. Never panics. No topology alloc after bind.
-    pub fn loom(&mut self, _weave: &Weave) -> Result<()> {
-        // 1. Zero all In ports via flat bind-time index list (no per-knot Vec walk).
+    ///
+    /// Order: zero unwired inputs → seed Constant / SignalIn / OnStart →
+    /// topological eval of non-sense knots → acts append to the outbox.
+    pub fn loom(&mut self) {
         for &idx in &self.clear_port_idx {
             debug_assert!(idx < self.port_vals.len());
             self.port_vals[idx] = ZERO;
         }
 
-        // 2. Seed Sense outputs only (bind-time list — no full-knot scan).
         let seed_n = self.sense_seeds.len();
         for si in 0..seed_n {
             match self.sense_seeds[si] {
                 SenseSeed::Constant { kid, value } => {
-                    self.set_port_hot(kid, PortSlot(0), value);
+                    self.set_port_hot(kid, PortSlot::new(0), value);
                 }
                 SenseSeed::SignalIn { kid } => {
-                    let v = self.sense_values[kid.0 as usize];
-                    self.set_port_hot(kid, PortSlot(0), v);
+                    let v = self.sense_values[usize::from(kid)];
+                    self.set_port_hot(kid, PortSlot::new(0), v);
                 }
                 SenseSeed::OnStart { kid } => {
-                    let ki = kid.0 as usize;
+                    let ki = usize::from(kid);
                     let v = if !self.on_start_done[ki] {
                         self.on_start_done[ki] = true;
                         ONE
                     } else {
                         ZERO
                     };
-                    self.set_port_hot(kid, PortSlot(0), v);
+                    self.set_port_hot(kid, PortSlot::new(0), v);
                 }
             }
         }
 
-        // 3. Topo eval — skip Sense (already seeded; no inputs to gather).
         let topo_len = self.topo.len();
         for ti in 0..topo_len {
             let kid = self.topo[ti];
-            let ki = kid.0 as usize;
+            let ki = usize::from(kid);
             if self.kind_tags[ki].is_sense() {
                 continue;
             }
             self.gather_inputs(kid);
             self.eval_knot(kid);
         }
-
-        Ok(())
     }
 
+    /// Copy inbound edge values into this knot's In ports.
+    ///
+    /// Uses a stack temp when fan-in > 2 so reads stay stable if a knot fans into
+    /// itself across slots (max ports per knot is 8).
     fn gather_inputs(&mut self, kid: KnotId) {
-        let ki = kid.0 as usize;
+        let ki = usize::from(kid);
         let start = self.inbound_off[ki] as usize;
         let end = self.inbound_off[ki + 1] as usize;
         let n = end - start;
         if n == 0 {
             return;
         }
-        // Fast paths: chain knots usually have 1 inbound edge (no stack tmp).
         if n == 1 {
             let (f, fs, ts) = self.inbound_edges[start];
             let v = self.get_port_hot(f, fs);
@@ -76,8 +87,7 @@ impl Runtime {
             self.set_port_hot(kid, ts1, v1);
             return;
         }
-        // Stack buffer: max ports per knot is 8.
-        let mut tmp: [(PortSlot, Signal); 8] = [(PortSlot(0), ZERO); 8];
+        let mut tmp: [(PortSlot, Signal); 8] = [(PortSlot::new(0), ZERO); 8];
         let n = n.min(8);
         for (i, &(f, fs, ts)) in self.inbound_edges[start..start + n].iter().enumerate() {
             tmp[i] = (ts, self.get_port_hot(f, fs));
@@ -88,14 +98,14 @@ impl Runtime {
     }
 
     fn eval_knot(&mut self, kid: KnotId) {
-        let ki = kid.0 as usize;
+        let ki = usize::from(kid);
         let tag = self.kind_tags[ki];
         match tag {
             KindTag::Sense => {}
             KindTag::Not => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 let o = if is_truthy(i) { ZERO } else { ONE };
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::And { arity } => {
                 let mut ok = true;
@@ -118,7 +128,7 @@ impl Runtime {
                 self.set_port_hot(kid, PortSlot(arity), if ok { ONE } else { ZERO });
             }
             KindTag::RisingFromZero => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 let prev = self.prev_in[ki];
                 let o = if !is_truthy(prev) && is_truthy(i) {
                     ONE
@@ -126,24 +136,24 @@ impl Runtime {
                     ZERO
                 };
                 self.prev_in[ki] = i;
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Compare { op, rhs_const } => {
-                let lhs = self.get_port_hot(kid, PortSlot(0));
+                let lhs = self.get_port_hot(kid, PortSlot::new(0));
                 let rhs = match rhs_const {
                     Some(c) => c,
-                    None => self.get_port_hot(kid, PortSlot(1)),
+                    None => self.get_port_hot(kid, PortSlot::new(1)),
                 };
                 let o = if compare(op, lhs, rhs) { ONE } else { ZERO };
-                self.set_port_hot(kid, PortSlot(2), o);
+                self.set_port_hot(kid, PortSlot::new(2), o);
             }
             KindTag::Flag {
                 priority,
                 enable_toggle,
             } => {
-                let set_l = self.get_port_hot(kid, PortSlot(0));
-                let reset_l = self.get_port_hot(kid, PortSlot(1));
-                let toggle_l = self.get_port_hot(kid, PortSlot(2));
+                let set_l = self.get_port_hot(kid, PortSlot::new(0));
+                let reset_l = self.get_port_hot(kid, PortSlot::new(1));
+                let toggle_l = self.get_port_hot(kid, PortSlot::new(2));
                 let set = is_truthy(set_l);
                 let reset = is_truthy(reset_l);
                 let toggle = enable_toggle && !is_truthy(self.prev_in[ki]) && is_truthy(toggle_l);
@@ -170,12 +180,12 @@ impl Runtime {
                 }
                 self.prev_in[ki] = toggle_l;
                 self.flag[ki] = st;
-                self.set_port_hot(kid, PortSlot(3), if st { ONE } else { ZERO });
+                self.set_port_hot(kid, PortSlot::new(3), if st { ONE } else { ZERO });
             }
             KindTag::Counter => {
-                let inc = self.get_port_hot(kid, PortSlot(0));
-                let dec = self.get_port_hot(kid, PortSlot(1));
-                let reset = self.get_port_hot(kid, PortSlot(2));
+                let inc = self.get_port_hot(kid, PortSlot::new(0));
+                let dec = self.get_port_hot(kid, PortSlot::new(1));
+                let reset = self.get_port_hot(kid, PortSlot::new(2));
                 if is_truthy(reset) {
                     self.counter[ki] = 0;
                 }
@@ -187,25 +197,24 @@ impl Runtime {
                 }
                 self.prev_in[ki] = inc;
                 self.prev_dec[ki] = dec;
-                // Whole-count Signal: i32 from_count is identity; f32 casts.
-                self.set_port_hot(kid, PortSlot(3), crate::from_count(self.counter[ki]));
+                self.set_port_hot(kid, PortSlot::new(3), crate::from_count(self.counter[ki]));
             }
             KindTag::TimerPulseHold { ticks } => {
-                let start = self.get_port_hot(kid, PortSlot(0));
+                let start = self.get_port_hot(kid, PortSlot::new(0));
                 let prev = self.prev_in[ki];
                 if !is_truthy(prev) && is_truthy(start) {
                     self.timer_left[ki] = ticks;
                 }
                 self.prev_in[ki] = start;
                 if self.timer_left[ki] > 0 {
-                    self.set_port_hot(kid, PortSlot(1), ONE);
+                    self.set_port_hot(kid, PortSlot::new(1), ONE);
                     self.timer_left[ki] -= 1;
                 } else {
-                    self.set_port_hot(kid, PortSlot(1), ZERO);
+                    self.set_port_hot(kid, PortSlot::new(1), ZERO);
                 }
             }
             KindTag::TimerFedCountdown { ticks } => {
-                let feed = self.get_port_hot(kid, PortSlot(0));
+                let feed = self.get_port_hot(kid, PortSlot::new(0));
                 let prev = self.prev_in[ki];
                 if is_truthy(feed) {
                     if !is_truthy(prev) {
@@ -215,24 +224,23 @@ impl Runtime {
                         self.timer_left[ki] -= 1;
                     }
                     let active = if self.timer_left[ki] == 0 { ONE } else { ZERO };
-                    self.set_port_hot(kid, PortSlot(1), active);
+                    self.set_port_hot(kid, PortSlot::new(1), active);
                 } else {
                     self.timer_left[ki] = 0;
-                    self.set_port_hot(kid, PortSlot(1), ZERO);
+                    self.set_port_hot(kid, PortSlot::new(1), ZERO);
                 }
                 self.prev_in[ki] = feed;
             }
             KindTag::Delay { ticks } => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 if ticks == 0 {
-                    self.set_port_hot(kid, PortSlot(1), i);
+                    self.set_port_hot(kid, PortSlot::new(1), i);
                 } else {
                     let len = self.delay_len[ki] as usize;
                     let off = self.delay_off[ki] as usize;
                     let head = self.delay_head[ki] as usize;
                     let o = self.delay_buf[off + head];
                     self.delay_buf[off + head] = i;
-                    // Power-of-two ring: mask; else branch wrap.
                     let next = head + 1;
                     self.delay_head[ki] = if len.is_power_of_two() {
                         (next & (len - 1)) as u16
@@ -241,48 +249,52 @@ impl Runtime {
                     } else {
                         next as u16
                     };
-                    self.set_port_hot(kid, PortSlot(1), o);
+                    self.set_port_hot(kid, PortSlot::new(1), o);
                 }
             }
             KindTag::CalcAdd => {
-                let a = self.get_port_hot(kid, PortSlot(0));
-                let b = self.get_port_hot(kid, PortSlot(1));
-                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::sat_add(a, b));
+                let a = self.get_port_hot(kid, PortSlot::new(0));
+                let b = self.get_port_hot(kid, PortSlot::new(1));
+                self.set_port_hot(kid, PortSlot::new(2), wyrd_core::signal_ops::sat_add(a, b));
             }
             KindTag::CalcSub => {
-                let a = self.get_port_hot(kid, PortSlot(0));
-                let b = self.get_port_hot(kid, PortSlot(1));
-                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::sat_sub(a, b));
+                let a = self.get_port_hot(kid, PortSlot::new(0));
+                let b = self.get_port_hot(kid, PortSlot::new(1));
+                self.set_port_hot(kid, PortSlot::new(2), wyrd_core::signal_ops::sat_sub(a, b));
             }
             KindTag::CalcMul => {
-                let a = self.get_port_hot(kid, PortSlot(0));
-                let b = self.get_port_hot(kid, PortSlot(1));
-                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::mul(a, b));
+                let a = self.get_port_hot(kid, PortSlot::new(0));
+                let b = self.get_port_hot(kid, PortSlot::new(1));
+                self.set_port_hot(kid, PortSlot::new(2), wyrd_core::signal_ops::mul(a, b));
             }
             KindTag::CalcDiv => {
-                let a = self.get_port_hot(kid, PortSlot(0));
-                let b = self.get_port_hot(kid, PortSlot(1));
-                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::div(a, b));
+                let a = self.get_port_hot(kid, PortSlot::new(0));
+                let b = self.get_port_hot(kid, PortSlot::new(1));
+                self.set_port_hot(kid, PortSlot::new(2), wyrd_core::signal_ops::div(a, b));
             }
             KindTag::CalcDivConst { divisor } => {
-                let a = self.get_port_hot(kid, PortSlot(0));
-                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::div(a, divisor));
+                let a = self.get_port_hot(kid, PortSlot::new(0));
+                self.set_port_hot(
+                    kid,
+                    PortSlot::new(2),
+                    wyrd_core::signal_ops::div(a, divisor),
+                );
             }
             KindTag::Abs => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 #[cfg(feature = "signal-f32")]
                 let o = if i < 0.0 { -i } else { i };
                 #[cfg(feature = "signal-i32")]
                 let o = i.saturating_abs();
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Neg => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 #[cfg(feature = "signal-f32")]
                 let o = -i;
                 #[cfg(feature = "signal-i32")]
                 let o = i.saturating_neg();
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Map {
                 degenerate,
@@ -295,7 +307,7 @@ impl Runtime {
                 #[cfg(feature = "signal-i32")]
                 out_span_i64,
             } => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 let o = map_linear_fast(
                     i,
                     degenerate,
@@ -308,14 +320,14 @@ impl Runtime {
                     #[cfg(feature = "signal-i32")]
                     out_span_i64,
                 );
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Select => {
-                let sel = self.get_port_hot(kid, PortSlot(0));
-                let a = self.get_port_hot(kid, PortSlot(1));
-                let b = self.get_port_hot(kid, PortSlot(2));
+                let sel = self.get_port_hot(kid, PortSlot::new(0));
+                let a = self.get_port_hot(kid, PortSlot::new(1));
+                let b = self.get_port_hot(kid, PortSlot::new(2));
                 let o = if is_truthy(sel) { b } else { a };
-                self.set_port_hot(kid, PortSlot(3), o);
+                self.set_port_hot(kid, PortSlot::new(3), o);
             }
             KindTag::Digitize {
                 degenerate,
@@ -331,7 +343,7 @@ impl Runtime {
                 #[cfg(feature = "signal-i32")]
                 out_span,
             } => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 let o = digitize_fast(
                     i,
                     degenerate,
@@ -347,14 +359,14 @@ impl Runtime {
                     #[cfg(feature = "signal-i32")]
                     out_span,
                 );
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Threshold {
                 high,
                 low,
                 use_hysteresis,
             } => {
-                let x = self.get_port_hot(kid, PortSlot(0));
+                let x = self.get_port_hot(kid, PortSlot::new(0));
                 let prev = self.flag[ki];
                 let mut latched = prev;
                 if use_hysteresis {
@@ -369,34 +381,43 @@ impl Runtime {
                     latched = x >= high;
                 }
                 self.flag[ki] = latched;
-                self.set_port_hot(kid, PortSlot(1), if latched { ONE } else { ZERO });
-                self.set_port_hot(kid, PortSlot(2), if !prev && latched { ONE } else { ZERO });
-                self.set_port_hot(kid, PortSlot(3), if prev && !latched { ONE } else { ZERO });
+                self.set_port_hot(kid, PortSlot::new(1), if latched { ONE } else { ZERO });
+                self.set_port_hot(
+                    kid,
+                    PortSlot::new(2),
+                    if !prev && latched { ONE } else { ZERO },
+                );
+                self.set_port_hot(
+                    kid,
+                    PortSlot::new(3),
+                    if prev && !latched { ONE } else { ZERO },
+                );
             }
             KindTag::Random {
                 require_gate,
                 min_wired,
                 max_wired,
             } => {
-                // Ports: min(0), max(1), gate(2), out(3). Unconnected min→ZERO, max→ONE.
+                // Unwired min/max ports default to ZERO / ONE (not cleared gather zeros).
                 let min_v = if min_wired {
-                    self.get_port_hot(kid, PortSlot(0))
+                    self.get_port_hot(kid, PortSlot::new(0))
                 } else {
                     ZERO
                 };
                 let max_v = if max_wired {
-                    self.get_port_hot(kid, PortSlot(1))
+                    self.get_port_hot(kid, PortSlot::new(1))
                 } else {
                     ONE
                 };
-                let gate = self.get_port_hot(kid, PortSlot(2));
+                let gate = self.get_port_hot(kid, PortSlot::new(2));
                 let prev = self.prev_in[ki];
                 let rising = !is_truthy(prev) && is_truthy(gate);
                 let sample = if require_gate { rising } else { true };
                 if sample {
                     let u = self.next_rng_u32();
                     let o = random_in_range(u, min_v, max_v);
-                    self.set_port_hot(kid, PortSlot(3), o);
+                    self.set_port_hot(kid, PortSlot::new(3), o);
+                    // Last sample is stashed in `counter` (shared rune storage).
                     #[cfg(feature = "signal-f32")]
                     {
                         self.counter[ki] = o.to_bits() as i32;
@@ -406,34 +427,33 @@ impl Runtime {
                         self.counter[ki] = o;
                     }
                 } else {
-                    // Hold last sample in `counter` storage.
                     #[cfg(feature = "signal-f32")]
                     {
                         self.set_port_hot(
                             kid,
-                            PortSlot(3),
+                            PortSlot::new(3),
                             f32::from_bits(self.counter[ki] as u32),
                         );
                     }
                     #[cfg(feature = "signal-i32")]
                     {
-                        self.set_port_hot(kid, PortSlot(3), self.counter[ki]);
+                        self.set_port_hot(kid, PortSlot::new(3), self.counter[ki]);
                     }
                 }
                 self.prev_in[ki] = gate;
             }
             KindTag::Sqrt => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 let o = signal_sqrt(i);
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Xor => {
-                let a = is_truthy(self.get_port_hot(kid, PortSlot(0)));
-                let b = is_truthy(self.get_port_hot(kid, PortSlot(1)));
-                self.set_port_hot(kid, PortSlot(2), if a ^ b { ONE } else { ZERO });
+                let a = is_truthy(self.get_port_hot(kid, PortSlot::new(0)));
+                let b = is_truthy(self.get_port_hot(kid, PortSlot::new(1)));
+                self.set_port_hot(kid, PortSlot::new(2), if a ^ b { ONE } else { ZERO });
             }
             KindTag::FallingToZero => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 let prev = self.prev_in[ki];
                 let o = if is_truthy(prev) && !is_truthy(i) {
                     ONE
@@ -441,10 +461,10 @@ impl Runtime {
                     ZERO
                 };
                 self.prev_in[ki] = i;
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Change => {
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 let prev = self.prev_in[ki];
                 let o = if is_truthy(prev) != is_truthy(i) {
                     ONE
@@ -452,12 +472,11 @@ impl Runtime {
                     ZERO
                 };
                 self.prev_in[ki] = i;
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Clamp { min, max } => {
-                // validate rejects min > max before bind.
                 debug_assert!(min <= max);
-                let i = self.get_port_hot(kid, PortSlot(0));
+                let i = self.get_port_hot(kid, PortSlot::new(0));
                 let o = if i < min {
                     min
                 } else if i > max {
@@ -465,23 +484,23 @@ impl Runtime {
                 } else {
                     i
                 };
-                self.set_port_hot(kid, PortSlot(1), o);
+                self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::SignalOut => {
-                let v = self.get_port_hot(kid, PortSlot(0));
+                let v = self.get_port_hot(kid, PortSlot::new(0));
                 if let Some(path) = self.knots[ki].path {
                     self.push_signal_out(path, v);
                 }
             }
             KindTag::EmitCommand { enable_wired } => {
-                let trig = self.get_port_hot(kid, PortSlot(0));
-                // Optional enable: unconnected → treated as ONE (enabled).
+                let trig = self.get_port_hot(kid, PortSlot::new(0));
+                // Unwired enable is treated as always on.
                 let enable = if enable_wired {
-                    self.get_port_hot(kid, PortSlot(1))
+                    self.get_port_hot(kid, PortSlot::new(1))
                 } else {
                     ONE
                 };
-                let payload = self.get_port_hot(kid, PortSlot(2));
+                let payload = self.get_port_hot(kid, PortSlot::new(2));
                 let prev = self.prev_in[ki];
                 if !is_truthy(prev) && is_truthy(trig) && is_truthy(enable) {
                     if let Some(cmd) = self.knots[ki].cmd {
@@ -567,10 +586,9 @@ pub(crate) fn map_linear_for_test(
     }
 }
 
-/// Quantize `i` into `steps` bins over in range, map to out range (endpoints included).
-/// Digitize using bind-time precomputed scales (hot path).
+/// Quantize `i` into `steps` bins using bind-time scales (endpoints included).
 #[inline]
-#[allow(clippy::too_many_arguments)] // bind-time precompute fields; keep hot path flat
+#[allow(clippy::too_many_arguments)]
 fn digitize_fast(
     i: Signal,
     degenerate: bool,
@@ -590,7 +608,6 @@ fn digitize_fast(
     #[cfg(feature = "signal-f32")]
     {
         let _ = (steps, last);
-        // Integer bin in [0, last]; endpoint (raw≥steps) clamps via last_f.
         let raw = (i - in_min) * bin_scale;
         let bin = raw.max(0.0).min(last_f) as u32;
         out_scale.mul_add(bin as f32, out_min)
@@ -651,6 +668,8 @@ pub(crate) fn digitize_for_test(
     }
 }
 
+/// Map `u` into `[min_v, max_v]` (order-independent). i32 uses a wide product so
+/// full-domain spans do not overflow intermediate mul.
 fn random_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
     #[cfg(feature = "signal-f32")]
     {
@@ -667,7 +686,6 @@ fn random_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
         if span <= 0 {
             return lo as i32;
         }
-        // u128 product avoids overflow when span is large (full Signal domain).
         let offset = ((u as u128) * (span as u128)) / (u32::MAX as u128);
         (lo + offset as i64) as i32
     }
@@ -679,7 +697,6 @@ fn signal_sqrt(i: Signal) -> Signal {
         if i <= 0.0 {
             0.0
         } else {
-            // Hardware/core sqrt when available (same IEEE result as libm::sqrtf on desktop).
             i.sqrt()
         }
     }
@@ -689,7 +706,7 @@ fn signal_sqrt(i: Signal) -> Signal {
     }
 }
 
-/// Integer square root (floor). Newton iteration until convergence.
+/// Floor integer square root via Newton iteration.
 #[cfg(feature = "signal-i32")]
 #[inline]
 fn isqrt_i32(n: i32) -> i32 {
@@ -699,7 +716,6 @@ fn isqrt_i32(n: i32) -> i32 {
     if n < 4 {
         return 1;
     }
-    // Seed: roughly 2^ceil(log2(n)/2)
     let z = n as u32;
     let mut x = 1i32 << ((32 - z.leading_zeros() + 1) / 2);
     loop {
@@ -733,7 +749,6 @@ mod digitize_tests {
 
     #[test]
     fn digitize_precompute_matches_endpoints_and_mids() {
-        // steps=4 over count 0..4 → out 0,10,20,30
         let steps = 4u16;
         let in0 = from_count(0);
         let in4 = from_count(4);
@@ -759,7 +774,6 @@ mod digitize_tests {
             digitize_for_test(from_count(4), steps, in0, in4, o0, o30),
             from_count(30)
         );
-        // Degenerate steps=1
         assert_eq!(
             digitize_for_test(ONE, 1, ZERO, ONE, from_count(7), from_count(9)),
             from_count(7)
@@ -784,15 +798,12 @@ mod map_tests {
             from_count(20)
         );
         assert_eq!(map_linear_for_test(from_count(4), i0, i4, o0, o40), o40);
-        // Outside clamp
         assert_eq!(map_linear_for_test(from_count(8), i0, i4, o0, o40), o40);
         assert_eq!(map_linear_for_test(from_count(-2), i0, i4, o0, o40), o0);
-        // Zero in-span → out_min
         assert_eq!(
             map_linear_for_test(ONE, from_count(3), from_count(3), from_count(7), o40),
             from_count(7)
         );
-        // ZERO..ONE identity-ish for out ZERO..ONE at mid
         let mid = map_linear_for_test(
             #[cfg(feature = "signal-f32")]
             {
@@ -800,7 +811,6 @@ mod map_tests {
             },
             #[cfg(feature = "signal-i32")]
             {
-                // Q16 half of ONE if ONE is 1<<16
                 ONE / 2
             },
             ZERO,

@@ -11,13 +11,21 @@ use wyrd_core::KnotKind;
 use wyrd_graph::Weave;
 
 fn and_door_weave() -> Weave {
-    let (b, pa) = Weave::builder("door")
-        .knot("plate_a", KnotKind::signal_in())
-        .unwrap();
-    let (b, pb) = b.knot("plate_b", KnotKind::signal_in()).unwrap();
-    let (b, _) = b.and2("both", pa, pb).unwrap();
-    let (b, _) = b.knot("door", KnotKind::signal_out("door.open")).unwrap();
-    b.wire_named("both", "out", "door", "in").build().unwrap()
+    let mut b = Weave::builder("door").unwrap();
+    let pa = b.knot("plate_a", KnotKind::signal_in()).unwrap();
+    let pb = b.knot("plate_b", KnotKind::signal_in()).unwrap();
+    let both = b.knot("both", KnotKind::and2()).unwrap();
+    let door = b.knot("door", KnotKind::signal_out("door.open")).unwrap();
+    let from = b.output(&pa, "out").unwrap();
+    let to = b.input(&both, "in_0").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&pb, "out").unwrap();
+    let to = b.input(&both, "in_1").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&both, "out").unwrap();
+    let to = b.input(&door, "in").unwrap();
+    b.connect(from, to).unwrap();
+    b.build().unwrap()
 }
 
 #[derive(Resource, Clone, Copy)]
@@ -37,8 +45,8 @@ fn sample_plates(
     let Some(inst) = world.instances.get_mut(binding.instance) else {
         return;
     };
-    set_sense_bool(inst, binding.plate_a, plates.a);
-    set_sense_bool(inst, binding.plate_b, plates.b);
+    set_sense_bool(inst, binding.plate_a, plates.a).expect("bound plate_a handle");
+    set_sense_bool(inst, binding.plate_b, plates.b).expect("bound plate_b handle");
 }
 
 fn apply_door_component(
@@ -83,11 +91,9 @@ fn setup_app() -> App {
 #[divan::bench]
 fn bevy_door_tick_both(bencher: Bencher) {
     let mut app = setup_app();
-    // Warmup one frame so schedules settle.
     app.world_mut().resource_mut::<PlateState>().a = true;
     app.world_mut().resource_mut::<PlateState>().b = true;
     app.update();
-    // Weave: plate_a, plate_b, both, door → 4 knots (ItemsCount labels work, not pure loom ns).
     let knots = 4u64;
     bencher.counter(ItemsCount::new(knots)).bench_local(|| {
         app.world_mut().resource_mut::<PlateState>().a = true;

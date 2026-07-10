@@ -1,4 +1,8 @@
 //! Bind-time dispatch tags for hot loom eval (no String clones per tick).
+//!
+//! Derived from [`KnotKind`] at bind, then patched with wiring facts (emit
+//! enable, Random min/max ports, Calc Div-by-Constant). Map/Digitize precompute
+//! spans so settle does not re-derive scales every tick.
 
 use wyrd_core::{CalcOp, CompareOp, FlagPriority, KnotKind, Signal, TimerMode};
 
@@ -160,7 +164,6 @@ impl KindTag {
                 low: *low,
                 use_hysteresis: *use_hysteresis,
             },
-            // min_wired/max_wired patched at bind from inbound edges.
             KnotKind::Random { require_gate } => KindTag::Random {
                 require_gate: *require_gate,
                 min_wired: false,
@@ -175,7 +178,6 @@ impl KindTag {
                 max: *max,
             },
             KnotKind::SignalOut { .. } => KindTag::SignalOut,
-            // enable_wired patched at bind from inbound edges.
             KnotKind::EmitCommand { .. } => KindTag::EmitCommand {
                 enable_wired: false,
             },

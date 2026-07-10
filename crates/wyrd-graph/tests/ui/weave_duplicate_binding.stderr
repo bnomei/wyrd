@@ -1,0 +1,16 @@
+error[E0124]: field `same` is already declared
+ --> tests/ui/weave_duplicate_binding.rs:4:13
+  |
+ 4 |       let _ = weave! {
+   |  _____________^
+ 5 | |         id: "duplicate";
+ 6 | |         knots {
+ 7 | |             same = KnotKind::signal_in();
+...  |
+13 | |     };
+   | |     ^
+   | |     |
+   | |_____field already declared
+   |       `same` first declared here
+   |
+   = note: this error originates in the macro `$crate::__weave_expand` which comes from the expansion of the macro `weave` (in Nightly builds, run with -Z macro-backtrace for more info)

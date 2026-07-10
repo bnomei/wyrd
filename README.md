@@ -16,39 +16,47 @@ A small Rust library for composing game behavior from typed signal graphs, using
 ## Quick taste
 
 ```rust
-use wyrd_core::{HostTime, KnotKind, ONE};
-use wyrd_graph::Weave;
+use wyrd_core::{HostTime, KnotKind};
+use wyrd_graph::weave;
 use wyrd_runtime::{BindOpts, Runtime};
 
-let (b, _) = Weave::builder("hello")
-    .knot("c", KnotKind::constant(ONE))?;
-let (b, _) = b.knot("n", KnotKind::not())?;
-let (b, _) = b.knot("o", KnotKind::signal_out("debug.inverted"))?;
-let weave = b
-    .wire_named("c", "out", "n", "in")
-    .wire_named("n", "out", "o", "in")
-    .build()?;
+let weave = weave! {
+    id: "hello";
+    knots {
+        c = KnotKind::constant(wyrd_core::ONE);
+        n = KnotKind::not();
+        o = KnotKind::signal_out("debug.inverted");
+    }
+    threads {
+        c.out -> n.in;
+        n.out -> o.in;
+    }
+}?;
 
-let mut rt = Runtime::bind(&weave, BindOpts::default())?;
+let mut rt = Runtime::bind(weave, BindOpts::default())?;
 rt.begin_frame(HostTime { tick: 0 });
-rt.loom(&weave)?;
+rt.loom();
 // outbox: path "debug.inverted" = falsey (Not of ONE)
 ```
 
-Host tick: resolve `sense_id("plate")` once, then `set_sense(KnotId, Signal)` each frame — **no string lookup on the hot path**.
+Host tick: resolve `sense_id("plate")` once, then `set_sense(SenseId, Signal)` each frame — **no string lookup on the hot path**.
 
 ## Host tick (sample → loom → apply)
 
 Game engines **own** world I/O. Wyrd never knows doors, cameras, or Entities.
 
 ```text
-1. host.sample_into(PortWriter)   // dense set_sense(KnotId, Signal)
+1. host.sample_into(PortWriter)   // checked set_sense(SenseId, Signal)
 2. begin_frame + loom             // settle DAG once
 3. host.apply(outbox)             // SetLevel / Emit via HostPathId / CmdId
 ```
 
 Use `wyrd_runtime::{Host, tick_once, NullHost, ScriptedHost, HostCommand}` for
 headless/scripted loops, or free-form systems in Bevy (`WyrdSet::{Sample, Loom, Apply}`).
+
+`Runtime::bind` consumes the validated `Weave`; the runtime is the sole executable
+artifact. See [the 0.2 migration guide](MIGRATION-0.2.md) for the typed builder, definition
+types, and contextual error changes.
 
 **Door is a host effect** — a Bevy `Door` component (or your own type), not a Knot.
 Bevy **Messages** (`WyrdSignalConfirm`) are post-apply confirmations for VFX/UI only;

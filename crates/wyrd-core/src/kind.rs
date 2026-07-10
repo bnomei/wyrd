@@ -1,10 +1,18 @@
-//! Closed KnotKind enum (D-dispatch).
+//! Closed [`KnotKind`] catalog and related op enums (D-dispatch).
+//!
+//! Author and asset form: host path and emit names stay open strings until
+//! bind interns them. Runtime dispatch uses bind-time tags derived from these
+//! variants rather than matching `KnotKind` every settle.
 
 use crate::signal::Signal;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+/// Which numeric wire path this weave was authored for.
+///
+/// Must match the crate feature selected at compile time (`signal-f32` or
+/// `signal-i32`); validate rejects a mismatch.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum NumericPath {
@@ -15,6 +23,7 @@ pub enum NumericPath {
 }
 
 impl NumericPath {
+    /// Path encoded by the active cargo feature for this build.
     pub fn compiled() -> Self {
         #[cfg(feature = "signal-f32")]
         {
@@ -27,6 +36,7 @@ impl NumericPath {
     }
 }
 
+/// Comparison operator for [`KnotKind::Compare`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CompareOp {
@@ -38,13 +48,17 @@ pub enum CompareOp {
     Gte,
 }
 
+/// Timer behavior for [`KnotKind::Timer`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum TimerMode {
+    /// Countdown reloaded while the `feed` port stays truthy.
     FedCountdown,
+    /// Hold `active` for `ticks` after a rising edge on `start`.
     PulseHold,
 }
 
+/// Binary arithmetic for [`KnotKind::Calc`] (prefer over path-local `signal_ops`).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CalcOp {
@@ -54,6 +68,7 @@ pub enum CalcOp {
     Div,
 }
 
+/// Simultaneous set/reset priority for [`KnotKind::Flag`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum FlagPriority {
@@ -61,7 +76,10 @@ pub enum FlagPriority {
     SetWins,
 }
 
-/// Author / asset form. HostPath and Emit names stay open strings until bind.
+/// Author / asset knot kind. Host path and emit names stay open strings until bind.
+///
+/// Closed enum: port tables, validate, and loom dispatch all key off these
+/// variants. Adding a kind requires catalog ports plus runtime eval.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum KnotKind {
@@ -79,7 +97,7 @@ pub enum KnotKind {
     },
     Compare {
         op: CompareOp,
-        /// Whole-unit rhs when `rhs` port unconnected.
+        /// Whole-unit rhs when the `rhs` port is unconnected.
         rhs_const: Option<i32>,
     },
     RisingFromZero,
@@ -106,7 +124,7 @@ pub enum KnotKind {
     },
     Abs,
     Neg,
-    /// Multiplex: falsey sel → a, truthy sel → b.
+    /// Multiplex: falsey `sel` → `a`, truthy `sel` → `b`.
     Select,
     /// Quantize `in` into `steps` bins over in range, map to out range.
     Digitize {
@@ -116,17 +134,17 @@ pub enum KnotKind {
         out_min: Signal,
         out_max: Signal,
     },
-    /// Gate continuous signal with optional hysteresis; edge pulse outs.
+    /// Gate a continuous signal with optional hysteresis; edge pulse outs.
     Threshold {
         high: Signal,
         low: Signal,
         use_hysteresis: bool,
     },
-    /// Seeded PRNG sample into [min,max] ports; optional rising `gate`.
+    /// Seeded PRNG sample into `[min,max]` ports; optional rising `gate`.
     Random {
         require_gate: bool,
     },
-    /// Square root. f32: core `f32::sqrt` on levels. i32: integer isqrt on Signal
+    /// Square root. f32: `f32::sqrt` on levels. i32: integer isqrt on Signal
     /// bits (count-domain friendly; not Q16.16 level-sqrt).
     Sqrt,
     Xor,
@@ -262,6 +280,7 @@ impl KnotKind {
         KnotKind::Clamp { min, max }
     }
 
+    /// And/Or input arity when applicable.
     pub fn arity(&self) -> Option<u8> {
         match self {
             KnotKind::And { arity } => Some(*arity),

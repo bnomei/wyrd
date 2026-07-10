@@ -1,258 +1,322 @@
+//! Typed incremental authoring of a [`Weave`] with owner-scoped handles.
+//!
+//! Handles and ports are tied to one [`WeaveBuilder`] instance so foreign
+//! endpoints cannot be connected across builders. Endpoint resolution checks
+//! catalog port names and directions before threads are recorded. Final
+//! structural checks (cycles, fan-in, budgets) run in [`WeaveBuilder::build`].
+
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+use std::collections::BTreeMap;
 use std::string::String;
 use std::vec::Vec;
 
-use wyrd_core::{port_slot, KnotId, KnotKind, NumericPath, PortSlot, Result, WyrdError};
+use wyrd_core::{port_slot, ports_of, KnotKind, NumericPath, PortDir, PortSlot};
 
-use crate::pattern::{expand_pattern, Pattern, PatternExports};
-use crate::weave::{KnotDef, PortRefAuthor, ThreadDef, Weave};
+use crate::pattern::{expand, Pattern};
+use crate::{BuildError, KnotDef, PortRefDef, ThreadDef, ValidationError, Weave, WeaveDef};
 
-/// Rustic builder. Records wires; validate is the loud phase.
+static NEXT_OWNER: AtomicUsize = AtomicUsize::new(1);
+
+/// Opaque knot reference valid only for the builder that created it.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct KnotHandle {
+    owner: usize,
+    index: u16,
+}
+
+/// Catalog-checked input endpoint for connecting a thread.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InputPort {
+    owner: usize,
+    knot: u16,
+    name: String,
+}
+
+/// Catalog-checked output endpoint for connecting a thread.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutputPort {
+    owner: usize,
+    knot: u16,
+    name: String,
+}
+
+/// Expanded pattern include: export names map to parent-builder ports.
+#[derive(Clone, Debug)]
+pub struct PatternInstance {
+    id: String,
+    inputs: BTreeMap<String, InputPort>,
+    outputs: BTreeMap<String, OutputPort>,
+}
+
+impl PatternInstance {
+    /// Instance id used as the expansion prefix (`id/inner_knot`).
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Resolve a pattern input export to a parent-builder input port.
+    pub fn input(&self, export: &str) -> Result<InputPort, BuildError> {
+        self.inputs
+            .get(export)
+            .cloned()
+            .ok_or_else(|| BuildError::UnknownExport {
+                instance_id: self.id.clone(),
+                export: String::from(export),
+                direction: PortDir::In,
+            })
+    }
+
+    /// Resolve a pattern output export to a parent-builder output port.
+    pub fn output(&self, export: &str) -> Result<OutputPort, BuildError> {
+        self.outputs
+            .get(export)
+            .cloned()
+            .ok_or_else(|| BuildError::UnknownExport {
+                instance_id: self.id.clone(),
+                export: String::from(export),
+                direction: PortDir::Out,
+            })
+    }
+}
+
+/// Incremental weave construction; [`Self::build`] validates into a [`Weave`].
 pub struct WeaveBuilder {
+    owner: usize,
     id: String,
     knots: Vec<KnotDef>,
     threads: Vec<ThreadDef>,
     numeric: NumericPath,
-    /// Author name → dense index assigned at push (preview of KnotId).
-    names: Vec<String>,
+    names: BTreeMap<String, u16>,
 }
 
 impl WeaveBuilder {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
+    /// Start a weave with a non-empty author id and a fresh owner token.
+    pub fn new(id: impl Into<String>) -> Result<Self, BuildError> {
+        let id = id.into();
+        if id.is_empty() {
+            return Err(BuildError::InvalidId {
+                id,
+                reason: "weave ids must be non-empty",
+            });
+        }
+        let owner = NEXT_OWNER.fetch_add(1, Ordering::Relaxed);
+        if owner == usize::MAX {
+            return Err(BuildError::RepresentationOverflow {
+                what: "builder owner token",
+                actual: owner,
+                limit: usize::MAX - 1,
+            });
+        }
+        Ok(Self {
+            owner,
+            id,
             knots: Vec::new(),
             threads: Vec::new(),
             numeric: NumericPath::compiled(),
-            names: Vec::new(),
-        }
+            names: BTreeMap::new(),
+        })
     }
 
-    pub fn numeric(mut self, path: NumericPath) -> Self {
+    /// Override the numeric path tag (must match the compiled feature at validate).
+    pub fn set_numeric(&mut self, path: NumericPath) -> Result<&mut Self, BuildError> {
         self.numeric = path;
-        self
+        Ok(self)
     }
 
-    /// Add knot by author name. Returns (builder, provisional KnotId = index).
-    pub fn knot(mut self, id: impl Into<String>, kind: KnotKind) -> Result<(Self, KnotId)> {
+    /// Add a knot with a unique non-empty author id.
+    pub fn knot(
+        &mut self,
+        id: impl Into<String>,
+        kind: KnotKind,
+    ) -> Result<KnotHandle, BuildError> {
         let id = id.into();
-        if self.names.iter().any(|n| n == &id) {
-            return Err(WyrdError::DuplicateKnotId);
+        if id.is_empty() {
+            return Err(BuildError::InvalidId {
+                id,
+                reason: "knot ids must be non-empty",
+            });
         }
-        let kid = KnotId(self.names.len() as u16);
-        self.names.push(id.clone());
+        if self.names.contains_key(&id) {
+            return Err(BuildError::DuplicateKnotId { knot_id: id });
+        }
+        let index =
+            u16::try_from(self.knots.len()).map_err(|_| BuildError::RepresentationOverflow {
+                what: "knot",
+                actual: self.knots.len(),
+                limit: u16::MAX as usize,
+            })?;
+        self.names.insert(id.clone(), index);
         self.knots.push(KnotDef { id, kind });
-        Ok((self, kid))
+        Ok(KnotHandle {
+            owner: self.owner,
+            index,
+        })
     }
 
-    /// Wire by author names + catalog port names.
-    pub fn wire_named(
-        mut self,
-        from_knot: &str,
-        from_port: &str,
-        to_knot: &str,
-        to_port: &str,
-    ) -> Self {
+    /// Catalog-checked input port on a knot owned by this builder.
+    pub fn input(&self, knot: &KnotHandle, name: &str) -> Result<InputPort, BuildError> {
+        self.endpoint(knot, name, PortDir::In)
+            .map(|name| InputPort {
+                owner: self.owner,
+                knot: knot.index,
+                name,
+            })
+    }
+
+    /// Catalog-checked output port on a knot owned by this builder.
+    pub fn output(&self, knot: &KnotHandle, name: &str) -> Result<OutputPort, BuildError> {
+        self.endpoint(knot, name, PortDir::Out)
+            .map(|name| OutputPort {
+                owner: self.owner,
+                knot: knot.index,
+                name,
+            })
+    }
+
+    /// Record a directed thread; both endpoints must belong to this builder.
+    pub fn connect(&mut self, from: OutputPort, to: InputPort) -> Result<&mut Self, BuildError> {
+        if from.owner != self.owner || to.owner != self.owner {
+            return Err(BuildError::ForeignHandle);
+        }
+        let from_knot = self
+            .knots
+            .get(from.knot as usize)
+            .ok_or(BuildError::ForeignHandle)?;
+        let to_knot = self
+            .knots
+            .get(to.knot as usize)
+            .ok_or(BuildError::ForeignHandle)?;
         self.threads.push(ThreadDef {
-            from: PortRefAuthor::new(from_knot, from_port),
-            to: PortRefAuthor::new(to_knot, to_port),
-        });
-        self
-    }
-
-    /// Wire two author port refs (e.g. from PatternExports).
-    pub fn wire_ports(mut self, from: PortRefAuthor, to: PortRefAuthor) -> Self {
-        self.threads.push(ThreadDef { from, to });
-        self
-    }
-
-    /// Wire using KnotIds + PortSlots (preferred after handles exist).
-    pub fn wire(mut self, from: (KnotId, PortSlot), to: (KnotId, PortSlot)) -> Result<Self> {
-        let fk = self
-            .names
-            .get(from.0 .0 as usize)
-            .ok_or(WyrdError::UnknownKnot)?;
-        let tk = self
-            .names
-            .get(to.0 .0 as usize)
-            .ok_or(WyrdError::UnknownKnot)?;
-        let from_kind = &self.knots[from.0 .0 as usize].kind;
-        let to_kind = &self.knots[to.0 .0 as usize].kind;
-        let from_name = port_name(from_kind, from.1).ok_or(WyrdError::UnknownPort)?;
-        let to_name = port_name(to_kind, to.1).ok_or(WyrdError::UnknownPort)?;
-        self.threads.push(ThreadDef {
-            from: PortRefAuthor::new(fk.as_str(), from_name),
-            to: PortRefAuthor::new(tk.as_str(), to_name),
+            from: PortRefDef::new(from_knot.id.clone(), from.name),
+            to: PortRefDef::new(to_knot.id.clone(), to.name),
         });
         Ok(self)
     }
 
-    /// And arity-2 convenience: creates And knot and wires a.out→in_0, b.out→in_1.
-    pub fn and2(self, id: impl Into<String>, a: KnotId, b: KnotId) -> Result<(Self, KnotId)> {
-        let (bld, and_id) = self.knot(id, KnotKind::and2())?;
-        let bld = bld.wire((a, PortSlot(0)), (and_id, PortSlot(0)))?; // a out → in_0
-        let bld = bld.wire((b, PortSlot(0)), (and_id, PortSlot(1)))?;
-        Ok((bld, and_id))
-    }
-
-    /// Expand pattern under `instance_id/` into this builder (flat). Returns export map.
+    /// Expand a validated [`Pattern`] under `instance_id/` and return export ports.
     pub fn include(
-        mut self,
+        &mut self,
         instance_id: impl Into<String>,
         pattern: &Pattern,
-    ) -> Result<(Self, PatternExports)> {
+    ) -> Result<PatternInstance, BuildError> {
         let instance_id = instance_id.into();
-        if pattern.inner.numeric != self.numeric {
-            return Err(WyrdError::NumericMismatch);
+        if pattern.inner().numeric != self.numeric {
+            return Err(BuildError::NumericMismatch {
+                expected: self.numeric,
+                actual: pattern.inner().numeric,
+            });
         }
-        let (knots, threads, exports) = expand_pattern(&instance_id, pattern)?;
-        for k in knots {
-            if self.names.iter().any(|n| n == &k.id) {
-                return Err(WyrdError::DuplicateKnotId);
+        let expanded = expand(&instance_id, pattern)?;
+        for knot in &expanded.knots {
+            if self.names.contains_key(&knot.id) {
+                return Err(BuildError::DuplicateKnotId {
+                    knot_id: knot.id.clone(),
+                });
             }
-            self.names.push(k.id.clone());
-            self.knots.push(k);
         }
-        self.threads.extend(threads);
-        Ok((self, exports))
-    }
-
-    pub fn build(self) -> Result<Weave> {
-        if self.knots.is_empty() {
-            return Err(WyrdError::Empty);
+        for knot in expanded.knots {
+            let index = u16::try_from(self.knots.len()).map_err(|_| {
+                BuildError::RepresentationOverflow {
+                    what: "knot",
+                    actual: self.knots.len(),
+                    limit: u16::MAX as usize,
+                }
+            })?;
+            self.names.insert(knot.id.clone(), index);
+            self.knots.push(knot);
         }
-        Ok(Weave {
-            id: self.id,
-            knots: self.knots,
-            threads: self.threads,
-            numeric: self.numeric,
+        self.threads.extend(expanded.threads);
+        let inputs = expanded
+            .inputs
+            .into_iter()
+            .map(|(name, port)| {
+                let knot = self.names[port.knot.as_str()];
+                (
+                    name,
+                    InputPort {
+                        owner: self.owner,
+                        knot,
+                        name: port.port,
+                    },
+                )
+            })
+            .collect();
+        let outputs = expanded
+            .outputs
+            .into_iter()
+            .map(|(name, port)| {
+                let knot = self.names[port.knot.as_str()];
+                (
+                    name,
+                    OutputPort {
+                        owner: self.owner,
+                        knot,
+                        name: port.port,
+                    },
+                )
+            })
+            .collect();
+        Ok(PatternInstance {
+            id: instance_id,
+            inputs,
+            outputs,
         })
     }
-}
 
-fn port_name(kind: &KnotKind, slot: PortSlot) -> Option<&'static str> {
-    wyrd_core::ports_of(kind)
-        .iter()
-        .find(|p| p.slot == slot)
-        .map(|p| p.name)
-}
-
-/// Resolve catalog port name → slot for a kind.
-pub fn slot_of(kind: &KnotKind, name: &str) -> Result<PortSlot> {
-    port_slot(kind, name).ok_or(WyrdError::UnknownPort)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::pattern::Pattern;
-    use crate::weave::PortRefAuthor;
-    use std::vec;
-    use wyrd_core::{KnotKind, NumericPath, ONE, ZERO};
-
-    #[test]
-    fn numeric_and_empty_build() {
-        let b = WeaveBuilder::new("x").numeric(NumericPath::compiled());
-        assert_eq!(b.build(), Err(WyrdError::Empty));
+    /// Validate structure and produce an immutable [`Weave`].
+    pub fn build(self) -> Result<Weave, ValidationError> {
+        Weave::try_from(WeaveDef {
+            id: self.id,
+            numeric: self.numeric,
+            knots: self.knots,
+            threads: self.threads,
+        })
     }
 
-    #[test]
-    fn duplicate_knot_on_builder() {
-        let (b, _) = WeaveBuilder::new("x")
-            .knot("a", KnotKind::constant(ONE))
-            .unwrap();
-        assert_eq!(
-            b.knot("a", KnotKind::constant(ZERO)).map(|_| ()),
-            Err(WyrdError::DuplicateKnotId)
-        );
-    }
-
-    #[test]
-    fn wire_unknown_knot_and_port() {
-        let (b, a) = WeaveBuilder::new("x")
-            .knot("a", KnotKind::constant(ONE))
-            .unwrap();
-        let bad = KnotId(99);
-        assert_eq!(
-            b.wire((bad, PortSlot(0)), (a, PortSlot(0))).map(|_| ()),
-            Err(WyrdError::UnknownKnot)
-        );
-
-        let (b, a) = WeaveBuilder::new("x2")
-            .knot("a", KnotKind::constant(ONE))
-            .unwrap();
-        let bad = KnotId(99);
-        assert_eq!(
-            b.wire((a, PortSlot(0)), (bad, PortSlot(0))).map(|_| ()),
-            Err(WyrdError::UnknownKnot)
-        );
-
-        let (b, a) = WeaveBuilder::new("y")
-            .knot("a", KnotKind::constant(ONE))
-            .unwrap();
-        let (b, n) = b.knot("n", KnotKind::not()).unwrap();
-        assert_eq!(
-            b.wire((a, PortSlot(7)), (n, PortSlot(0))).map(|_| ()),
-            Err(WyrdError::UnknownPort)
-        );
-    }
-
-    #[test]
-    fn and2_and_slot_of() {
-        let (b, a) = WeaveBuilder::new("d")
-            .knot("a", KnotKind::signal_in())
-            .unwrap();
-        let (b, pb) = b.knot("b", KnotKind::signal_in()).unwrap();
-        let (b, both) = b.and2("both", a, pb).unwrap();
-        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-        let w = b.wire_named("both", "out", "out", "in").build().unwrap();
-        assert_eq!(w.knots.len(), 4);
-        let _ = both;
-        assert_eq!(slot_of(&KnotKind::not(), "in").unwrap(), PortSlot(0));
-        assert_eq!(
-            slot_of(&KnotKind::not(), "nope"),
-            Err(WyrdError::UnknownPort)
-        );
-    }
-
-    #[test]
-    fn include_numeric_mismatch_and_dup() {
-        let (b, _) = Weave::builder("pat")
-            .knot("edge", KnotKind::rising_from_zero())
-            .unwrap();
-        let inner = b.build().unwrap();
-        let mut pat = Pattern {
-            id: "p".into(),
-            inner,
-            exports_in: vec![("start".into(), "edge".into(), "in".into())],
-            exports_out: vec![("out".into(), "edge".into(), "out".into())],
-        };
-        #[cfg(feature = "signal-f32")]
-        {
-            pat.inner.numeric = NumericPath::I32Q16;
+    fn endpoint(
+        &self,
+        knot: &KnotHandle,
+        name: &str,
+        expected: PortDir,
+    ) -> Result<String, BuildError> {
+        if knot.owner != self.owner {
+            return Err(BuildError::ForeignHandle);
         }
-        #[cfg(feature = "signal-i32")]
-        {
-            pat.inner.numeric = NumericPath::F32;
+        let knot_def = self
+            .knots
+            .get(knot.index as usize)
+            .ok_or(BuildError::ForeignHandle)?;
+        let ports = ports_of(&knot_def.kind);
+        let info =
+            ports
+                .iter()
+                .find(|port| port.name == name)
+                .ok_or_else(|| BuildError::UnknownPort {
+                    knot_id: knot_def.id.clone(),
+                    port: String::from(name),
+                    expected: ports.iter().map(|port| String::from(port.name)).collect(),
+                })?;
+        if info.dir != expected {
+            return Err(BuildError::WrongPortDirection {
+                knot_id: knot_def.id.clone(),
+                port: String::from(name),
+                expected,
+                actual: info.dir,
+            });
         }
-        let b = WeaveBuilder::new("host")
-            .knot("x", KnotKind::signal_in())
-            .unwrap()
-            .0;
-        assert_eq!(
-            b.include("i1", &pat).map(|_| ()),
-            Err(WyrdError::NumericMismatch)
-        );
-
-        // restore numeric, then collide with existing id after first include
-        pat.inner.numeric = NumericPath::compiled();
-        let (b, _) = WeaveBuilder::new("host2")
-            .knot("i1/edge", KnotKind::signal_in())
-            .unwrap();
-        assert_eq!(
-            b.include("i1", &pat).map(|_| ()),
-            Err(WyrdError::DuplicateKnotId)
-        );
-
-        let _ = PortRefAuthor::new("a", "b");
+        Ok(String::from(name))
     }
+}
+
+/// Resolve a catalog port name to its compact slot.
+pub fn slot_of(kind: &KnotKind, name: &str) -> Result<PortSlot, BuildError> {
+    port_slot(kind, name).ok_or_else(|| BuildError::UnknownPort {
+        knot_id: String::from("<kind>"),
+        port: String::from(name),
+        expected: ports_of(kind)
+            .iter()
+            .map(|port| String::from(port.name))
+            .collect(),
+    })
 }

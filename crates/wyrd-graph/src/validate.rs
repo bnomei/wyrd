@@ -1,37 +1,32 @@
+//! Structural validation and soft/hard resource budgets for weaves.
+//!
+//! Definition validation (`validate_def`) enforces ids, ports, fan-in, required
+//! connections, numeric path match, and acyclicity. Post-validation budget
+//! checks (`validate` / `validate_report`) enforce hard limits and collect soft
+//! warnings for tooling. Runtime bind re-runs budget validation with bind opts.
+
 use core::fmt;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::prelude::v1::vec;
 use std::string::String;
-use std::vec;
 use std::vec::Vec;
 
-use wyrd_core::{port_slot, ports_of, KnotKind, NumericPath, PortDir, Result, WyrdError};
+use wyrd_core::{ports_of, KnotKind, NumericPath, PortDir};
 
-use crate::weave::Weave;
+use crate::{ValidationError, Weave, WeaveDef};
 
-/// Soft/hard budgets (D-math-shape / vision table defaults).
-///
-/// Hard fields fail [`validate`]. Soft fields are recorded for hosts/tools
-/// (see `validate_report` when present); they do not fail bind by default.
+/// Hard and soft resource limits applied after structural validation.
 #[derive(Clone, Debug)]
 pub struct Budget {
-    /// Hard max knots (default 256).
     pub max_knots: u16,
-    /// Hard max threads (default 512).
     pub max_threads: u16,
-    /// Soft knot ceiling (default 64) — warning via [`validate_report`].
     pub soft_knots: u16,
-    /// Soft thread ceiling (default 128).
     pub soft_threads: u16,
-    /// Hard longest path length in edges (default 16).
     pub max_chain_depth: u16,
-    /// Soft chain depth (default 8).
     pub soft_chain_depth: u16,
-    /// Hard max outbound threads from any single knot (default 8).
     pub max_fan_out: u16,
-    /// Soft fan-out (default 4).
     pub soft_fan_out: u16,
-    /// Hard max sum of Delay.ticks along any root→sink path (default 32).
     pub max_delay_path_sum: u16,
 }
 
@@ -51,8 +46,9 @@ impl Default for Budget {
     }
 }
 
-/// Soft budget exceeded (does not fail bind / [`validate`]).
+/// Soft-limit warning; graph remains valid for bind.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum BudgetWarning {
     SoftKnots {
         count: u16,
@@ -77,13 +73,13 @@ pub enum BudgetWarning {
 impl fmt::Display for BudgetWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BudgetWarning::SoftKnots { count, soft } => {
+            Self::SoftKnots { count, soft } => {
                 write!(f, "soft knot budget: {count} knots (soft {soft})")
             }
-            BudgetWarning::SoftThreads { count, soft } => {
+            Self::SoftThreads { count, soft } => {
                 write!(f, "soft thread budget: {count} threads (soft {soft})")
             }
-            BudgetWarning::SoftChainDepth {
+            Self::SoftChainDepth {
                 depth,
                 soft,
                 at_knot,
@@ -91,7 +87,7 @@ impl fmt::Display for BudgetWarning {
                 f,
                 "soft chain depth: {depth} edges at knot '{at_knot}' (soft {soft})"
             ),
-            BudgetWarning::SoftFanOut {
+            Self::SoftFanOut {
                 fan_out,
                 soft,
                 at_knot,
@@ -103,13 +99,13 @@ impl fmt::Display for BudgetWarning {
     }
 }
 
-/// Successful validation plus any soft-budget warnings for hosts/tools.
+/// Soft budget warnings from a successful hard-limit pass.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ValidateReport {
     pub warnings: Vec<BudgetWarning>,
 }
-
 impl ValidateReport {
+    /// True when no soft warnings were recorded.
     pub fn ok(&self) -> bool {
         self.warnings.is_empty()
     }
@@ -120,257 +116,318 @@ impl fmt::Display for ValidateReport {
         if self.warnings.is_empty() {
             return f.write_str("validate ok");
         }
-        // Join first so multi-warning Display has a single write (no `?` residual arms).
-        let mut joined = String::new();
-        for (i, w) in self.warnings.iter().enumerate() {
-            if i > 0 {
-                joined.push_str("; ");
+        for (i, warning) in self.warnings.iter().enumerate() {
+            if i != 0 {
+                f.write_str("; ")?;
             }
-            // String Write never fails.
-            let _ = fmt::Write::write_fmt(&mut joined, format_args!("{w}"));
+            warning.fmt(f)?;
         }
-        f.write_str(&joined)
+        Ok(())
     }
 }
 
-/// Validate author Weave: hard fails as `Err`; soft budgets → empty or populated report.
-pub fn validate(weave: &Weave, budget: &Budget) -> Result<()> {
+/// Hard budget check only; discards soft warnings.
+pub fn validate(weave: &Weave, budget: &Budget) -> Result<(), ValidationError> {
     validate_report(weave, budget).map(|_| ())
 }
 
-/// Like [`validate`], but returns soft warnings on success.
-pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport> {
-    if weave.knots.is_empty() {
-        return Err(WyrdError::Empty);
-    }
-    if weave.knots.len() > budget.max_knots as usize {
-        return Err(WyrdError::Budget);
-    }
-    if weave.threads.len() > budget.max_threads as usize {
-        return Err(WyrdError::Budget);
-    }
-    if weave.numeric != NumericPath::compiled() {
-        return Err(WyrdError::NumericMismatch);
-    }
+/// Hard budget check plus soft-limit warnings for tooling.
+pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport, ValidationError> {
+    let knots = weave.knots();
+    let threads = weave.threads();
+    budget_limit("knots", knots.len(), budget.max_knots as usize, None)?;
+    budget_limit("threads", threads.len(), budget.max_threads as usize, None)?;
 
-    let mut index: BTreeMap<&str, usize> = BTreeMap::new();
-    for (i, k) in weave.knots.iter().enumerate() {
-        if index.insert(k.id.as_str(), i).is_some() {
-            return Err(WyrdError::DuplicateKnotId);
-        }
-        // Port tables must exist (e.g. arity)
-        if ports_of(&k.kind).is_empty() {
-            return Err(WyrdError::UnknownPort);
-        }
-        match &k.kind {
-            // steps=0 or inverted in-range (i32 clamp panics on den < 0).
-            KnotKind::Digitize {
-                steps,
-                in_min,
-                in_max,
-                ..
-            } if *steps == 0 || in_min > in_max => {
-                return Err(WyrdError::InvalidParam);
-            }
-            KnotKind::Map { in_min, in_max, .. } if in_min > in_max => {
-                return Err(WyrdError::InvalidParam);
-            }
-            KnotKind::Threshold {
-                high,
-                low,
-                use_hysteresis,
-            } if *use_hysteresis && low > high => {
-                return Err(WyrdError::InvalidParam);
-            }
-            KnotKind::Clamp { min, max } if min > max => {
-                return Err(WyrdError::InvalidParam);
-            }
-            _ => {}
-        }
-    }
-
-    // fan-in: (knot_idx, port_slot) → count of inbound
-    let mut fan: BTreeMap<(usize, u8), u8> = BTreeMap::new();
-    // edges for cycle: from_knot_idx -> to_knot_idx
-    let mut edges: Vec<(usize, usize)> = Vec::new();
-
-    for t in &weave.threads {
-        let Some(&fi) = index.get(t.from.knot.as_str()) else {
-            return Err(WyrdError::UnknownKnot);
-        };
-        let Some(&ti) = index.get(t.to.knot.as_str()) else {
-            return Err(WyrdError::UnknownKnot);
-        };
-        let fk = &weave.knots[fi].kind;
-        let tk = &weave.knots[ti].kind;
-
-        let Some(fs) = port_slot(fk, t.from.port.as_str()) else {
-            return Err(WyrdError::UnknownPort);
-        };
-        let Some(ts) = port_slot(tk, t.to.port.as_str()) else {
-            return Err(WyrdError::UnknownPort);
-        };
-
-        // Dense 0..n slots: port_slot success ⇒ table index is slot.0.
-        let from_info = &ports_of(fk)[fs.0 as usize];
-        let to_info = &ports_of(tk)[ts.0 as usize];
-
-        if from_info.dir != PortDir::Out || to_info.dir != PortDir::In {
-            return Err(WyrdError::UnknownPort);
-        }
-
-        let key = (ti, ts.0);
-        let c = fan.entry(key).or_insert(0);
-        *c = c.saturating_add(1);
-        if *c > 1 {
-            return Err(WyrdError::FanIn);
-        }
-
-        edges.push((fi, ti));
-    }
-
-    // Fan-out hard + soft (edge endpoints are always valid knot indices).
-    let mut fout = vec![0u16; weave.knots.len()];
-    for &(a, _) in &edges {
-        fout[a] = fout[a].saturating_add(1);
-        if fout[a] > budget.max_fan_out {
-            return Err(WyrdError::Budget);
-        }
-    }
-
-    // Required inputs connected (Compare `rhs` optional when `rhs_const` is set).
-    for (ti, k) in weave.knots.iter().enumerate() {
-        for p in ports_of(&k.kind) {
-            if p.dir != PortDir::In {
-                continue;
-            }
-            let need = match &k.kind {
-                KnotKind::Compare { rhs_const, .. } if p.name == "rhs" => rhs_const.is_none(),
-                KnotKind::Random { require_gate: true } if p.name == "gate" => true,
-                _ => p.required,
-            };
-            if !need {
-                continue;
-            }
-            if !fan.contains_key(&(ti, p.slot.0)) {
-                // Sense outputs don't need inbound; required Ins do
-                // SignalIn/Constant/OnStart have no required ins
-                return Err(WyrdError::UnconnectedRequired);
-            }
-        }
-    }
-
-    // DAG: Kahn topo
-    let n = weave.knots.len();
-    let mut indeg = vec![0u32; n];
-    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for (a, b) in edges {
-        if a != b {
-            adj[a].push(b);
-            indeg[b] += 1;
-        } else {
-            return Err(WyrdError::Cycle);
-        }
-    }
-    let mut q: Vec<usize> = indeg
+    let index: BTreeMap<&str, usize> = knots
         .iter()
         .enumerate()
-        .filter_map(|(i, d)| if *d == 0 { Some(i) } else { None })
+        .map(|(i, knot)| (knot.id.as_str(), i))
         .collect();
-    let mut seen = 0usize;
-    while let Some(u) = q.pop() {
-        seen += 1;
-        for &v in &adj[u] {
-            indeg[v] -= 1;
-            if indeg[v] == 0 {
-                q.push(v);
-            }
-        }
-    }
-    if seen != n {
-        return Err(WyrdError::Cycle);
+    let mut adj = vec![Vec::new(); knots.len()];
+    let mut indeg = vec![0u16; knots.len()];
+    let mut fan_out = vec![0u16; knots.len()];
+    for thread in threads {
+        let from = index[thread.from.knot.as_str()];
+        let to = index[thread.to.knot.as_str()];
+        adj[from].push(to);
+        indeg[to] = indeg[to].saturating_add(1);
+        fan_out[from] = fan_out[from].saturating_add(1);
+        budget_limit(
+            "fan-out",
+            fan_out[from] as usize,
+            budget.max_fan_out as usize,
+            Some(&knots[from].id),
+        )?;
     }
 
-    // Longest path (edge count) + delay-tick path sum on the DAG.
-    // delay_contrib(v) = Delay.ticks if knot is Delay, else 0.
-    // path delay sum includes every Delay on the path (including endpoints).
-    let mut depth = vec![0u16; n];
-    let mut delay_sum = vec![0u32; n];
-    for (i, k) in weave.knots.iter().enumerate() {
-        delay_sum[i] = delay_ticks(&k.kind) as u32;
-    }
-    // Process in topo order (reuse Kahn with fresh indeg from adj).
-    let mut indeg2 = vec![0u32; n];
-    for outs in adj.iter().take(n) {
-        for &b in outs {
-            indeg2[b] += 1;
-        }
-    }
-    let mut q2: Vec<usize> = indeg2
+    let mut queue: Vec<usize> = indeg
         .iter()
         .enumerate()
-        .filter_map(|(i, d)| if *d == 0 { Some(i) } else { None })
+        .filter_map(|(i, d)| (*d == 0).then_some(i))
         .collect();
-    while let Some(u) = q2.pop() {
-        if depth[u] > budget.max_chain_depth {
-            return Err(WyrdError::Budget);
-        }
-        if delay_sum[u] > budget.max_delay_path_sum as u32 {
-            return Err(WyrdError::Budget);
-        }
-        for &v in &adj[u] {
-            let nd = depth[u].saturating_add(1);
-            if nd > depth[v] {
-                depth[v] = nd;
-            }
-            let ds = delay_sum[u].saturating_add(delay_ticks(&weave.knots[v].kind) as u32);
-            if ds > delay_sum[v] {
-                delay_sum[v] = ds;
-            }
-            indeg2[v] -= 1;
-            if indeg2[v] == 0 {
-                q2.push(v);
+    let mut depth = vec![0u16; knots.len()];
+    let mut delay_sum: Vec<u32> = knots
+        .iter()
+        .map(|k| u32::from(delay_ticks(&k.kind)))
+        .collect();
+    while let Some(node) = queue.pop() {
+        budget_limit(
+            "chain depth",
+            depth[node] as usize,
+            budget.max_chain_depth as usize,
+            Some(&knots[node].id),
+        )?;
+        budget_limit(
+            "delay path sum",
+            delay_sum[node] as usize,
+            budget.max_delay_path_sum as usize,
+            Some(&knots[node].id),
+        )?;
+        for &next in &adj[node] {
+            depth[next] = depth[next].max(depth[node].saturating_add(1));
+            delay_sum[next] = delay_sum[next]
+                .max(delay_sum[node].saturating_add(u32::from(delay_ticks(&knots[next].kind))));
+            indeg[next] -= 1;
+            if indeg[next] == 0 {
+                queue.push(next);
             }
         }
     }
-    // Depth/delay are checked when each node is dequeued (preds complete).
 
-    // Soft warnings (never fail).
     let mut warnings = Vec::new();
-    let knot_count = weave.knots.len() as u16;
-    if knot_count > budget.soft_knots {
+    if knots.len() > budget.soft_knots as usize {
         warnings.push(BudgetWarning::SoftKnots {
-            count: knot_count,
+            count: knots.len() as u16,
             soft: budget.soft_knots,
         });
     }
-    let thread_count = weave.threads.len() as u16;
-    if thread_count > budget.soft_threads {
+    if threads.len() > budget.soft_threads as usize {
         warnings.push(BudgetWarning::SoftThreads {
-            count: thread_count,
+            count: threads.len() as u16,
             soft: budget.soft_threads,
         });
     }
-    for (i, &fo) in fout.iter().enumerate() {
-        if fo > budget.soft_fan_out {
+    for (i, &count) in fan_out.iter().enumerate() {
+        if count > budget.soft_fan_out {
             warnings.push(BudgetWarning::SoftFanOut {
-                fan_out: fo,
+                fan_out: count,
                 soft: budget.soft_fan_out,
-                at_knot: String::from(weave.knots[i].id.as_str()),
+                at_knot: knots[i].id.clone(),
             });
         }
     }
-    for (i, &d) in depth.iter().enumerate() {
-        if d > budget.soft_chain_depth {
+    for (i, &count) in depth.iter().enumerate() {
+        if count > budget.soft_chain_depth {
             warnings.push(BudgetWarning::SoftChainDepth {
-                depth: d,
+                depth: count,
                 soft: budget.soft_chain_depth,
-                at_knot: String::from(weave.knots[i].id.as_str()),
+                at_knot: knots[i].id.clone(),
             });
         }
+    }
+    Ok(ValidateReport { warnings })
+}
+
+pub(crate) fn validate_def(def: &WeaveDef) -> Result<(), ValidationError> {
+    validate_def_with_external_inputs(def, &BTreeSet::new())
+}
+
+pub(crate) fn validate_def_with_external_inputs(
+    def: &WeaveDef,
+    external: &BTreeSet<(String, String)>,
+) -> Result<(), ValidationError> {
+    if def.id.is_empty() {
+        return Err(ValidationError::InvalidWeaveId {
+            weave_id: def.id.clone(),
+            reason: "must be non-empty",
+        });
+    }
+    if def.knots.is_empty() {
+        return Err(ValidationError::EmptyWeave {
+            weave_id: def.id.clone(),
+        });
+    }
+    if def.knots.len() > u16::MAX as usize {
+        return Err(ValidationError::RepresentationOverflow {
+            what: "knot",
+            actual: def.knots.len(),
+            limit: u16::MAX as usize,
+        });
+    }
+    if def.threads.len() > u16::MAX as usize {
+        return Err(ValidationError::RepresentationOverflow {
+            what: "thread",
+            actual: def.threads.len(),
+            limit: u16::MAX as usize,
+        });
+    }
+    if def.numeric != NumericPath::compiled() {
+        return Err(ValidationError::NumericMismatch {
+            expected: NumericPath::compiled(),
+            actual: def.numeric,
+        });
     }
 
-    Ok(ValidateReport { warnings })
+    let mut index = BTreeMap::new();
+    for (i, knot) in def.knots.iter().enumerate() {
+        if knot.id.is_empty() {
+            return Err(ValidationError::InvalidKnotId {
+                knot_id: knot.id.clone(),
+                reason: "must be non-empty",
+            });
+        }
+        if index.insert(knot.id.as_str(), i).is_some() {
+            return Err(ValidationError::DuplicateKnotId {
+                knot_id: knot.id.clone(),
+            });
+        }
+        validate_kind(knot)?;
+    }
+    let mut fan = BTreeSet::new();
+    let mut adj = vec![Vec::new(); def.knots.len()];
+    let mut indeg = vec![0u32; def.knots.len()];
+    for thread in &def.threads {
+        let &from =
+            index
+                .get(thread.from.knot.as_str())
+                .ok_or_else(|| ValidationError::UnknownKnot {
+                    knot_id: thread.from.knot.clone(),
+                })?;
+        let &to =
+            index
+                .get(thread.to.knot.as_str())
+                .ok_or_else(|| ValidationError::UnknownKnot {
+                    knot_id: thread.to.knot.clone(),
+                })?;
+        check_port(&def.knots[from], &thread.from.port, PortDir::Out)?;
+        check_port(&def.knots[to], &thread.to.port, PortDir::In)?;
+        if !fan.insert((to, thread.to.port.as_str())) {
+            return Err(ValidationError::FanIn {
+                knot_id: thread.to.knot.clone(),
+                port: thread.to.port.clone(),
+            });
+        }
+        adj[from].push(to);
+        indeg[to] += 1;
+    }
+    for (i, knot) in def.knots.iter().enumerate() {
+        for port in ports_of(&knot.kind) {
+            if port.dir != PortDir::In || !required(&knot.kind, port.name, port.required) {
+                continue;
+            }
+            let connected = fan.contains(&(i, port.name));
+            let exported = external.contains(&(knot.id.clone(), String::from(port.name)));
+            if !connected && !exported {
+                return Err(ValidationError::UnconnectedRequired {
+                    knot_id: knot.id.clone(),
+                    port: String::from(port.name),
+                });
+            }
+        }
+    }
+    let mut queue: Vec<usize> = indeg
+        .iter()
+        .enumerate()
+        .filter_map(|(i, d)| (*d == 0).then_some(i))
+        .collect();
+    let mut seen = 0usize;
+    while let Some(node) = queue.pop() {
+        seen += 1;
+        for &next in &adj[node] {
+            indeg[next] -= 1;
+            if indeg[next] == 0 {
+                queue.push(next);
+            }
+        }
+    }
+    if seen != def.knots.len() {
+        let at_knot = indeg
+            .iter()
+            .position(|d| *d != 0)
+            .map(|i| def.knots[i].id.clone());
+        return Err(ValidationError::Cycle { at_knot });
+    }
+    Ok(())
+}
+
+fn validate_kind(knot: &crate::KnotDef) -> Result<(), ValidationError> {
+    if ports_of(&knot.kind).is_empty() {
+        return Err(ValidationError::InvalidParameter {
+            knot_id: knot.id.clone(),
+            parameter: "arity",
+            reason: "unsupported port arity",
+        });
+    }
+    let invalid = match &knot.kind {
+        KnotKind::Digitize { steps: 0, .. } => Some(("steps", "must be greater than zero")),
+        KnotKind::Digitize { in_min, in_max, .. } | KnotKind::Map { in_min, in_max, .. }
+            if in_min > in_max =>
+        {
+            Some(("in_min", "must not exceed in_max"))
+        }
+        KnotKind::Threshold {
+            high,
+            low,
+            use_hysteresis: true,
+        } if low > high => Some(("low", "must not exceed high when hysteresis is enabled")),
+        KnotKind::Clamp { min, max } if min > max => Some(("min", "must not exceed max")),
+        _ => None,
+    };
+    if let Some((parameter, reason)) = invalid {
+        return Err(ValidationError::InvalidParameter {
+            knot_id: knot.id.clone(),
+            parameter,
+            reason,
+        });
+    }
+    Ok(())
+}
+
+fn check_port(knot: &crate::KnotDef, name: &str, expected: PortDir) -> Result<(), ValidationError> {
+    let ports = ports_of(&knot.kind);
+    let info =
+        ports
+            .iter()
+            .find(|p| p.name == name)
+            .ok_or_else(|| ValidationError::UnknownPort {
+                knot_id: knot.id.clone(),
+                port: String::from(name),
+                expected: ports.iter().map(|p| String::from(p.name)).collect(),
+            })?;
+    if info.dir != expected {
+        return Err(ValidationError::WrongPortDirection {
+            knot_id: knot.id.clone(),
+            port: String::from(name),
+            expected,
+            actual: info.dir,
+        });
+    }
+    Ok(())
+}
+
+fn required(kind: &KnotKind, port: &str, catalog: bool) -> bool {
+    match kind {
+        KnotKind::Compare { rhs_const, .. } if port == "rhs" => rhs_const.is_none(),
+        KnotKind::Random { require_gate: true } if port == "gate" => true,
+        _ => catalog,
+    }
+}
+
+fn budget_limit(
+    metric: &'static str,
+    actual: usize,
+    limit: usize,
+    knot: Option<&str>,
+) -> Result<(), ValidationError> {
+    if actual > limit {
+        return Err(ValidationError::BudgetExceeded {
+            metric,
+            actual: actual as u32,
+            limit: limit as u32,
+            at_knot: knot.map(String::from),
+        });
+    }
+    Ok(())
 }
 
 fn delay_ticks(kind: &KnotKind) -> u16 {

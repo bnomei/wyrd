@@ -16,19 +16,22 @@ fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
 
 #[test]
 fn xor_truth_table() {
-    let (b, _) = Weave::builder("x")
-        .knot("a", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("b", KnotKind::signal_in()).unwrap();
-    let (b, _) = b.knot("x", KnotKind::xor()).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("a", "out", "x", "a")
-        .wire_named("b", "out", "x", "b")
-        .wire_named("x", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut b = Weave::builder("x").unwrap();
+    let k_a = b.knot("a", KnotKind::signal_in()).unwrap();
+    let k_b = b.knot("b", KnotKind::signal_in()).unwrap();
+    let k_x = b.knot("x", KnotKind::xor()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_a, "out").unwrap();
+    let to = b.input(&k_x, "a").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_b, "out").unwrap();
+    let to = b.input(&k_x, "b").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_x, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let a = rt.sense_id("a").unwrap();
     let b_id = rt.sense_id("b").unwrap();
 
@@ -41,10 +44,10 @@ fn xor_truth_table() {
         rt.begin_frame(HostTime { tick: 0 });
         {
             let mut w = rt.port_writer();
-            w.set_sense(a, av);
-            w.set_sense(b_id, bv);
+            w.set_sense(a, av).unwrap();
+            w.set_sense(b_id, bv).unwrap();
         }
-        rt.loom(&weave).unwrap();
+        rt.loom();
         assert_eq!(is_truthy(out_v(&rt, "y")), expect);
     }
 }

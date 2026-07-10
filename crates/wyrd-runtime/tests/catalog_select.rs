@@ -16,52 +16,62 @@ fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
 
 #[test]
 fn select_a_when_sel_false() {
-    let (b, _) = Weave::builder("s")
-        .knot("sel", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("ca", KnotKind::constant(from_count(3))).unwrap();
-    let (b, _) = b.knot("cb", KnotKind::constant(from_count(7))).unwrap();
-    let (b, _) = b.knot("mux", KnotKind::select()).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("sel", "out", "mux", "sel")
-        .wire_named("ca", "out", "mux", "a")
-        .wire_named("cb", "out", "mux", "b")
-        .wire_named("mux", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut b = Weave::builder("s").unwrap();
+    let k_sel = b.knot("sel", KnotKind::signal_in()).unwrap();
+    let k_ca = b.knot("ca", KnotKind::constant(from_count(3))).unwrap();
+    let k_cb = b.knot("cb", KnotKind::constant(from_count(7))).unwrap();
+    let k_mux = b.knot("mux", KnotKind::select()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_sel, "out").unwrap();
+    let to = b.input(&k_mux, "sel").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_ca, "out").unwrap();
+    let to = b.input(&k_mux, "a").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_cb, "out").unwrap();
+    let to = b.input(&k_mux, "b").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_mux, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let sel = rt.sense_id("sel").unwrap();
 
     rt.begin_frame(HostTime { tick: 0 });
-    rt.port_writer().set_sense(sel, ZERO);
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(sel, ZERO).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "y"), from_count(3));
 
     rt.begin_frame(HostTime { tick: 1 });
-    rt.port_writer().set_sense(sel, ONE);
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(sel, ONE).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "y"), from_count(7));
 
     // Non-ONE truthy still selects b; b can be ZERO (forward, don't force ONE).
-    let (b, _) = Weave::builder("s2")
-        .knot("sel", KnotKind::signal_in())
-        .unwrap();
-    let (b, _) = b.knot("ca", KnotKind::constant(from_count(3))).unwrap();
-    let (b, _) = b.knot("cb", KnotKind::constant(ZERO)).unwrap();
-    let (b, _) = b.knot("mux", KnotKind::select()).unwrap();
-    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let weave = b
-        .wire_named("sel", "out", "mux", "sel")
-        .wire_named("ca", "out", "mux", "a")
-        .wire_named("cb", "out", "mux", "b")
-        .wire_named("mux", "out", "out", "in")
-        .build()
-        .unwrap();
-    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut b = Weave::builder("s2").unwrap();
+    let k_sel = b.knot("sel", KnotKind::signal_in()).unwrap();
+    let k_ca = b.knot("ca", KnotKind::constant(from_count(3))).unwrap();
+    let k_cb = b.knot("cb", KnotKind::constant(ZERO)).unwrap();
+    let k_mux = b.knot("mux", KnotKind::select()).unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let from = b.output(&k_sel, "out").unwrap();
+    let to = b.input(&k_mux, "sel").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_ca, "out").unwrap();
+    let to = b.input(&k_mux, "a").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_cb, "out").unwrap();
+    let to = b.input(&k_mux, "b").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_mux, "out").unwrap();
+    let to = b.input(&k_out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let sel = rt.sense_id("sel").unwrap();
     rt.begin_frame(HostTime { tick: 0 });
-    rt.port_writer().set_sense(sel, from_count(2));
-    rt.loom(&weave).unwrap();
+    rt.port_writer().set_sense(sel, from_count(2)).unwrap();
+    rt.loom();
     assert_eq!(out_v(&rt, "y"), ZERO);
 }

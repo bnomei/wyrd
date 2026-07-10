@@ -1,44 +1,72 @@
-//! Thin Bevy bridge for Wyrd — no graph topology on Entities.
+//! Thin Bevy 0.18 bridge for Wyrd — no graph topology on Entities.
 //!
 //! Host tick order: [`WyrdSet::Sample`] → [`WyrdSet::Loom`] → [`WyrdSet::Apply`].
-//! Bevy **Messages** are confirmations of host effects only — never Weave Threads.
+//! The plugin only drives loom; games own sample/apply systems. Bevy
+//! **Messages** (`WyrdSignalConfirm`) are post-apply VFX/UI confirmations —
+//! never Weave Threads. f32 signal path only.
 
 use bevy::prelude::*;
-use wyrd_core::{HostPathId, HostTime, KnotId, ONE, ZERO};
+use wyrd_core::{HostPathId, HostTime, SenseId, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::Runtime;
+use wyrd_runtime::{BindError, HandleError, Outbox, Runtime};
 
 /// Ordered host integration sets. Sample → Loom → Apply.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WyrdSet {
+    /// Host writes dense senses from world state.
     Sample,
+    /// Plugin-driven settle (`loom_all`).
     Loom,
+    /// Host applies outbox to components / world effects.
     Apply,
 }
 
 /// One bound Weave + Runtime. Host owns sampling and applying outbox.
 pub struct WyrdInstance {
-    pub label: String,
-    pub weave: Weave,
-    pub runtime: Runtime,
-    pub tick: u64,
+    label: String,
+    runtime: Runtime,
+    tick: u64,
 }
 
 impl WyrdInstance {
-    pub fn new(label: impl Into<String>, weave: Weave) -> Result<Self, wyrd_core::WyrdError> {
-        let runtime = Runtime::bind(&weave, Default::default())?;
+    /// Bind `weave` with default opts under a host-visible label.
+    pub fn new(label: impl Into<String>, weave: Weave) -> Result<Self, BindError> {
+        let runtime = Runtime::bind(weave, Default::default())?;
         Ok(Self {
             label: label.into(),
-            weave,
             runtime,
             tick: 0,
         })
     }
 
-    pub fn sense_id(&self, name: &str) -> Option<KnotId> {
+    /// Host-visible instance label (not a weave id).
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// Monotonic frame counter advanced by [`loom_all`].
+    pub fn tick(&self) -> u64 {
+        self.tick
+    }
+
+    pub fn runtime(&self) -> &Runtime {
+        &self.runtime
+    }
+
+    pub fn runtime_mut(&mut self) -> &mut Runtime {
+        &mut self.runtime
+    }
+
+    pub fn outbox(&self) -> Outbox<'_> {
+        self.runtime.outbox()
+    }
+
+    /// Resolve a `SignalIn` name once at setup (not each sample).
+    pub fn sense_id(&self, name: &str) -> Option<SenseId> {
         self.runtime.sense_id(name)
     }
 
+    /// Resolve a `SignalOut` path once at setup (not each apply).
     pub fn path_id(&self, path: &str) -> Option<HostPathId> {
         self.runtime.path_id(path)
     }
@@ -54,8 +82,8 @@ pub struct WyrdWorld {
 /// Resolve your own `KnotId` / `HostPathId` fields at setup for production games.
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct AndDoorBinding {
-    pub plate_a: KnotId,
-    pub plate_b: KnotId,
+    pub plate_a: SenseId,
+    pub plate_b: SenseId,
     pub door_path: HostPathId,
     pub instance: usize,
 }
@@ -75,6 +103,7 @@ pub struct WyrdSignalConfirm {
     pub truthy: bool,
 }
 
+/// Registers [`WyrdWorld`], confirmation messages, ordered sets, and `loom_all`.
 pub struct WyrdPlugin;
 
 impl Plugin for WyrdPlugin {
@@ -97,15 +126,15 @@ pub fn loom_all(mut world: ResMut<WyrdWorld>) {
     for inst in world.instances.iter_mut() {
         inst.tick = inst.tick.wrapping_add(1);
         inst.runtime.begin_frame(HostTime { tick: inst.tick });
-        let _ = inst.runtime.loom(&inst.weave);
+        inst.runtime.loom();
     }
 }
 
 /// Write ONE/ZERO into a sense port (dense KnotId).
 #[inline]
-pub fn set_sense_bool(inst: &mut WyrdInstance, id: KnotId, on: bool) {
+pub fn set_sense_bool(inst: &mut WyrdInstance, id: SenseId, on: bool) -> Result<(), HandleError> {
     let v = if on { ONE } else { ZERO };
-    inst.runtime.port_writer().set_sense(id, v);
+    inst.runtime.port_writer().set_sense(id, v)
 }
 
 /// Read truthy SignalOut by HostPathId.
@@ -133,13 +162,21 @@ mod tests {
     use wyrd_core::KnotKind;
 
     fn and_door_weave() -> Weave {
-        let (b, pa) = Weave::builder("door")
-            .knot("plate_a", KnotKind::signal_in())
-            .unwrap();
-        let (b, pb) = b.knot("plate_b", KnotKind::signal_in()).unwrap();
-        let (b, _) = b.and2("both", pa, pb).unwrap();
-        let (b, _) = b.knot("door", KnotKind::signal_out("door.open")).unwrap();
-        b.wire_named("both", "out", "door", "in").build().unwrap()
+        let mut b = Weave::builder("door").unwrap();
+        let pa = b.knot("plate_a", KnotKind::signal_in()).unwrap();
+        let pb = b.knot("plate_b", KnotKind::signal_in()).unwrap();
+        let both = b.knot("both", KnotKind::and2()).unwrap();
+        let door = b.knot("door", KnotKind::signal_out("door.open")).unwrap();
+        let from = b.output(&pa, "out").unwrap();
+        let to = b.input(&both, "in_0").unwrap();
+        b.connect(from, to).unwrap();
+        let from = b.output(&pb, "out").unwrap();
+        let to = b.input(&both, "in_1").unwrap();
+        b.connect(from, to).unwrap();
+        let from = b.output(&both, "out").unwrap();
+        let to = b.input(&door, "in").unwrap();
+        b.connect(from, to).unwrap();
+        b.build().unwrap()
     }
 
     #[derive(Resource, Default)]
@@ -162,8 +199,8 @@ mod tests {
         let Some(inst) = world.instances.get_mut(binding.instance) else {
             return;
         };
-        set_sense_bool(inst, binding.plate_a, plates.a);
-        set_sense_bool(inst, binding.plate_b, plates.b);
+        set_sense_bool(inst, binding.plate_a, plates.a).expect("bound plate_a handle");
+        set_sense_bool(inst, binding.plate_b, plates.b).expect("bound plate_b handle");
     }
 
     fn apply_door(binding: Res<AndDoorBinding>, world: Res<WyrdWorld>, mut door: ResMut<DoorOpen>) {
@@ -209,8 +246,10 @@ mod tests {
             door_path: inst.path_id("door.open").unwrap(),
             instance: 0,
         };
-        // Missing path → not truthy.
-        assert!(!signal_truthy(&inst, HostPathId(99)));
+        assert!(!signal_truthy(
+            &inst,
+            HostPathId::try_from(99usize).unwrap()
+        ));
 
         app.world_mut()
             .resource_mut::<WyrdWorld>()
@@ -220,7 +259,6 @@ mod tests {
         app.add_systems(Update, sample_plates.in_set(WyrdSet::Sample));
         app.add_systems(Update, apply_door.in_set(WyrdSet::Apply));
 
-        // No PlateState yet — sample is a no-op; apply still runs.
         app.update();
         assert!(!app.world().resource::<DoorOpen>().0);
 
@@ -234,7 +272,6 @@ mod tests {
         app.update();
         assert!(app.world().resource::<DoorOpen>().0);
 
-        // Bad instance index on binding → sample/apply early-return arms.
         app.insert_resource(AndDoorBinding {
             plate_a: binding.plate_a,
             plate_b: binding.plate_b,
@@ -299,13 +336,11 @@ mod tests {
     }
 
     #[test]
-    fn bind_failure_on_empty_weave() {
-        let empty = Weave {
-            id: "e".into(),
-            knots: vec![],
-            threads: vec![],
-            numeric: wyrd_core::NumericPath::compiled(),
-        };
-        assert!(WyrdInstance::new("bad", empty).is_err());
+    fn instance_state_is_exposed_through_accessors() {
+        let inst = WyrdInstance::new("demo", and_door_weave()).unwrap();
+        assert_eq!(inst.label(), "demo");
+        assert_eq!(inst.tick(), 0);
+        assert!(inst.runtime().sense_id("plate_a").is_some());
+        assert!(inst.outbox().signals().is_empty());
     }
 }

@@ -1,14 +1,20 @@
-//! Closed port tables per KnotKind (D-port-schema).
+//! Closed static port tables per [`KnotKind`] (D-port-schema).
+//!
+//! Author strings (`"in"`, `"out"`, …) resolve to dense [`PortSlot`] values
+//! used by validate, builder endpoint checks, and bind. Unsupported And/Or
+//! arities return an empty table so validate can reject them.
 
 use crate::ids::PortSlot;
 use crate::kind::{KnotKind, TimerMode};
 
+/// Direction of a catalog port relative to its knot.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PortDir {
     In,
     Out,
 }
 
+/// One entry in a kind's fixed port table.
 #[derive(Copy, Clone, Debug)]
 pub struct PortInfo {
     pub slot: PortSlot,
@@ -19,7 +25,7 @@ pub struct PortInfo {
 
 const fn pin(slot: u8, name: &'static str, required: bool) -> PortInfo {
     PortInfo {
-        slot: PortSlot(slot),
+        slot: PortSlot::new(slot),
         dir: PortDir::In,
         name,
         required,
@@ -28,7 +34,7 @@ const fn pin(slot: u8, name: &'static str, required: bool) -> PortInfo {
 
 const fn pout(slot: u8, name: &'static str) -> PortInfo {
     PortInfo {
-        slot: PortSlot(slot),
+        slot: PortSlot::new(slot),
         dir: PortDir::Out,
         name,
         required: false,
@@ -39,7 +45,7 @@ const OUT_ONLY: &[PortInfo] = &[pout(0, "out")];
 const IN_OUT: &[PortInfo] = &[pin(0, "in", true), pout(1, "out")];
 const COMPARE: &[PortInfo] = &[
     pin(0, "lhs", true),
-    // Catalog-required; validate relaxes when `rhs_const` is Some.
+    // Catalog marks required; validate relaxes when `rhs_const` is set.
     pin(1, "rhs", true),
     pout(2, "out"),
 ];
@@ -84,7 +90,6 @@ const EMIT: &[PortInfo] = &[
     pin(2, "payload", false),
 ];
 
-// Precomputed And/Or arities 1..=4
 const AND1: &[PortInfo] = &[pin(0, "in_0", true), pout(1, "out")];
 const AND2: &[PortInfo] = &[pin(0, "in_0", true), pin(1, "in_1", true), pout(2, "out")];
 const AND3: &[PortInfo] = &[
@@ -101,7 +106,7 @@ const AND4: &[PortInfo] = &[
     pout(4, "out"),
 ];
 
-/// Static port table for a kind. Empty for unsupported arity.
+/// Static port table for a kind. Empty for unsupported And/Or arity.
 pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
     match kind {
         KnotKind::Constant { .. } => OUT_ONLY,
@@ -128,7 +133,7 @@ pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
         KnotKind::Threshold { .. } => THRESHOLD,
         KnotKind::Random { .. } => RANDOM,
         KnotKind::Sqrt => MAP_LIKE,
-        KnotKind::Xor => CALC, // a, b, out
+        KnotKind::Xor => CALC,
         KnotKind::FallingToZero => IN_OUT,
         KnotKind::Change => IN_OUT,
         KnotKind::Clamp { .. } => MAP_LIKE,
@@ -143,11 +148,11 @@ fn and_or_ports(arity: u8) -> &'static [PortInfo] {
         2 => AND2,
         3 => AND3,
         4 => AND4,
-        _ => &[], // validate will reject unsupported arity for now
+        _ => &[],
     }
 }
 
-/// Resolve catalog port name → slot.
+/// Resolve a catalog port name to its dense slot for the given kind.
 pub fn port_slot(kind: &KnotKind, name: &str) -> Option<PortSlot> {
     ports_of(kind)
         .iter()
@@ -163,16 +168,16 @@ mod tests {
     #[test]
     fn and2_ports() {
         let k = KnotKind::and2();
-        assert_eq!(port_slot(&k, "in_0"), Some(PortSlot(0)));
-        assert_eq!(port_slot(&k, "in_1"), Some(PortSlot(1)));
-        assert_eq!(port_slot(&k, "out"), Some(PortSlot(2)));
+        assert_eq!(port_slot(&k, "in_0"), Some(PortSlot::new(0)));
+        assert_eq!(port_slot(&k, "in_1"), Some(PortSlot::new(1)));
+        assert_eq!(port_slot(&k, "out"), Some(PortSlot::new(2)));
         assert_eq!(port_slot(&k, "a"), None);
     }
 
     #[test]
     fn emit_trigger_not_in() {
         let k = KnotKind::emit_command("x");
-        assert_eq!(port_slot(&k, "trigger"), Some(PortSlot(0)));
+        assert_eq!(port_slot(&k, "trigger"), Some(PortSlot::new(0)));
         assert_eq!(port_slot(&k, "in"), None);
     }
 
@@ -203,11 +208,14 @@ mod tests {
         );
         assert_eq!(ports_of(&KnotKind::Abs)[1].name, "out");
         assert_eq!(ports_of(&KnotKind::Neg)[0].name, "in");
-        assert_eq!(port_slot(&KnotKind::select(), "sel"), Some(PortSlot(0)));
-        assert_eq!(port_slot(&KnotKind::select(), "b"), Some(PortSlot(2)));
+        assert_eq!(
+            port_slot(&KnotKind::select(), "sel"),
+            Some(PortSlot::new(0))
+        );
+        assert_eq!(port_slot(&KnotKind::select(), "b"), Some(PortSlot::new(2)));
         assert_eq!(
             port_slot(&KnotKind::random(false), "gate"),
-            Some(PortSlot(2))
+            Some(PortSlot::new(2))
         );
         assert_eq!(
             ports_of(&KnotKind::threshold_default())[2].name,
@@ -227,11 +235,10 @@ mod tests {
         assert_eq!(ports_of(&KnotKind::OnStart)[0].name, "out");
         assert_eq!(ports_of(&KnotKind::not())[0].name, "in");
         assert_eq!(ports_of(&KnotKind::rising_from_zero())[0].name, "in");
-        // Touch PortDir / PortInfo fields + runtime const-fn paths (coverage).
         let p = &ports_of(&KnotKind::not())[0];
         assert_eq!(p.dir, PortDir::In);
         assert!(p.required);
-        assert_eq!(p.slot, PortSlot(0));
+        assert_eq!(p.slot, PortSlot::new(0));
         let _in = pin(0, "x", true);
         let _out = pout(1, "y");
         assert_eq!(_out.dir, PortDir::Out);

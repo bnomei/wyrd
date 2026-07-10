@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.2.0
+
+### Breaking API redesign
+
+- Split serde-facing `WeaveDef` / `PatternDef` from immutable, validated `Weave` / `Pattern` values.
+- Replaced the consuming builder with owner-aware knot handles and direction-typed ports.
+- Made `Runtime` consume its `Weave`; `loom()` is now graph-free and infallible after bind.
+- Replaced the monolithic `WyrdError` and silent handle failures with contextual graph, codec,
+  bind, and handle errors.
+- Privatized dense ID fields and added the host-writable `SenseId` type.
+- Added the declarative `weave!` graph and pattern authoring macro.
+
+The 0.1 Rust API and serialized graph schema are not compatibility targets. See
+[`MIGRATION-0.2.md`](MIGRATION-0.2.md).
+
 ### Pedagogy
 
 - **Tutorial ladder** (`wyrd_runtime::cookbook`): Tier A (5) → B (5) → C (10) runnable recipes;

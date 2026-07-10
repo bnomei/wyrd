@@ -6,16 +6,17 @@
 
 use std::vec::Vec;
 
-use wyrd_core::{CmdId, HostPathId, HostTime, KnotId, Result, Signal};
-use wyrd_graph::Weave;
+use wyrd_core::{CmdId, HostPathId, HostTime, SenseId, Signal};
 
 use crate::bind::Runtime;
+use crate::error::HandleError;
 use crate::outbox::{Outbox, PortWriter};
 
 /// Dense command emitted for host apply (from SignalOut / EmitCommand).
 ///
 /// `SetLevel` is host pedagogy language for any SignalOut sample (full Signal).
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum HostCommand {
     SetLevel { path: HostPathId, value: Signal },
     Emit { cmd: CmdId, payload: Signal },
@@ -56,21 +57,18 @@ pub fn outbox_to_commands(outbox: Outbox<'_>) -> Vec<HostCommand> {
 pub trait Host {
     fn time(&self) -> HostTime;
     /// Write sense ports for this tick (dense `set_sense` only).
-    fn sample_into(&mut self, ports: &mut PortWriter<'_>);
+    fn sample_into(&mut self, ports: &mut PortWriter<'_>) -> Result<(), HandleError>;
     fn apply(&mut self, outbox: Outbox<'_>);
 }
 
 /// One host tick: begin_frame → sample → loom → apply.
-pub fn tick_once(host: &mut impl Host, rt: &mut Runtime, weave: &Weave) -> Result<()> {
+pub fn tick_once(host: &mut impl Host, rt: &mut Runtime) -> Result<(), HandleError> {
     rt.begin_frame(host.time());
     {
         let mut w = rt.port_writer();
-        host.sample_into(&mut w);
+        host.sample_into(&mut w)?;
     }
-    // Loom is infallible today (always `Ok(())`); discard Result so line coverage
-    // is not blocked by an unhittable `?` error residual. If loom gains failures,
-    // restore propagation here and add a failing-loom host test.
-    let _ = rt.loom(weave);
+    rt.loom();
     host.apply(rt.outbox());
     Ok(())
 }
@@ -85,7 +83,9 @@ impl Host for NullHost {
     fn time(&self) -> HostTime {
         HostTime { tick: self.tick }
     }
-    fn sample_into(&mut self, _ports: &mut PortWriter<'_>) {}
+    fn sample_into(&mut self, _ports: &mut PortWriter<'_>) -> Result<(), HandleError> {
+        Ok(())
+    }
     fn apply(&mut self, _outbox: Outbox<'_>) {
         self.tick = self.tick.wrapping_add(1);
     }
@@ -105,7 +105,7 @@ impl Host for NullHost {
 pub struct ScriptedHost {
     pub tick: u64,
     /// Write list for sample when `tick == i` (before `apply` increments tick).
-    pub frames: Vec<Vec<(KnotId, Signal)>>,
+    pub frames: Vec<Vec<(SenseId, Signal)>>,
     /// Flattened HostCommand history (append-only across ticks).
     pub commands: Vec<HostCommand>,
     /// Per-tick command counts (for slicing `commands`).
@@ -118,7 +118,7 @@ impl ScriptedHost {
     }
 
     /// Push one frame of dense sense writes (order preserved).
-    pub fn push_frame(&mut self, senses: impl IntoIterator<Item = (KnotId, Signal)>) {
+    pub fn push_frame(&mut self, senses: impl IntoIterator<Item = (SenseId, Signal)>) {
         self.frames.push(senses.into_iter().collect());
     }
 
@@ -137,14 +137,15 @@ impl Host for ScriptedHost {
         HostTime { tick: self.tick }
     }
 
-    fn sample_into(&mut self, ports: &mut PortWriter<'_>) {
+    fn sample_into(&mut self, ports: &mut PortWriter<'_>) -> Result<(), HandleError> {
         let i = self.tick as usize;
         let Some(frame) = self.frames.get(i) else {
-            return;
+            return Ok(());
         };
         for &(id, v) in frame {
-            ports.set_sense(id, v);
+            ports.set_sense(id, v)?;
         }
+        Ok(())
     }
 
     fn apply(&mut self, outbox: Outbox<'_>) {

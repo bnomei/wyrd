@@ -1,410 +1,259 @@
-//! Pattern expand-at-load (D-pattern). Runtime never sees Pattern.
-//! Nested Pattern stamps: pre-flatten when authoring; expand is one level only (v0).
+//! Reusable graph fragments: validated patterns expand into parent weaves.
+//!
+//! A [`Pattern`] is an immutable inner weave plus named input/output exports.
+//! Include renames knots under `instance_id/` so multiple instances do not
+//! collide. Exported inputs may leave required ports unconnected in the inner
+//! graph; the parent must wire them after expand.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::string::String;
 use std::vec::Vec;
 
-use wyrd_core::{port_slot, ports_of, PortDir, Result, WyrdError};
+use wyrd_core::{ports_of, PortDir};
 
-use crate::weave::{KnotDef, PortRefAuthor, ThreadDef, Weave};
+use crate::{KnotDef, PortRefDef, ThreadDef, ValidationError, WeaveDef};
 
-/// Reusable Weave fragment with named exports (inner knot/port endpoints).
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+/// Named export of an inner knot port for parent-weave wiring.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PatternExportDef {
+    pub name: String,
+    pub port: PortRefDef,
+}
+
+impl PatternExportDef {
+    pub fn new(name: impl Into<String>, knot: impl Into<String>, port: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            port: PortRefDef::new(knot, port),
+        }
+    }
+}
+
+/// Editable pattern definition; convert with [`Pattern::try_from`].
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct PatternDef {
+    pub id: String,
+    pub inner: WeaveDef,
+    pub inputs: Vec<PatternExportDef>,
+    pub outputs: Vec<PatternExportDef>,
+}
+
+/// Immutable, validated reusable graph fragment.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pattern {
-    pub id: String,
-    pub inner: Weave,
-    /// (export_name, inner_knot_id, inner_port_name)
-    pub exports_in: Vec<(String, String, String)>,
-    /// (export_name, inner_knot_id, inner_port_name)
-    pub exports_out: Vec<(String, String, String)>,
+    id: String,
+    inner: WeaveDef,
+    inputs: Vec<PatternExportDef>,
+    outputs: Vec<PatternExportDef>,
 }
 
-/// Resolved export endpoints after stamp (prefixed knot ids).
-#[derive(Clone, Debug, Default)]
-pub struct PatternExports {
-    instance_id: String,
-    ins: BTreeMap<String, PortRefAuthor>,
-    outs: BTreeMap<String, PortRefAuthor>,
+impl Pattern {
+    /// Pattern catalog id (no `/` in the id).
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Inner weave definition (knot ids must not contain `/` either).
+    pub fn inner(&self) -> &WeaveDef {
+        &self.inner
+    }
+
+    /// Input exports the parent must wire after include.
+    pub fn inputs(&self) -> &[PatternExportDef] {
+        &self.inputs
+    }
+
+    /// Output exports available as parent sources.
+    pub fn outputs(&self) -> &[PatternExportDef] {
+        &self.outputs
+    }
+
+    /// Clone into the serializable definition form.
+    pub fn to_def(&self) -> PatternDef {
+        PatternDef {
+            id: self.id.clone(),
+            inner: self.inner.clone(),
+            inputs: self.inputs.clone(),
+            outputs: self.outputs.clone(),
+        }
+    }
 }
 
-impl PatternExports {
-    pub fn instance_id(&self) -> &str {
-        &self.instance_id
-    }
+impl TryFrom<PatternDef> for Pattern {
+    type Error = ValidationError;
 
-    /// Inner (prefixed) knot + port for an input export.
-    pub fn port_in(&self, export: &str) -> Result<&PortRefAuthor> {
-        self.ins.get(export).ok_or(WyrdError::UnknownPort)
-    }
-
-    /// Inner (prefixed) knot + port for an output export.
-    pub fn port_out(&self, export: &str) -> Result<&PortRefAuthor> {
-        self.outs.get(export).ok_or(WyrdError::UnknownPort)
+    fn try_from(def: PatternDef) -> Result<Self, Self::Error> {
+        if def.id.is_empty() || def.id.contains('/') {
+            return Err(ValidationError::InvalidPatternId {
+                pattern_id: def.id,
+                reason: "must be non-empty and contain no slash",
+            });
+        }
+        if let Some(knot) = def.inner.knots.iter().find(|knot| knot.id.contains('/')) {
+            return Err(ValidationError::InvalidKnotId {
+                knot_id: knot.id.clone(),
+                reason: "pattern inner knot ids must contain no slash",
+            });
+        }
+        let index: BTreeMap<&str, &KnotDef> =
+            def.inner.knots.iter().map(|k| (k.id.as_str(), k)).collect();
+        let mut names = BTreeSet::new();
+        let mut external = BTreeSet::new();
+        for export in &def.inputs {
+            if !names.insert(export.name.as_str()) {
+                return Err(ValidationError::DuplicateExport {
+                    export: export.name.clone(),
+                });
+            }
+            check_export(&index, export, PortDir::In)?;
+            external.insert((export.port.knot.clone(), export.port.port.clone()));
+        }
+        names.clear();
+        for export in &def.outputs {
+            if !names.insert(export.name.as_str()) {
+                return Err(ValidationError::DuplicateExport {
+                    export: export.name.clone(),
+                });
+            }
+            check_export(&index, export, PortDir::Out)?;
+        }
+        crate::validate::validate_def_with_external_inputs(&def.inner, &external)?;
+        Ok(Self {
+            id: def.id,
+            inner: def.inner,
+            inputs: def.inputs,
+            outputs: def.outputs,
+        })
     }
 }
 
-/// Expand `pattern` under `instance_id/` prefix into flat knots + threads.
-/// Does not validate required ports (parent must wire exports_in then `validate`).
-pub fn expand_pattern(
+impl From<Pattern> for PatternDef {
+    fn from(pattern: Pattern) -> Self {
+        Self {
+            id: pattern.id,
+            inner: pattern.inner,
+            inputs: pattern.inputs,
+            outputs: pattern.outputs,
+        }
+    }
+}
+
+fn check_export(
+    index: &BTreeMap<&str, &KnotDef>,
+    export: &PatternExportDef,
+    expected: PortDir,
+) -> Result<(), ValidationError> {
+    let knot =
+        index
+            .get(export.port.knot.as_str())
+            .ok_or_else(|| ValidationError::UnknownKnot {
+                knot_id: export.port.knot.clone(),
+            })?;
+    let ports = ports_of(&knot.kind);
+    let info = ports
+        .iter()
+        .find(|p| p.name == export.port.port)
+        .ok_or_else(|| ValidationError::UnknownPort {
+            knot_id: knot.id.clone(),
+            port: export.port.port.clone(),
+            expected: ports.iter().map(|p| String::from(p.name)).collect(),
+        })?;
+    if info.dir != expected {
+        return Err(ValidationError::WrongPortDirection {
+            knot_id: knot.id.clone(),
+            port: export.port.port.clone(),
+            expected,
+            actual: info.dir,
+        });
+    }
+    Ok(())
+}
+
+pub(crate) struct ExpandedPattern {
+    pub knots: Vec<KnotDef>,
+    pub threads: Vec<ThreadDef>,
+    pub inputs: BTreeMap<String, PortRefDef>,
+    pub outputs: BTreeMap<String, PortRefDef>,
+}
+
+pub(crate) fn expand(
     instance_id: &str,
     pattern: &Pattern,
-) -> Result<(Vec<KnotDef>, Vec<ThreadDef>, PatternExports)> {
+) -> Result<ExpandedPattern, crate::BuildError> {
     if instance_id.is_empty() || instance_id.contains('/') {
-        return Err(WyrdError::InvalidPatternId);
-    }
-    if pattern.inner.knots.is_empty() {
-        return Err(WyrdError::Empty);
-    }
-
-    let prefix = {
-        let mut s = String::from(instance_id);
-        s.push('/');
-        s
-    };
-
-    let mut knots = Vec::with_capacity(pattern.inner.knots.len());
-    let mut inner_ids: BTreeMap<&str, &KnotDef> = BTreeMap::new();
-    for k in &pattern.inner.knots {
-        if k.id.contains('/') {
-            return Err(WyrdError::InvalidPatternId);
-        }
-        if inner_ids.insert(k.id.as_str(), k).is_some() {
-            return Err(WyrdError::DuplicateKnotId);
-        }
-        let mut id = prefix.clone();
-        id.push_str(&k.id);
-        knots.push(KnotDef {
-            id,
-            kind: k.kind.clone(),
+        return Err(crate::BuildError::InvalidId {
+            id: String::from(instance_id),
+            reason: "pattern instance ids must be non-empty and contain no slash",
         });
     }
-
-    let mut threads = Vec::with_capacity(pattern.inner.threads.len());
-    for t in &pattern.inner.threads {
-        if !inner_ids.contains_key(t.from.knot.as_str())
-            || !inner_ids.contains_key(t.to.knot.as_str())
-        {
-            return Err(WyrdError::UnknownKnot);
-        }
-        let fk = inner_ids[t.from.knot.as_str()];
-        let tk = inner_ids[t.to.knot.as_str()];
-        if port_slot(&fk.kind, &t.from.port).is_none() || port_slot(&tk.kind, &t.to.port).is_none()
-        {
-            return Err(WyrdError::UnknownPort);
-        }
-        threads.push(ThreadDef {
-            from: PortRefAuthor::new(prefixed(&prefix, &t.from.knot), t.from.port.as_str()),
-            to: PortRefAuthor::new(prefixed(&prefix, &t.to.knot), t.to.port.as_str()),
-        });
-    }
-
-    let mut exports = PatternExports {
-        instance_id: String::from(instance_id),
-        ins: BTreeMap::new(),
-        outs: BTreeMap::new(),
-    };
-
-    for (export, knot, port) in &pattern.exports_in {
-        if exports.ins.contains_key(export.as_str()) {
-            return Err(WyrdError::DuplicateKnotId);
-        }
-        let def = *inner_ids.get(knot.as_str()).ok_or(WyrdError::UnknownKnot)?;
-        let info = ports_of(&def.kind)
-            .iter()
-            .find(|p| p.name == port.as_str())
-            .ok_or(WyrdError::UnknownPort)?;
-        if info.dir != PortDir::In {
-            return Err(WyrdError::UnknownPort);
-        }
-        exports.ins.insert(
-            export.clone(),
-            PortRefAuthor::new(prefixed(&prefix, knot), port.as_str()),
-        );
-    }
-    for (export, knot, port) in &pattern.exports_out {
-        if exports.outs.contains_key(export.as_str()) {
-            return Err(WyrdError::DuplicateKnotId);
-        }
-        let def = *inner_ids.get(knot.as_str()).ok_or(WyrdError::UnknownKnot)?;
-        let info = ports_of(&def.kind)
-            .iter()
-            .find(|p| p.name == port.as_str())
-            .ok_or(WyrdError::UnknownPort)?;
-        if info.dir != PortDir::Out {
-            return Err(WyrdError::UnknownPort);
-        }
-        exports.outs.insert(
-            export.clone(),
-            PortRefAuthor::new(prefixed(&prefix, knot), port.as_str()),
-        );
-    }
-
-    Ok((knots, threads, exports))
+    let prefix = format_prefix(instance_id);
+    let knots = pattern
+        .inner
+        .knots
+        .iter()
+        .map(|knot| KnotDef {
+            id: prefixed(&prefix, &knot.id),
+            kind: knot.kind.clone(),
+        })
+        .collect();
+    let threads = pattern
+        .inner
+        .threads
+        .iter()
+        .map(|thread| ThreadDef {
+            from: PortRefDef::new(
+                prefixed(&prefix, &thread.from.knot),
+                thread.from.port.clone(),
+            ),
+            to: PortRefDef::new(prefixed(&prefix, &thread.to.knot), thread.to.port.clone()),
+        })
+        .collect();
+    let inputs = pattern
+        .inputs
+        .iter()
+        .map(|export| {
+            (
+                export.name.clone(),
+                PortRefDef::new(
+                    prefixed(&prefix, &export.port.knot),
+                    export.port.port.clone(),
+                ),
+            )
+        })
+        .collect();
+    let outputs = pattern
+        .outputs
+        .iter()
+        .map(|export| {
+            (
+                export.name.clone(),
+                PortRefDef::new(
+                    prefixed(&prefix, &export.port.knot),
+                    export.port.port.clone(),
+                ),
+            )
+        })
+        .collect();
+    Ok(ExpandedPattern {
+        knots,
+        threads,
+        inputs,
+        outputs,
+    })
 }
 
+fn format_prefix(instance_id: &str) -> String {
+    let mut value = String::from(instance_id);
+    value.push('/');
+    value
+}
 fn prefixed(prefix: &str, knot: &str) -> String {
-    let mut s = String::from(prefix);
-    s.push_str(knot);
-    s
-}
-
-/// Stamp pattern into parent weave (flat). Parent numeric must match pattern.inner.
-/// Caller must wire exports then `validate`.
-pub fn merge_expanded(
-    parent: &mut Weave,
-    instance_id: &str,
-    pattern: &Pattern,
-) -> Result<PatternExports> {
-    if pattern.inner.numeric != parent.numeric {
-        return Err(WyrdError::NumericMismatch);
-    }
-    let (knots, threads, exports) = expand_pattern(instance_id, pattern)?;
-    for k in knots {
-        if parent.knots.iter().any(|x| x.id == k.id) {
-            return Err(WyrdError::DuplicateKnotId);
-        }
-        parent.knots.push(k);
-    }
-    parent.threads.extend(threads);
-    Ok(exports)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::validate::{validate, Budget};
-    use std::vec;
-    use wyrd_core::{KnotKind, NumericPath, TimerMode};
-
-    fn monostable_pattern() -> Pattern {
-        let (b, _) = Weave::builder("pat.mono")
-            .knot("edge", KnotKind::rising_from_zero())
-            .unwrap();
-        let (b, _) = b
-            .knot("t", KnotKind::timer(TimerMode::PulseHold, 2))
-            .unwrap();
-        let inner = b.wire_named("edge", "out", "t", "start").build().unwrap();
-        Pattern {
-            id: "pat.mono".into(),
-            inner,
-            exports_in: vec![("start".into(), "edge".into(), "in".into())],
-            exports_out: vec![("active".into(), "t".into(), "active".into())],
-        }
-    }
-
-    #[test]
-    fn expand_prefixes_ids() {
-        let p = monostable_pattern();
-        let (knots, threads, exp) = expand_pattern("hold1", &p).unwrap();
-        assert!(knots.iter().any(|k| k.id == "hold1/edge"));
-        assert!(knots.iter().any(|k| k.id == "hold1/t"));
-        assert_eq!(threads.len(), 1);
-        assert_eq!(threads[0].from.knot, "hold1/edge");
-        assert_eq!(exp.port_in("start").unwrap().knot, "hold1/edge");
-        assert_eq!(exp.port_out("active").unwrap().knot, "hold1/t");
-    }
-
-    #[test]
-    fn stamp_twice_and_validate_parent() {
-        let p = monostable_pattern();
-        let (b, _) = Weave::builder("level")
-            .knot("btn", KnotKind::signal_in())
-            .unwrap();
-        let (b, _) = b.knot("gate", KnotKind::signal_out("gate.open")).unwrap();
-        let mut parent = b.build().unwrap();
-
-        let e1 = merge_expanded(&mut parent, "hold1", &p).unwrap();
-        let e2 = merge_expanded(&mut parent, "hold2", &p).unwrap();
-
-        parent.threads.push(ThreadDef {
-            from: PortRefAuthor::new("btn", "out"),
-            to: e1.port_in("start").unwrap().clone(),
-        });
-        parent.threads.push(ThreadDef {
-            from: e1.port_out("active").unwrap().clone(),
-            to: PortRefAuthor::new("gate", "in"),
-        });
-        parent.threads.push(ThreadDef {
-            from: PortRefAuthor::new("btn", "out"),
-            to: e2.port_in("start").unwrap().clone(),
-        });
-
-        validate(&parent, &Budget::default()).unwrap();
-        assert!(parent.knots.iter().any(|k| k.id == "hold2/t"));
-    }
-
-    #[test]
-    fn include_builder_path() {
-        let p = monostable_pattern();
-        let (b, _) = Weave::builder("lvl")
-            .knot("btn", KnotKind::signal_in())
-            .unwrap();
-        let (b, exp) = b.include("h1", &p).unwrap();
-        let start = exp.port_in("start").unwrap().clone();
-        let b = b.wire_ports(PortRefAuthor::new("btn", "out"), start);
-        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
-        let active = exp.port_out("active").unwrap().clone();
-        let w = b
-            .wire_ports(active, PortRefAuthor::new("out", "in"))
-            .build()
-            .unwrap();
-        validate(&w, &Budget::default()).unwrap();
-    }
-
-    #[test]
-    fn empty_instance_id_fails() {
-        let p = monostable_pattern();
-        assert!(expand_pattern("", &p).is_err());
-    }
-
-    #[test]
-    fn bad_export_port_fails() {
-        let mut p = monostable_pattern();
-        p.exports_in = vec![("start".into(), "edge".into(), "nope".into())];
-        assert!(matches!(
-            expand_pattern("x", &p),
-            Err(WyrdError::UnknownPort)
-        ));
-    }
-
-    #[test]
-    fn export_wrong_dir_fails() {
-        let mut p = monostable_pattern();
-        // edge "out" is Out, not In
-        p.exports_in = vec![("start".into(), "edge".into(), "out".into())];
-        assert!(matches!(
-            expand_pattern("x", &p),
-            Err(WyrdError::UnknownPort)
-        ));
-    }
-
-    #[test]
-    fn numeric_mismatch_on_merge() {
-        let p = monostable_pattern();
-        let (b, _) = Weave::builder("p")
-            .knot("a", KnotKind::signal_in())
-            .unwrap();
-        let mut parent = b.build().unwrap();
-        let mut p2 = p;
-        #[cfg(feature = "signal-f32")]
-        {
-            p2.inner.numeric = NumericPath::I32Q16;
-        }
-        #[cfg(feature = "signal-i32")]
-        {
-            p2.inner.numeric = NumericPath::F32;
-        }
-        assert!(matches!(
-            merge_expanded(&mut parent, "h", &p2),
-            Err(WyrdError::NumericMismatch)
-        ));
-    }
-
-    #[test]
-    fn duplicate_instance_fails() {
-        let p = monostable_pattern();
-        let (b, _) = Weave::builder("p")
-            .knot("a", KnotKind::signal_in())
-            .unwrap();
-        let mut parent = b.build().unwrap();
-        merge_expanded(&mut parent, "hold1", &p).unwrap();
-        assert!(matches!(
-            merge_expanded(&mut parent, "hold1", &p),
-            Err(WyrdError::DuplicateKnotId)
-        ));
-    }
-
-    #[test]
-    fn instance_id_and_empty_pattern() {
-        let p = monostable_pattern();
-        let (_, _, exp) = expand_pattern("hold1", &p).unwrap();
-        assert_eq!(exp.instance_id(), "hold1");
-
-        let empty = Pattern {
-            id: "e".into(),
-            inner: Weave {
-                id: "e".into(),
-                knots: vec![],
-                threads: vec![],
-                numeric: NumericPath::compiled(),
-            },
-            exports_in: vec![],
-            exports_out: vec![],
-        };
-        assert!(matches!(expand_pattern("x", &empty), Err(WyrdError::Empty)));
-    }
-
-    #[test]
-    fn slash_in_instance_or_inner_id() {
-        let p = monostable_pattern();
-        assert!(matches!(
-            expand_pattern("a/b", &p),
-            Err(WyrdError::InvalidPatternId)
-        ));
-        let mut p = monostable_pattern();
-        p.inner.knots[0].id = "bad/id".into();
-        assert!(matches!(
-            expand_pattern("ok", &p),
-            Err(WyrdError::InvalidPatternId)
-        ));
-    }
-
-    #[test]
-    fn duplicate_inner_knot_and_bad_threads() {
-        use crate::weave::{KnotDef, ThreadDef};
-        let mut p = monostable_pattern();
-        p.inner.knots.push(KnotDef {
-            id: "edge".into(),
-            kind: KnotKind::rising_from_zero(),
-        });
-        assert!(matches!(
-            expand_pattern("x", &p),
-            Err(WyrdError::DuplicateKnotId)
-        ));
-
-        let mut p = monostable_pattern();
-        p.inner.threads.push(ThreadDef {
-            from: PortRefAuthor::new("nope", "out"),
-            to: PortRefAuthor::new("t", "start"),
-        });
-        assert!(matches!(
-            expand_pattern("x", &p),
-            Err(WyrdError::UnknownKnot)
-        ));
-
-        let mut p = monostable_pattern();
-        p.inner.threads[0].from.port = "nope".into();
-        assert!(matches!(
-            expand_pattern("x", &p),
-            Err(WyrdError::UnknownPort)
-        ));
-    }
-
-    #[test]
-    fn duplicate_exports_and_wrong_out_dir() {
-        let mut p = monostable_pattern();
-        p.exports_in
-            .push(("start".into(), "edge".into(), "in".into()));
-        assert!(matches!(
-            expand_pattern("x", &p),
-            Err(WyrdError::DuplicateKnotId)
-        ));
-
-        let mut p = monostable_pattern();
-        p.exports_out
-            .push(("active".into(), "t".into(), "active".into()));
-        assert!(matches!(
-            expand_pattern("x", &p),
-            Err(WyrdError::DuplicateKnotId)
-        ));
-
-        // export_out pointing at an In port
-        let mut p = monostable_pattern();
-        p.exports_out = vec![("active".into(), "edge".into(), "in".into())];
-        assert!(matches!(
-            expand_pattern("x", &p),
-            Err(WyrdError::UnknownPort)
-        ));
-    }
+    let mut value = String::from(prefix);
+    value.push_str(knot);
+    value
 }
