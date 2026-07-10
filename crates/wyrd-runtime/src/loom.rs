@@ -315,6 +315,53 @@ impl Runtime {
                     if prev && !latched { ONE } else { ZERO },
                 );
             }
+            KindTag::Random { require_gate } => {
+                // Ports: min(0), max(1), gate(2), out(3). Unconnected min→ZERO, max→ONE.
+                let min_wired = self.inbound[ki]
+                    .iter()
+                    .any(|&(_, _, ts)| ts == PortSlot(0));
+                let max_wired = self.inbound[ki]
+                    .iter()
+                    .any(|&(_, _, ts)| ts == PortSlot(1));
+                let min_v = if min_wired {
+                    self.get_port(kid, PortSlot(0))
+                } else {
+                    ZERO
+                };
+                let max_v = if max_wired {
+                    self.get_port(kid, PortSlot(1))
+                } else {
+                    ONE
+                };
+                let gate = self.get_port(kid, PortSlot(2));
+                let prev = self.prev_in[ki];
+                let rising = !is_truthy(prev) && is_truthy(gate);
+                let sample = if require_gate { rising } else { true };
+                if sample {
+                    let u = self.next_rng_u32();
+                    let o = random_in_range(u, min_v, max_v);
+                    self.set_port(kid, PortSlot(3), o);
+                    #[cfg(feature = "signal-f32")]
+                    {
+                        self.counter[ki] = o.to_bits() as i32;
+                    }
+                    #[cfg(feature = "signal-i32")]
+                    {
+                        self.counter[ki] = o;
+                    }
+                } else {
+                    // Hold last sample in `counter` storage.
+                    #[cfg(feature = "signal-f32")]
+                    {
+                        self.set_port(kid, PortSlot(3), f32::from_bits(self.counter[ki] as u32));
+                    }
+                    #[cfg(feature = "signal-i32")]
+                    {
+                        self.set_port(kid, PortSlot(3), self.counter[ki]);
+                    }
+                }
+                self.prev_in[ki] = gate;
+            }
             KindTag::SignalOut => {
                 let v = self.get_port(kid, PortSlot(0));
                 if let Some(path) = self.knots[ki].path {
@@ -387,6 +434,7 @@ enum KindTag {
         low: Signal,
         use_hysteresis: bool,
     },
+    Random { require_gate: bool },
     SignalOut,
     EmitCommand,
 }
@@ -452,6 +500,9 @@ impl KindTag {
                 high: *high,
                 low: *low,
                 use_hysteresis: *use_hysteresis,
+            },
+            KnotKind::Random { require_gate } => KindTag::Random {
+                require_gate: *require_gate,
             },
             KnotKind::SignalOut { .. } => KindTag::SignalOut,
             KnotKind::EmitCommand { .. } => KindTag::EmitCommand,
@@ -529,5 +580,25 @@ fn digitize(
             return out_min;
         }
         (out_min as i64 + bin * span / (steps - 1)) as i32
+    }
+}
+
+fn random_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        let t = (u as f32) / (u32::MAX as f32);
+        let lo = min_v.min(max_v);
+        let hi = min_v.max(max_v);
+        lo + t * (hi - lo)
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        let lo = min_v.min(max_v) as i64;
+        let hi = min_v.max(max_v) as i64;
+        let span = hi - lo;
+        if span <= 0 {
+            return lo as i32;
+        }
+        (lo + (u as i64) * span / (u32::MAX as i64)) as i32
     }
 }

@@ -122,6 +122,10 @@ pub enum KnotKind {
         low: Signal,
         use_hysteresis: bool,
     },
+    /// Seeded PRNG sample into [min,max] ports; optional rising `gate`.
+    Random {
+        require_gate: bool,
+    },
     SignalOut {
         path: std::string::String,
     },
@@ -222,6 +226,10 @@ impl KnotKind {
                 use_hysteresis: true,
             }
         }
+    }
+
+    pub fn random(require_gate: bool) -> Self {
+        KnotKind::Random { require_gate }
     }
 
     pub fn arity(&self) -> Option<u8> {
