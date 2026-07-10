@@ -10,7 +10,7 @@ Bench targets are **split** so the suite can grow without one mega-file. Shared 
 | Target | Path | Focus |
 | --- | --- | --- |
 | `settle_chain` | `benches/settle_chain.rs` | Not depth, And door, host `tick_once` |
-| `settle_catalog` | `benches/settle_catalog.rs` | Micro probes + **scaled** Map/Digitize/Mul/Div/Sqrt + fan-out |
+| `settle_catalog` | `benches/settle_catalog.rs` | Micro + scaled Map/Digitize/Mul/Div/Sqrt + edges/logic packs + Compare/Clamp chains + OnStart |
 | `settle_stateful` | `benches/settle_stateful.rs` | Delay, Random, **stateful kit**, **emit storm** |
 | `bind` | `benches/bind.rs` | Load path: validate + topo + buffers |
 
@@ -239,7 +239,7 @@ cargo bench -p wyrd-runtime --bench settle_catalog -- settle_calc_div_chain
 | Delay | `settle_delay`, `settle_delay_chain` |
 | Calc Add | `settle_calc_abs` |
 | Calc Mul / Div | scaled chains |
-| Calc Sub | **skip** (same path as Add; not separate) |
+| Calc Sub | **skip** (shared Calc dispatch; distinct `sat_sub` not separately timed) |
 | Map | micro + `settle_map_chain` |
 | Abs / Neg | calc_abs / clamp_neg chain |
 | Select / Xor | `settle_logic_pack` |
@@ -252,7 +252,9 @@ cargo bench -p wyrd-runtime --bench settle_catalog -- settle_calc_div_chain
 | EmitCommand | `settle_emit_storm` |
 
 ```bash
-cargo bench -p wyrd-runtime --bench settle_catalog -- settle_edges_pack settle_logic_pack
+cargo bench -p wyrd-runtime --bench settle_catalog -- \
+  settle_edges_pack settle_logic_pack settle_clamp_neg_chain \
+  settle_compare_chain settle_onstart
 ```
 
 ## Adding a new bench

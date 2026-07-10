@@ -474,17 +474,8 @@ pub fn edges_pack() -> (Weave, Runtime) {
         .wire_named("c", "out", "oc", "in")
         .build()
         .unwrap();
-    let mut budget = deep_budget();
-    budget.max_fan_out = 16;
-    budget.soft_fan_out = 16;
-    let rt = Runtime::bind(
-        &weave,
-        BindOpts {
-            budget,
-            ..BindOpts::default()
-        },
-    )
-    .unwrap();
+    // Fan-out 3 from `in` fits default max_fan_out (8).
+    let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
     (weave, rt)
 }
 
