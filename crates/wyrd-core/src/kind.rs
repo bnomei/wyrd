@@ -126,6 +126,7 @@ pub enum KnotKind {
     Random {
         require_gate: bool,
     },
+    Sqrt,
     SignalOut {
         path: std::string::String,
     },
@@ -232,6 +233,10 @@ impl KnotKind {
         KnotKind::Random { require_gate }
     }
 
+    pub fn sqrt() -> Self {
+        KnotKind::Sqrt
+    }
+
     pub fn arity(&self) -> Option<u8> {
         match self {
             KnotKind::And { arity } => Some(*arity),
@@ -275,6 +280,7 @@ mod tests {
         let _ = KnotKind::digitize(4);
         let _ = KnotKind::threshold_default();
         let _ = KnotKind::random(false);
+        let _ = KnotKind::sqrt();
     }
 }
 

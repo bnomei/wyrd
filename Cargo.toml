@@ -27,6 +27,7 @@ no-std-compat = { version = "0.4", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 ron = { version = "0.8", default-features = false }
 serde_json = { version = "1", default-features = false, features = ["std"] }
+libm = { version = "0.2", default-features = false }
 
 [profile.release]
 lto = true

@@ -362,6 +362,11 @@ impl Runtime {
                 }
                 self.prev_in[ki] = gate;
             }
+            KindTag::Sqrt => {
+                let i = self.get_port(kid, PortSlot(0));
+                let o = signal_sqrt(i);
+                self.set_port(kid, PortSlot(1), o);
+            }
             KindTag::SignalOut => {
                 let v = self.get_port(kid, PortSlot(0));
                 if let Some(path) = self.knots[ki].path {
@@ -435,6 +440,7 @@ enum KindTag {
         use_hysteresis: bool,
     },
     Random { require_gate: bool },
+    Sqrt,
     SignalOut,
     EmitCommand,
 }
@@ -504,6 +510,7 @@ impl KindTag {
             KnotKind::Random { require_gate } => KindTag::Random {
                 require_gate: *require_gate,
             },
+            KnotKind::Sqrt => KindTag::Sqrt,
             KnotKind::SignalOut { .. } => KindTag::SignalOut,
             KnotKind::EmitCommand { .. } => KindTag::EmitCommand,
         }
@@ -600,5 +607,34 @@ fn random_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
             return lo as i32;
         }
         (lo + (u as i64) * span / (u32::MAX as i64)) as i32
+    }
+}
+
+fn signal_sqrt(i: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        if i <= 0.0 {
+            0.0
+        } else {
+            libm::sqrtf(i)
+        }
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        if i <= 0 {
+            return 0;
+        }
+        // Integer isqrt via binary search.
+        let mut lo = 0i32;
+        let mut hi = i.min(46_340); // floor(sqrt(i32::MAX))
+        while lo < hi {
+            let mid = lo + (hi - lo + 1) / 2;
+            if mid.saturating_mul(mid) <= i {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        lo
     }
 }

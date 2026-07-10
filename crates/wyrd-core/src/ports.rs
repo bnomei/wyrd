@@ -127,6 +127,7 @@ pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
         KnotKind::Digitize { .. } => MAP_LIKE,
         KnotKind::Threshold { .. } => THRESHOLD,
         KnotKind::Random { .. } => RANDOM,
+        KnotKind::Sqrt => MAP_LIKE,
         KnotKind::SignalOut { .. } => SIGNAL_OUT,
         KnotKind::EmitCommand { .. } => EMIT,
     }
@@ -209,6 +210,7 @@ mod tests {
             "crossed_up"
         );
         assert_eq!(ports_of(&KnotKind::digitize(4))[0].name, "in");
+        assert_eq!(ports_of(&KnotKind::sqrt())[0].name, "in");
         assert_eq!(ports_of(&KnotKind::constant(crate::ONE))[0].name, "out");
         assert_eq!(ports_of(&KnotKind::signal_in())[0].name, "out");
         assert_eq!(ports_of(&KnotKind::OnStart)[0].name, "out");
