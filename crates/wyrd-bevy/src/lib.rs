@@ -1,4 +1,7 @@
 //! Thin Bevy bridge for Wyrd — no graph topology on Entities.
+//!
+//! Host tick order: [`WyrdSet::Sample`] → [`WyrdSet::Loom`] → [`WyrdSet::Apply`].
+//! Bevy **Messages** are confirmations of host effects only — never Weave Threads.
 
 use bevy::prelude::*;
 use wyrd_core::{HostPathId, HostTime, KnotId, ONE, ZERO};
@@ -57,11 +60,27 @@ pub struct AndDoorBinding {
     pub instance: usize,
 }
 
+/// Host-owned door state on an Entity (not a Wyrd Knot).
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Door {
+    pub open: bool,
+}
+
+/// Confirmation that a SignalOut level was applied by the host (VFX/UI only).
+///
+/// **Not** a Thread. Topology lives only in the Weave.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WyrdSignalConfirm {
+    pub path: HostPathId,
+    pub truthy: bool,
+}
+
 pub struct WyrdPlugin;
 
 impl Plugin for WyrdPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WyrdWorld>()
+            .add_message::<WyrdSignalConfirm>()
             .configure_sets(
                 Update,
                 (WyrdSet::Sample, WyrdSet::Loom, WyrdSet::Apply).chain(),
@@ -98,6 +117,14 @@ pub fn signal_truthy(inst: &WyrdInstance, path: HostPathId) -> bool {
         .find(|s| s.path == path)
         .map(|s| wyrd_core::is_truthy(s.value))
         .unwrap_or(false)
+}
+
+/// Apply a SignalOut level into a host `bool`, returning `true` if the value changed.
+pub fn apply_signal_bool(inst: &WyrdInstance, path: HostPathId, slot: &mut bool) -> bool {
+    let next = signal_truthy(inst, path);
+    let changed = *slot != next;
+    *slot = next;
+    changed
 }
 
 #[cfg(test)]
@@ -144,6 +171,25 @@ mod tests {
             return;
         };
         door.0 = signal_truthy(inst, binding.door_path);
+    }
+
+    fn apply_door_component(
+        binding: Res<AndDoorBinding>,
+        world: Res<WyrdWorld>,
+        mut q: Query<&mut Door>,
+        mut confirms: MessageWriter<WyrdSignalConfirm>,
+    ) {
+        let Some(inst) = world.instances.get(binding.instance) else {
+            return;
+        };
+        for mut door in &mut q {
+            if apply_signal_bool(inst, binding.door_path, &mut door.open) {
+                confirms.write(WyrdSignalConfirm {
+                    path: binding.door_path,
+                    truthy: door.open,
+                });
+            }
+        }
     }
 
     #[test]
@@ -200,6 +246,65 @@ mod tests {
             instance: 99,
         });
         app.update();
+    }
+
+    #[derive(Resource, Default)]
+    struct ConfirmLog(Vec<WyrdSignalConfirm>);
+
+    fn log_confirms(
+        mut reader: MessageReader<WyrdSignalConfirm>,
+        mut log: ResMut<ConfirmLog>,
+    ) {
+        for m in reader.read() {
+            log.0.push(*m);
+        }
+    }
+
+    #[test]
+    fn door_component_and_confirmation_message() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(WyrdPlugin)
+            .init_resource::<ConfirmLog>();
+
+        let weave = and_door_weave();
+        let inst = WyrdInstance::new("demo", weave).unwrap();
+        let binding = AndDoorBinding {
+            plate_a: inst.sense_id("plate_a").unwrap(),
+            plate_b: inst.sense_id("plate_b").unwrap(),
+            door_path: inst.path_id("door.open").unwrap(),
+            instance: 0,
+        };
+        let door_path = binding.door_path;
+
+        app.world_mut()
+            .resource_mut::<WyrdWorld>()
+            .instances
+            .push(inst);
+        app.insert_resource(binding);
+        app.world_mut().spawn(Door { open: false });
+        app.add_systems(Update, sample_plates.in_set(WyrdSet::Sample));
+        app.add_systems(Update, apply_door_component.in_set(WyrdSet::Apply));
+        app.add_systems(Update, log_confirms.after(WyrdSet::Apply));
+
+        app.world_mut().insert_resource(PlateState {
+            a: true,
+            b: true,
+        });
+        app.update();
+
+        let door = app
+            .world_mut()
+            .query::<&Door>()
+            .single(app.world())
+            .expect("door entity");
+        assert!(door.open);
+
+        let log = app.world().resource::<ConfirmLog>();
+        assert!(
+            log.0.iter().any(|c| c.path == door_path && c.truthy),
+            "expected WyrdSignalConfirm for door.open"
+        );
     }
 
     #[test]
