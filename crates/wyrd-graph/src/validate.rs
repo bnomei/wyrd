@@ -155,6 +155,11 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
         if ports_of(&k.kind).is_empty() {
             return Err(WyrdError::UnknownPort);
         }
+        if let KnotKind::Digitize { steps, .. } = &k.kind {
+            if *steps == 0 {
+                return Err(WyrdError::InvalidParam);
+            }
+        }
     }
 
     // fan-in: (knot_idx, port_slot) → count of inbound

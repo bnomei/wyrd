@@ -112,6 +112,7 @@ pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
         KnotKind::Abs => MAP_LIKE,
         KnotKind::Neg => MAP_LIKE,
         KnotKind::Select => SELECT,
+        KnotKind::Digitize { .. } => MAP_LIKE,
         KnotKind::SignalOut { .. } => SIGNAL_OUT,
         KnotKind::EmitCommand { .. } => EMIT,
     }

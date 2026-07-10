@@ -272,6 +272,17 @@ impl Runtime {
                 let o = if is_truthy(sel) { b } else { a };
                 self.set_port(kid, PortSlot(3), o);
             }
+            KindTag::Digitize {
+                steps,
+                in_min,
+                in_max,
+                out_min,
+                out_max,
+            } => {
+                let i = self.get_port(kid, PortSlot(0));
+                let o = digitize(i, steps, in_min, in_max, out_min, out_max);
+                self.set_port(kid, PortSlot(1), o);
+            }
             KindTag::SignalOut => {
                 let v = self.get_port(kid, PortSlot(0));
                 if let Some(path) = self.knots[ki].path {
@@ -332,6 +343,13 @@ enum KindTag {
         out_max: Signal,
     },
     Select,
+    Digitize {
+        steps: u16,
+        in_min: Signal,
+        in_max: Signal,
+        out_min: Signal,
+        out_max: Signal,
+    },
     SignalOut,
     EmitCommand,
 }
@@ -376,6 +394,19 @@ impl KindTag {
                 out_max: *out_max,
             },
             KnotKind::Select => KindTag::Select,
+            KnotKind::Digitize {
+                steps,
+                in_min,
+                in_max,
+                out_min,
+                out_max,
+            } => KindTag::Digitize {
+                steps: *steps,
+                in_min: *in_min,
+                in_max: *in_max,
+                out_min: *out_min,
+                out_max: *out_max,
+            },
             KnotKind::SignalOut { .. } => KindTag::SignalOut,
             KnotKind::EmitCommand { .. } => KindTag::EmitCommand,
         }
@@ -411,5 +442,46 @@ fn map_linear(i: Signal, in_min: Signal, in_max: Signal, out_min: Signal, out_ma
         let t = ((i as i64) - (in_min as i64)).clamp(0, den);
         let span = (out_max as i64) - (out_min as i64);
         (out_min as i64 + t * span / den) as i32
+    }
+}
+
+/// Quantize `i` into `steps` bins over in range, map to out range (endpoints included).
+fn digitize(
+    i: Signal,
+    steps: u16,
+    in_min: Signal,
+    in_max: Signal,
+    out_min: Signal,
+    out_max: Signal,
+) -> Signal {
+    let steps = steps.max(1) as i64;
+    #[cfg(feature = "signal-f32")]
+    {
+        if (in_max - in_min).abs() < f32::EPSILON {
+            return out_min;
+        }
+        let t = ((i - in_min) / (in_max - in_min)).clamp(0.0, 1.0);
+        let bin = ((t * steps as f32).floor() as i64).clamp(0, steps - 1);
+        let tq = if steps <= 1 {
+            0.0
+        } else {
+            bin as f32 / (steps - 1) as f32
+        };
+        out_min + tq * (out_max - out_min)
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        let den = (in_max as i64) - (in_min as i64);
+        if den == 0 {
+            return out_min;
+        }
+        let t = ((i as i64) - (in_min as i64)).clamp(0, den);
+        // bin = floor(t * steps / den)
+        let bin = (t * steps / den).clamp(0, steps - 1);
+        let span = (out_max as i64) - (out_min as i64);
+        if steps <= 1 {
+            return out_min;
+        }
+        (out_min as i64 + bin * span / (steps - 1)) as i32
     }
 }

@@ -108,6 +108,14 @@ pub enum KnotKind {
     Neg,
     /// Multiplex: falsey sel → a, truthy sel → b.
     Select,
+    /// Quantize `in` into `steps` bins over in range, map to out range.
+    Digitize {
+        steps: u16,
+        in_min: Signal,
+        in_max: Signal,
+        out_min: Signal,
+        out_max: Signal,
+    },
     SignalOut {
         path: std::string::String,
     },
@@ -176,6 +184,17 @@ impl KnotKind {
 
     pub fn select() -> Self {
         KnotKind::Select
+    }
+
+    /// Digitize with `steps` bins over 0..ONE → 0..ONE. Steps of 0 become 1.
+    pub fn digitize(steps: u16) -> Self {
+        KnotKind::Digitize {
+            steps: steps.max(1),
+            in_min: crate::signal::ZERO,
+            in_max: crate::signal::ONE,
+            out_min: crate::signal::ZERO,
+            out_max: crate::signal::ONE,
+        }
     }
 
     pub fn arity(&self) -> Option<u8> {

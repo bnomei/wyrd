@@ -19,6 +19,8 @@ pub enum WyrdError {
     InvalidPatternId,
     Parse,
     Serialize,
+    /// Knot/author parameter out of range (e.g. Digitize steps=0).
+    InvalidParam,
 }
 
 impl fmt::Display for WyrdError {
@@ -38,6 +40,7 @@ impl fmt::Display for WyrdError {
             WyrdError::InvalidPatternId => f.write_str("invalid pattern instance id"),
             WyrdError::Parse => f.write_str("parse error"),
             WyrdError::Serialize => f.write_str("serialize error"),
+            WyrdError::InvalidParam => f.write_str("invalid parameter"),
         }
     }
 }
@@ -73,6 +76,7 @@ mod tests {
             (WyrdError::InvalidPatternId, "invalid pattern instance id"),
             (WyrdError::Parse, "parse error"),
             (WyrdError::Serialize, "serialize error"),
+            (WyrdError::InvalidParam, "invalid parameter"),
         ];
         for (err, msg) in cases {
             assert_eq!(disp(err), *msg);
