@@ -42,4 +42,26 @@ fn select_a_when_sel_false() {
     rt.port_writer().set_sense(sel, ONE);
     rt.loom(&weave).unwrap();
     assert_eq!(out_v(&rt, "y"), from_count(7));
+
+    // Non-ONE truthy still selects b; b can be ZERO (forward, don't force ONE).
+    let (b, _) = Weave::builder("s2")
+        .knot("sel", KnotKind::signal_in())
+        .unwrap();
+    let (b, _) = b.knot("ca", KnotKind::constant(from_count(3))).unwrap();
+    let (b, _) = b.knot("cb", KnotKind::constant(ZERO)).unwrap();
+    let (b, _) = b.knot("mux", KnotKind::select()).unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b
+        .wire_named("sel", "out", "mux", "sel")
+        .wire_named("ca", "out", "mux", "a")
+        .wire_named("cb", "out", "mux", "b")
+        .wire_named("mux", "out", "out", "in")
+        .build()
+        .unwrap();
+    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let sel = rt.sense_id("sel").unwrap();
+    rt.begin_frame(HostTime { tick: 0 });
+    rt.port_writer().set_sense(sel, from_count(2));
+    rt.loom(&weave).unwrap();
+    assert_eq!(out_v(&rt, "y"), ZERO);
 }
