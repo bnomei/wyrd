@@ -212,9 +212,9 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 - [x] Expected hot-function checklist in `docs/perf.md` (SVG capture still optional)
 - [x] Steady-state buffer stability proven (capacity/delay_buf); global alloc hook open
 - [x] Measured settle + bind numbers in `docs/perf.md` (local host)
-- [ ] Optional Criterion CI HTML — *(later)*
 - [ ] Parallel settle — *(later; default single-threaded for determinism)*
 - [ ] KindTag-at-bind / gather+clear fusion — *(next opt pass; Digitize/Sqrt first)*
+- ~~Optional Criterion / bench CI~~ — **not planned** (local Divan only)
 
 ---
 

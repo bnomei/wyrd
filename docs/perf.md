@@ -285,12 +285,7 @@ Roughly **~50×** a raw `settle_and_door` loom (~27 ns) — Bevy schedule + reso
 cargo bench -p wyrd-bevy --bench host_tick
 ```
 
-CI: optional `workflow_dispatch` only — do not fail PRs on wall-clock noise. Document:
-
-```bash
-cargo bench -p wyrd-runtime
-cargo bench -p wyrd-bevy --bench host_tick
-```
+Benches are **local-only** (not run in CI). Use the commands above when measuring.
 
 ## Adding a new bench
 
