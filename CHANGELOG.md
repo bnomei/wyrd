@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Pedagogy
+
+- **Tutorial ladder** (`wyrd_runtime::cookbook`): Tier A (5) → B (5) → C (10) runnable recipes;
+  `tests/tutorial_ladder.rs`; `patterns_cookbook` thin-wraps Tier B; short rustdoc doctests
+
 ### Catalog (high + medium impact)
 
 - **Select** — truthy `sel` → `b`, else `a`

@@ -58,20 +58,20 @@ they are **never** Weave Threads.
 cargo run -p wyrd-bevy --example and_door   # Door component + confirmation Message
 ```
 
-## First five Weaves
+## Tutorial ladder (Tier A → B → C)
 
-CI recipes in `crates/wyrd-runtime/tests/patterns_cookbook.rs`:
+Executable pedagogy lives in [`wyrd_runtime::cookbook`](crates/wyrd-runtime/src/cookbook/) — same graphs for CI and rustdoc.
 
-| # | Recipe | Knots |
+| Tier | Focus | Recipes |
 | --- | --- | --- |
-| 1 | Monostable (Pattern) | RisingFromZero → PulseHold |
-| 2 | Two-plate door | SignalIn ×2 → And → SignalOut |
-| 3 | Flag toggle | rising toggle + reset |
-| 4 | Counter threshold | edge → Counter → Compare |
-| 5 | Delayed pulse | Delay Rune |
+| **A** | Foundations | Not, And door request, bind/loom, `tick_once`, validate fail |
+| **B** | First five Weaves | Monostable Pattern, two-plate door, Flag toggle+reset, Counter≥N, Delay |
+| **C** | GBG / Zelda literacy | MultiSwitchLatch, FedCountdown, PressN→window, edge+cooling, Threshold, Map, Digitize, OnStart, Emit-once, Or |
 
 ```bash
-cargo test -p wyrd-runtime --test patterns_cookbook
+cargo test -p wyrd-runtime --test tutorial_ladder
+cargo test -p wyrd-runtime --test patterns_cookbook   # Tier B compat aliases
+cargo test -p wyrd-runtime --doc                        # short cookbook doctests
 ```
 
 ## Features

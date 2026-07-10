@@ -24,3 +24,12 @@ for e in rt.outbox().emits() {
 ```
 
 Steady-state loom does not allocate topology (inbound edges + slots precomputed at bind).
+
+## Tutorial ladder
+
+Pedagogy module [`cookbook`](src/cookbook/) (Tier A foundations → B first Weaves → C GBG/Zelda patterns):
+
+```bash
+cargo test -p wyrd-runtime --test tutorial_ladder
+cargo test -p wyrd-runtime --doc
+```
