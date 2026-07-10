@@ -8,11 +8,30 @@ use wyrd_core::{
 
 use crate::weave::Weave;
 
-/// Soft/hard budgets (D-math-shape defaults).
+/// Soft/hard budgets (D-math-shape / vision table defaults).
+///
+/// Hard fields fail [`validate`]. Soft fields are recorded for hosts/tools
+/// (see `validate_report` when present); they do not fail bind by default.
 #[derive(Clone, Debug)]
 pub struct Budget {
+    /// Hard max knots (default 256).
     pub max_knots: u16,
+    /// Hard max threads (default 512).
     pub max_threads: u16,
+    /// Soft knot ceiling (default 64) — warning only until report API.
+    pub soft_knots: u16,
+    /// Soft thread ceiling (default 128).
+    pub soft_threads: u16,
+    /// Hard longest path length in edges (default 16).
+    pub max_chain_depth: u16,
+    /// Soft chain depth (default 8).
+    pub soft_chain_depth: u16,
+    /// Hard max outbound threads from any single knot (default 8).
+    pub max_fan_out: u16,
+    /// Soft fan-out (default 4).
+    pub soft_fan_out: u16,
+    /// Hard max sum of Delay.ticks along any root→sink path (default 32).
+    pub max_delay_path_sum: u16,
 }
 
 impl Default for Budget {
@@ -20,6 +39,13 @@ impl Default for Budget {
         Self {
             max_knots: 256,
             max_threads: 512,
+            soft_knots: 64,
+            soft_threads: 128,
+            max_chain_depth: 16,
+            soft_chain_depth: 8,
+            max_fan_out: 8,
+            soft_fan_out: 4,
+            max_delay_path_sum: 32,
         }
     }
 }
@@ -87,6 +113,19 @@ pub fn validate(weave: &Weave, budget: &Budget) -> Result<()> {
         edges.push((fi, ti));
     }
 
+    // Fan-out hard budget (outbound threads per knot).
+    {
+        let mut fout = vec![0u16; weave.knots.len()];
+        for &(a, _) in &edges {
+            if a < fout.len() {
+                fout[a] = fout[a].saturating_add(1);
+                if fout[a] > budget.max_fan_out {
+                    return Err(WyrdError::Budget);
+                }
+            }
+        }
+    }
+
     // Required inputs connected (Compare `rhs` optional when `rhs_const` is set).
     for (ti, k) in weave.knots.iter().enumerate() {
         for p in ports_of(&k.kind) {
@@ -144,7 +183,65 @@ pub fn validate(weave: &Weave, budget: &Budget) -> Result<()> {
         return Err(WyrdError::Cycle);
     }
 
+    // Longest path (edge count) + delay-tick path sum on the DAG.
+    // delay_contrib(v) = Delay.ticks if knot is Delay, else 0.
+    // path delay sum includes every Delay on the path (including endpoints).
+    let mut depth = vec![0u16; n];
+    let mut delay_sum = vec![0u32; n];
+    for (i, k) in weave.knots.iter().enumerate() {
+        delay_sum[i] = delay_ticks(&k.kind) as u32;
+    }
+    // Process in topo order (reuse Kahn with fresh indeg from adj).
+    let mut indeg2 = vec![0u32; n];
+    for a in 0..n {
+        for &b in &adj[a] {
+            indeg2[b] += 1;
+        }
+    }
+    let mut q2: Vec<usize> = indeg2
+        .iter()
+        .enumerate()
+        .filter_map(|(i, d)| if *d == 0 { Some(i) } else { None })
+        .collect();
+    while let Some(u) = q2.pop() {
+        if depth[u] > budget.max_chain_depth {
+            return Err(WyrdError::Budget);
+        }
+        if delay_sum[u] > budget.max_delay_path_sum as u32 {
+            return Err(WyrdError::Budget);
+        }
+        for &v in &adj[u] {
+            let nd = depth[u].saturating_add(1);
+            if nd > depth[v] {
+                depth[v] = nd;
+            }
+            let ds = delay_sum[u].saturating_add(delay_ticks(&weave.knots[v].kind) as u32);
+            if ds > delay_sum[v] {
+                delay_sum[v] = ds;
+            }
+            indeg2[v] -= 1;
+            if indeg2[v] == 0 {
+                q2.push(v);
+            }
+        }
+    }
+    for i in 0..n {
+        if depth[i] > budget.max_chain_depth {
+            return Err(WyrdError::Budget);
+        }
+        if delay_sum[i] > budget.max_delay_path_sum as u32 {
+            return Err(WyrdError::Budget);
+        }
+    }
+
     Ok(())
+}
+
+fn delay_ticks(kind: &KnotKind) -> u16 {
+    match kind {
+        KnotKind::Delay { ticks } => *ticks,
+        _ => 0,
+    }
 }
 
 #[cfg(test)]
@@ -217,7 +314,7 @@ mod tests {
         let w = b.build().unwrap();
         let tight = Budget {
             max_knots: 0,
-            max_threads: 512,
+            ..Budget::default()
         };
         assert_eq!(validate(&w, &tight), Err(WyrdError::Budget));
 
@@ -227,10 +324,75 @@ mod tests {
         let (b, _) = b.knot("n", KnotKind::not()).unwrap();
         let w = b.wire_named("a", "out", "n", "in").build().unwrap();
         let tight_t = Budget {
-            max_knots: 256,
             max_threads: 0,
+            ..Budget::default()
         };
         assert_eq!(validate(&w, &tight_t), Err(WyrdError::Budget));
+    }
+
+    #[test]
+    fn fan_out_budget_hard() {
+        let (b, _) = Weave::builder("f")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("n2", KnotKind::not()).unwrap();
+        // one source fans out to 3 Not ins
+        let w = b
+            .wire_named("c", "out", "n0", "in")
+            .wire_named("c", "out", "n1", "in")
+            .wire_named("c", "out", "n2", "in")
+            .build()
+            .unwrap();
+        let bud = Budget {
+            max_fan_out: 2,
+            ..Budget::default()
+        };
+        assert_eq!(validate(&w, &bud), Err(WyrdError::Budget));
+    }
+
+    #[test]
+    fn chain_depth_budget_hard() {
+        // c → n0 → n1 → n2 : depth 3 edges
+        let (b, _) = Weave::builder("d")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("n2", KnotKind::not()).unwrap();
+        let w = b
+            .wire_named("c", "out", "n0", "in")
+            .wire_named("n0", "out", "n1", "in")
+            .wire_named("n1", "out", "n2", "in")
+            .build()
+            .unwrap();
+        let bud = Budget {
+            max_chain_depth: 2,
+            ..Budget::default()
+        };
+        assert_eq!(validate(&w, &bud), Err(WyrdError::Budget));
+    }
+
+    #[test]
+    fn delay_path_sum_budget_hard() {
+        let (b, _) = Weave::builder("d")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, _) = b.knot("d0", KnotKind::Delay { ticks: 10 }).unwrap();
+        let (b, _) = b.knot("d1", KnotKind::Delay { ticks: 10 }).unwrap();
+        let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
+        let w = b
+            .wire_named("c", "out", "d0", "in")
+            .wire_named("d0", "out", "d1", "in")
+            .wire_named("d1", "out", "o", "in")
+            .build()
+            .unwrap();
+        let bud = Budget {
+            max_delay_path_sum: 15,
+            ..Budget::default()
+        };
+        assert_eq!(validate(&w, &bud), Err(WyrdError::Budget));
     }
 
     #[test]
