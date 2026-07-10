@@ -8,7 +8,7 @@
 - **Digitize** — quantize into `steps` bins over in→out ranges; `steps=0` or inverted in-range → `InvalidParam` (same inverted-range rule on **Map**)
 - **Threshold** — level out + crossed_up/crossed_down; optional hysteresis
 - **Random** — host `Seed` / `reseed`; optional rising gate; min/max ports; holds last sample
-- **Sqrt** — `libm::sqrtf` (f32) / integer isqrt (i32); non-positive → 0
+- **Sqrt** — core `f32::sqrt` (f32) / integer isqrt (i32); non-positive → 0
 - **Xor** — truthy exclusive-or
 - **FallingToZero** / **Change** — edge pulses
 - **Clamp** — `[min, max]`; `min > max` → `InvalidParam`
@@ -58,3 +58,6 @@
 - **P3**: pattern expand/include bind benches; Bevy headless `host_tick`
 - **Settle structural pass**: bind-time `KindTag` cache, CSR inbound, flat clear indices,
   hot port access, Sense skip in topo; Digitize bin path tweak; `settle_iso` isolation benches
+- **Arm-math + residual structure**: Digitize/Map bind precompute; Sqrt via `f32::sqrt` +
+  Newton isqrt (drop `libm`); sense seed list; Calc tags split by op; Compare const as
+  `Signal`; Emit/Random wire flags at bind

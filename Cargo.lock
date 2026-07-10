@@ -1954,7 +1954,6 @@ name = "wyrd-runtime"
 version = "0.1.0"
 dependencies = [
  "divan",
- "libm",
  "no-std-compat",
  "wyrd-core",
  "wyrd-graph",

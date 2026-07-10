@@ -1,10 +1,9 @@
 use wyrd_core::{
-    is_truthy, CalcOp, CompareOp, FlagPriority, KnotId, KnotKind, PortSlot, Result, Signal, ONE,
-    ZERO,
+    is_truthy, CompareOp, FlagPriority, KnotId, PortSlot, Result, Signal, ONE, ZERO,
 };
 use wyrd_graph::Weave;
 
-use crate::bind::Runtime;
+use crate::bind::{Runtime, SenseSeed};
 use crate::kind_tag::KindTag;
 
 impl Runtime {
@@ -16,29 +15,27 @@ impl Runtime {
             self.port_vals[idx] = ZERO;
         }
 
-        // 2. Seed Sense outputs.
-        let n = self.knots.len();
-        for ki in 0..n {
-            let id = KnotId(ki as u16);
-            match &self.knots[ki].kind {
-                KnotKind::Constant { value } => {
-                    let v = *value;
-                    self.set_port_hot(id, PortSlot(0), v);
+        // 2. Seed Sense outputs only (bind-time list — no full-knot scan).
+        let seed_n = self.sense_seeds.len();
+        for si in 0..seed_n {
+            match self.sense_seeds[si] {
+                SenseSeed::Constant { kid, value } => {
+                    self.set_port_hot(kid, PortSlot(0), value);
                 }
-                KnotKind::SignalIn => {
-                    let v = self.sense_values[ki];
-                    self.set_port_hot(id, PortSlot(0), v);
+                SenseSeed::SignalIn { kid } => {
+                    let v = self.sense_values[kid.0 as usize];
+                    self.set_port_hot(kid, PortSlot(0), v);
                 }
-                KnotKind::OnStart => {
+                SenseSeed::OnStart { kid } => {
+                    let ki = kid.0 as usize;
                     let v = if !self.on_start_done[ki] {
                         self.on_start_done[ki] = true;
                         ONE
                     } else {
                         ZERO
                     };
-                    self.set_port_hot(id, PortSlot(0), v);
+                    self.set_port_hot(kid, PortSlot(0), v);
                 }
-                _ => {}
             }
         }
 
@@ -119,10 +116,9 @@ impl Runtime {
             }
             KindTag::Compare { op, rhs_const } => {
                 let lhs = self.get_port_hot(kid, PortSlot(0));
-                let rhs = if let Some(c) = rhs_const {
-                    crate::from_count(c)
-                } else {
-                    self.get_port_hot(kid, PortSlot(1))
+                let rhs = match rhs_const {
+                    Some(c) => c,
+                    None => self.get_port_hot(kid, PortSlot(1)),
                 };
                 let o = if compare(op, lhs, rhs) { ONE } else { ZERO };
                 self.set_port_hot(kid, PortSlot(2), o);
@@ -231,16 +227,25 @@ impl Runtime {
                     self.set_port_hot(kid, PortSlot(1), o);
                 }
             }
-            KindTag::Calc { op } => {
+            KindTag::CalcAdd => {
                 let a = self.get_port_hot(kid, PortSlot(0));
                 let b = self.get_port_hot(kid, PortSlot(1));
-                let o = match op {
-                    CalcOp::Add => wyrd_core::signal_ops::sat_add(a, b),
-                    CalcOp::Sub => wyrd_core::signal_ops::sat_sub(a, b),
-                    CalcOp::Mul => wyrd_core::signal_ops::mul(a, b),
-                    CalcOp::Div => wyrd_core::signal_ops::div(a, b),
-                };
-                self.set_port_hot(kid, PortSlot(2), o);
+                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::sat_add(a, b));
+            }
+            KindTag::CalcSub => {
+                let a = self.get_port_hot(kid, PortSlot(0));
+                let b = self.get_port_hot(kid, PortSlot(1));
+                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::sat_sub(a, b));
+            }
+            KindTag::CalcMul => {
+                let a = self.get_port_hot(kid, PortSlot(0));
+                let b = self.get_port_hot(kid, PortSlot(1));
+                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::mul(a, b));
+            }
+            KindTag::CalcDiv => {
+                let a = self.get_port_hot(kid, PortSlot(0));
+                let b = self.get_port_hot(kid, PortSlot(1));
+                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::div(a, b));
             }
             KindTag::Abs => {
                 let i = self.get_port_hot(kid, PortSlot(0));
@@ -259,13 +264,29 @@ impl Runtime {
                 self.set_port_hot(kid, PortSlot(1), o);
             }
             KindTag::Map {
+                degenerate,
                 in_min,
-                in_max,
                 out_min,
-                out_max,
+                inv_in_span,
+                out_span,
+                #[cfg(feature = "signal-i32")]
+                    den,
+                #[cfg(feature = "signal-i32")]
+                    out_span_i64,
             } => {
                 let i = self.get_port_hot(kid, PortSlot(0));
-                let o = map_linear(i, in_min, in_max, out_min, out_max);
+                let o = map_linear_fast(
+                    i,
+                    degenerate,
+                    in_min,
+                    out_min,
+                    inv_in_span,
+                    out_span,
+                    #[cfg(feature = "signal-i32")]
+                    den,
+                    #[cfg(feature = "signal-i32")]
+                    out_span_i64,
+                );
                 self.set_port_hot(kid, PortSlot(1), o);
             }
             KindTag::Select => {
@@ -276,14 +297,33 @@ impl Runtime {
                 self.set_port_hot(kid, PortSlot(3), o);
             }
             KindTag::Digitize {
-                steps,
+                degenerate,
                 in_min,
-                in_max,
                 out_min,
-                out_max,
+                inv_in_span,
+                out_scale,
+                steps,
+                last,
+                #[cfg(feature = "signal-i32")]
+                    den,
+                #[cfg(feature = "signal-i32")]
+                    out_span,
             } => {
                 let i = self.get_port_hot(kid, PortSlot(0));
-                let o = digitize(i, steps, in_min, in_max, out_min, out_max);
+                let o = digitize_fast(
+                    i,
+                    degenerate,
+                    in_min,
+                    out_min,
+                    inv_in_span,
+                    out_scale,
+                    steps,
+                    last,
+                    #[cfg(feature = "signal-i32")]
+                    den,
+                    #[cfg(feature = "signal-i32")]
+                    out_span,
+                );
                 self.set_port_hot(kid, PortSlot(1), o);
             }
             KindTag::Threshold {
@@ -318,10 +358,12 @@ impl Runtime {
                     if prev && !latched { ONE } else { ZERO },
                 );
             }
-            KindTag::Random { require_gate } => {
+            KindTag::Random {
+                require_gate,
+                min_wired,
+                max_wired,
+            } => {
                 // Ports: min(0), max(1), gate(2), out(3). Unconnected min→ZERO, max→ONE.
-                let min_wired = self.inbound_has_to_slot(ki, PortSlot(0));
-                let max_wired = self.inbound_has_to_slot(ki, PortSlot(1));
                 let min_v = if min_wired {
                     self.get_port_hot(kid, PortSlot(0))
                 } else {
@@ -412,10 +454,10 @@ impl Runtime {
                     self.push_signal_out(path, v);
                 }
             }
-            KindTag::EmitCommand => {
+            KindTag::EmitCommand { enable_wired } => {
                 let trig = self.get_port_hot(kid, PortSlot(0));
                 // Optional enable: unconnected → treated as ONE (enabled).
-                let enable = if self.inbound_has_to_slot(ki, PortSlot(1)) {
+                let enable = if enable_wired {
                     self.get_port_hot(kid, PortSlot(1))
                 } else {
                     ONE
@@ -432,14 +474,6 @@ impl Runtime {
         }
     }
 
-    #[inline]
-    fn inbound_has_to_slot(&self, ki: usize, slot: PortSlot) -> bool {
-        let start = self.inbound_off[ki] as usize;
-        let end = self.inbound_off[ki + 1] as usize;
-        self.inbound_edges[start..end]
-            .iter()
-            .any(|&(_, _, ts)| ts == slot)
-    }
 }
 
 fn compare(op: CompareOp, lhs: Signal, rhs: Signal) -> bool {
@@ -453,29 +487,114 @@ fn compare(op: CompareOp, lhs: Signal, rhs: Signal) -> bool {
     }
 }
 
-fn map_linear(i: Signal, in_min: Signal, in_max: Signal, out_min: Signal, out_max: Signal) -> Signal {
+#[inline]
+fn map_linear_fast(
+    i: Signal,
+    degenerate: bool,
+    in_min: Signal,
+    out_min: Signal,
+    inv_in_span: Signal,
+    out_span: Signal,
+    #[cfg(feature = "signal-i32")] den: i64,
+    #[cfg(feature = "signal-i32")] out_span_i64: i64,
+) -> Signal {
+    if degenerate {
+        return out_min;
+    }
     #[cfg(feature = "signal-f32")]
     {
-        if (in_max - in_min).abs() < f32::EPSILON {
-            return out_min;
-        }
-        let t = ((i - in_min) / (in_max - in_min)).clamp(0.0, 1.0);
-        out_min + t * (out_max - out_min)
+        let t = ((i - in_min) * inv_in_span).clamp(0.0, 1.0);
+        out_min + t * out_span
     }
     #[cfg(feature = "signal-i32")]
     {
-        let den = (in_max as i64) - (in_min as i64);
-        if den == 0 {
-            return out_min;
-        }
+        let _ = (inv_in_span, out_span);
         let t = ((i as i64) - (in_min as i64)).clamp(0, den);
-        let span = (out_max as i64) - (out_min as i64);
-        (out_min as i64 + t * span / den) as i32
+        (out_min as i64 + t * out_span_i64 / den) as i32
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn map_linear_for_test(
+    i: Signal,
+    in_min: Signal,
+    in_max: Signal,
+    out_min: Signal,
+    out_max: Signal,
+) -> Signal {
+    match KindTag::map_precomputed(in_min, in_max, out_min, out_max) {
+        KindTag::Map {
+            degenerate,
+            in_min,
+            out_min,
+            inv_in_span,
+            out_span,
+            #[cfg(feature = "signal-i32")]
+                den,
+            #[cfg(feature = "signal-i32")]
+                out_span_i64,
+        } => map_linear_fast(
+            i,
+            degenerate,
+            in_min,
+            out_min,
+            inv_in_span,
+            out_span,
+            #[cfg(feature = "signal-i32")]
+            den,
+            #[cfg(feature = "signal-i32")]
+            out_span_i64,
+        ),
+        _ => out_min,
     }
 }
 
 /// Quantize `i` into `steps` bins over in range, map to out range (endpoints included).
-fn digitize(
+/// Digitize using bind-time precomputed scales (hot path).
+#[inline]
+fn digitize_fast(
+    i: Signal,
+    degenerate: bool,
+    in_min: Signal,
+    out_min: Signal,
+    inv_in_span: Signal,
+    out_scale: Signal,
+    steps: u16,
+    last: u16,
+    #[cfg(feature = "signal-i32")] den: i64,
+    #[cfg(feature = "signal-i32")] out_span: i64,
+) -> Signal {
+    if degenerate {
+        return out_min;
+    }
+    #[cfg(feature = "signal-f32")]
+    {
+        let _ = (steps, last); // used below
+        let t = ((i - in_min) * inv_in_span).clamp(0.0, 1.0);
+        // bin in [0, last]; endpoint t=1 maps to last.
+        let mut bin = (t * steps as f32) as u32;
+        let last_u = last as u32;
+        if bin > last_u {
+            bin = last_u;
+        }
+        out_min + (bin as f32) * out_scale
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        let _ = (inv_in_span, out_scale);
+        let last_i = last as i64;
+        let t = ((i as i64) - (in_min as i64)).clamp(0, den);
+        let mut bin = t * (steps as i64) / den;
+        if bin > last_i {
+            bin = last_i;
+        }
+        (out_min as i64 + bin * out_span / last_i) as i32
+    }
+}
+
+/// Public-for-tests digitize via the same precompute path as loom (shipped code).
+#[cfg(test)]
+pub(crate) fn digitize_for_test(
     i: Signal,
     steps: u16,
     in_min: Signal,
@@ -483,41 +602,34 @@ fn digitize(
     out_min: Signal,
     out_max: Signal,
 ) -> Signal {
-    let steps = steps.max(1) as i64;
-    if steps <= 1 {
-        return out_min;
-    }
-    let last = steps - 1;
-    #[cfg(feature = "signal-f32")]
-    {
-        let span_in = in_max - in_min;
-        if span_in.abs() < f32::EPSILON {
-            return out_min;
-        }
-        // t in [0,1]; bin in [0, steps-1] without intermediate floor cast dance.
-        let t = ((i - in_min) / span_in).clamp(0.0, 1.0);
-        let mut bin = (t * steps as f32) as i64;
-        if bin >= steps {
-            bin = last;
-        } else if bin < 0 {
-            bin = 0;
-        }
-        let tq = bin as f32 / last as f32;
-        out_min + tq * (out_max - out_min)
-    }
-    #[cfg(feature = "signal-i32")]
-    {
-        let den = (in_max as i64) - (in_min as i64);
-        if den == 0 {
-            return out_min;
-        }
-        let t = ((i as i64) - (in_min as i64)).clamp(0, den);
-        let mut bin = t * steps / den;
-        if bin > last {
-            bin = last;
-        }
-        let span = (out_max as i64) - (out_min as i64);
-        (out_min as i64 + bin * span / last) as i32
+    match KindTag::digitize_precomputed(steps, in_min, in_max, out_min, out_max) {
+        KindTag::Digitize {
+            degenerate,
+            in_min,
+            out_min,
+            inv_in_span,
+            out_scale,
+            steps,
+            last,
+            #[cfg(feature = "signal-i32")]
+                den,
+            #[cfg(feature = "signal-i32")]
+                out_span,
+        } => digitize_fast(
+            i,
+            degenerate,
+            in_min,
+            out_min,
+            inv_in_span,
+            out_scale,
+            steps,
+            last,
+            #[cfg(feature = "signal-i32")]
+            den,
+            #[cfg(feature = "signal-i32")]
+            out_span,
+        ),
+        _ => out_min,
     }
 }
 
@@ -549,25 +661,138 @@ fn signal_sqrt(i: Signal) -> Signal {
         if i <= 0.0 {
             0.0
         } else {
-            libm::sqrtf(i)
+            // Hardware/core sqrt when available (same IEEE result as libm::sqrtf on desktop).
+            i.sqrt()
         }
     }
     #[cfg(feature = "signal-i32")]
     {
-        if i <= 0 {
-            return 0;
+        isqrt_i32(i)
+    }
+}
+
+/// Integer square root (floor). Newton iteration until convergence.
+#[cfg(feature = "signal-i32")]
+#[inline]
+fn isqrt_i32(n: i32) -> i32 {
+    if n <= 0 {
+        return 0;
+    }
+    if n < 4 {
+        return 1;
+    }
+    // Seed: roughly 2^ceil(log2(n)/2)
+    let z = n as u32;
+    let mut x = 1i32 << ((32 - z.leading_zeros() + 1) / 2);
+    loop {
+        let y = ((x as i64) + (n as i64) / (x as i64)) / 2;
+        let y = y as i32;
+        if y >= x {
+            return x;
         }
-        // Integer isqrt via binary search.
-        let mut lo = 0i32;
-        let mut hi = i.min(46_340); // floor(sqrt(i32::MAX))
-        while lo < hi {
-            let mid = lo + (hi - lo + 1) / 2;
-            if mid.saturating_mul(mid) <= i {
-                lo = mid;
-            } else {
-                hi = mid - 1;
-            }
+        x = y;
+    }
+}
+
+#[cfg(all(test, feature = "signal-i32"))]
+#[test]
+fn isqrt_matches_perfect_squares() {
+    for k in 0i32..200 {
+        let n = k * k;
+        assert_eq!(isqrt_i32(n), k, "isqrt({n})");
+        if k > 0 {
+            assert_eq!(isqrt_i32(n - 1), k - 1);
         }
-        lo
+    }
+    assert_eq!(isqrt_i32(0), 0);
+    assert_eq!(isqrt_i32(-3), 0);
+}
+
+#[cfg(test)]
+mod digitize_tests {
+    use super::digitize_for_test;
+    use wyrd_core::{from_count, ONE, ZERO};
+
+    #[test]
+    fn digitize_precompute_matches_endpoints_and_mids() {
+        // steps=4 over count 0..4 → out 0,10,20,30
+        let steps = 4u16;
+        let in0 = from_count(0);
+        let in4 = from_count(4);
+        let o0 = from_count(0);
+        let o30 = from_count(30);
+        assert_eq!(
+            digitize_for_test(from_count(0), steps, in0, in4, o0, o30),
+            from_count(0)
+        );
+        assert_eq!(
+            digitize_for_test(from_count(1), steps, in0, in4, o0, o30),
+            from_count(10)
+        );
+        assert_eq!(
+            digitize_for_test(from_count(2), steps, in0, in4, o0, o30),
+            from_count(20)
+        );
+        assert_eq!(
+            digitize_for_test(from_count(3), steps, in0, in4, o0, o30),
+            from_count(30)
+        );
+        assert_eq!(
+            digitize_for_test(from_count(4), steps, in0, in4, o0, o30),
+            from_count(30)
+        );
+        // Degenerate steps=1
+        assert_eq!(
+            digitize_for_test(ONE, 1, ZERO, ONE, from_count(7), from_count(9)),
+            from_count(7)
+        );
+    }
+}
+
+#[cfg(test)]
+mod map_tests {
+    use super::map_linear_for_test;
+    use wyrd_core::{from_count, ONE, ZERO};
+
+    #[test]
+    fn map_precompute_endpoints_mid_and_degenerate() {
+        let i0 = from_count(0);
+        let i4 = from_count(4);
+        let o0 = from_count(0);
+        let o40 = from_count(40);
+        assert_eq!(map_linear_for_test(from_count(0), i0, i4, o0, o40), o0);
+        assert_eq!(
+            map_linear_for_test(from_count(2), i0, i4, o0, o40),
+            from_count(20)
+        );
+        assert_eq!(map_linear_for_test(from_count(4), i0, i4, o0, o40), o40);
+        // Outside clamp
+        assert_eq!(map_linear_for_test(from_count(8), i0, i4, o0, o40), o40);
+        assert_eq!(map_linear_for_test(from_count(-2), i0, i4, o0, o40), o0);
+        // Zero in-span → out_min
+        assert_eq!(
+            map_linear_for_test(ONE, from_count(3), from_count(3), from_count(7), o40),
+            from_count(7)
+        );
+        // ZERO..ONE identity-ish for out ZERO..ONE at mid
+        let mid = map_linear_for_test(
+            #[cfg(feature = "signal-f32")]
+            {
+                0.5
+            },
+            #[cfg(feature = "signal-i32")]
+            {
+                // Q16 half of ONE if ONE is 1<<16
+                ONE / 2
+            },
+            ZERO,
+            ONE,
+            ZERO,
+            ONE,
+        );
+        #[cfg(feature = "signal-f32")]
+        assert!((mid - 0.5).abs() < 1e-5);
+        #[cfg(feature = "signal-i32")]
+        assert_eq!(mid, ONE / 2);
     }
 }

@@ -11,6 +11,14 @@ use wyrd_graph::{validate, Budget, Weave};
 
 use crate::outbox::{Emit, Outbox, PortWriter, SignalOutSample};
 
+/// Bind-time sense seed entry — only Sense knots, so loom need not scan all knots.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SenseSeed {
+    Constant { kid: KnotId, value: Signal },
+    SignalIn { kid: KnotId },
+    OnStart { kid: KnotId },
+}
+
 /// Bind-time options (sandbox / host policy).
 #[derive(Clone, Debug)]
 pub struct BindOpts {
@@ -65,6 +73,8 @@ pub struct Runtime {
     pub(crate) topo: Vec<KnotId>,
     /// Bind-time kind dispatch tags (one per knot; no per-tick from_kind).
     pub(crate) kind_tags: Vec<crate::kind_tag::KindTag>,
+    /// Only Constant / SignalIn / OnStart — loom seeds these without scanning all knots.
+    pub(crate) sense_seeds: Vec<SenseSeed>,
     /// Host-fed sense outputs (SignalIn).
     pub(crate) sense_values: Vec<Signal>,
     /// Port value store: indexed by (knot_idx * MAX_PORTS + slot)
@@ -178,11 +188,13 @@ impl Runtime {
         let mut clear_port_idx = Vec::new();
         let mut act_signals = 0usize;
         let mut act_emits = 0usize;
-        let kind_tags: Vec<crate::kind_tag::KindTag> = knots
+        let mut sense_seeds = Vec::new();
+        let mut kind_tags: Vec<crate::kind_tag::KindTag> = knots
             .iter()
             .map(|k| crate::kind_tag::KindTag::from_kind(&k.kind))
             .collect();
         for (ki, k) in knots.iter().enumerate() {
+            let kid = KnotId(ki as u16);
             let mut slots = Vec::new();
             for p in ports_of(&k.kind) {
                 if p.dir == PortDir::In {
@@ -192,8 +204,43 @@ impl Runtime {
             }
             input_slots.push(slots);
             match &k.kind {
+                KnotKind::Constant { value } => {
+                    sense_seeds.push(SenseSeed::Constant {
+                        kid,
+                        value: *value,
+                    });
+                }
+                KnotKind::SignalIn => {
+                    sense_seeds.push(SenseSeed::SignalIn { kid });
+                }
+                KnotKind::OnStart => {
+                    sense_seeds.push(SenseSeed::OnStart { kid });
+                }
                 KnotKind::SignalOut { .. } => act_signals += 1,
-                KnotKind::EmitCommand { .. } => act_emits += 1,
+                KnotKind::EmitCommand { .. } => {
+                    act_emits += 1;
+                    // Bind-time: is enable port wired? Avoid inbound scan each tick.
+                    let enable_wired = inbound_lists[ki]
+                        .iter()
+                        .any(|&(_, _, ts)| ts == PortSlot(1));
+                    kind_tags[ki] = crate::kind_tag::KindTag::EmitCommand { enable_wired };
+                }
+                KnotKind::Random { require_gate } => {
+                    let mut min_wired = false;
+                    let mut max_wired = false;
+                    for &(_, _, ts) in &inbound_lists[ki] {
+                        if ts == PortSlot(0) {
+                            min_wired = true;
+                        } else if ts == PortSlot(1) {
+                            max_wired = true;
+                        }
+                    }
+                    kind_tags[ki] = crate::kind_tag::KindTag::Random {
+                        require_gate: *require_gate,
+                        min_wired,
+                        max_wired,
+                    };
+                }
                 _ => {}
             }
         }
@@ -235,6 +282,7 @@ impl Runtime {
             input_slots,
             topo,
             kind_tags,
+            sense_seeds,
             sense_values: vec![ZERO; n],
             port_vals: vec![ZERO; n * MAX_PORTS],
             max_ports: MAX_PORTS,

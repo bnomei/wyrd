@@ -138,14 +138,14 @@ Until a committed flamegraph SVG lives under `docs/` or CI artifacts, use this c
 `cargo bench -p wyrd-runtime --bench settle_iso -- --sample-count 300 --min-time 1`  
 (same weight on catalog filters). Two consecutive f32 after-runs agreed on go.
 
-| Bench (f32) | Before (P0 short) | After (long, median) | Notes |
+| Bench (f32) | Before (P0 short) | After structural (long) | Notes |
 | --- | ---: | ---: | --- |
 | `settle_not_chain` 64 | ~343 ns | ~317–338 ns | structural |
 | `settle_digitize_chain` 64 | ~1.16 µs | **~1.10 µs** | + digitise path |
 | `settle_sqrt_chain` 64 | ~1.26 µs | **~1.08 µs** | mostly structural |
 | `settle_map_chain` 64 | ~656 ns | ~651 ns | small |
 
-| Bench (i32) | Before | After (long) |
+| Bench (i32) | Before | After structural (long) |
 | --- | ---: | ---: |
 | `settle_digitize_chain` 64 | ~869 ns | **~396 ns** |
 | `settle_sqrt_chain` 64 | ~562 ns | ~562 ns (flat) |
@@ -167,22 +167,40 @@ cargo bench -p wyrd-runtime --bench settle_iso -- --sample-count 300 --min-time 
 
 Local Divan only — **not** run in CI.
 
+### Arm math + residual structure (area-by-area)
+
+Decision weight: `--sample-count 300 --min-time 1` on `settle_iso` (and catalog filters).  
+Each area: isolation baseline → change → after×2 (f32) + i32 check when dual-path differs.
+
+| Area | Change | Iso f32 before → after (median, N=64) |
+| --- | --- | ---: |
+| **1 Digitize** | Bind precompute: `inv_in_span`, `out_scale` / i32 `den`+`out_span` | **~1.093 µs → ~854 ns** |
+| **2 Sqrt** | f32: core `f32::sqrt` (drop `libm`); i32: Newton `isqrt` | **~1.08 µs → ~395–437 ns** (i32 ~562 → ~310 ns) |
+| **3 Map** | Bind precompute: reciprocal × + i32 `den`/`out_span_i64` | **~651 ns → ~505–515 ns** |
+| **4 Residual** | Sense seed list (no full-knot scan); Calc tags split by op; Compare `rhs` as `Signal`; Emit/Random wire flags at bind | Not 64 **~307 → ~270 ns**; Map **~505 ns** stable |
+
+**Final isolation medians (f32, long):** Digitize ~849 ns · Map ~505 ns · Sqrt ~395 ns · Not64 ~270 ns · Fanout64 ~572 ns.
+
+**Final isolation (i32, long):** Map ~286 ns · Sqrt ~291 ns · Not64 ~284 ns · Digitize median noisy (~275 ns fastest / ~755 ns median — prefer catalog row).
+
+**Why stop here:** remaining heavy arms (Calc Div i32 Q-div, Digitize f32 bin cast) are mostly live arithmetic with little bind-time constant fold left. Further wins need algorithmic changes or host-side batching, not more KindTag fields.
+
 ## Scaled catalog / delay (P0 — amortized)
 
 These chains use **N copies** of the interesting arm so fixed loom tax is amortized. Compare ns/knot to `settle_not_chain` of similar size.
 
-### f32
+### f32 (post arm-math pass)
 
 | Bench | N (arm copies) | Total knots ≈ | Median | ~items/s (**all** knots) |
 | --- | ---: | ---: | ---: | ---: |
-| `settle_map_chain` | 16 | 18 | ~196 ns | ~92 M |
-| `settle_map_chain` | 64 | 66 | ~656 ns | ~101 M |
-| `settle_digitize_chain` | 16 | 18 | ~252 ns | ~71 M |
-| `settle_digitize_chain` | 64 | 66 | ~1.10 µs | ~60 M |
-| `settle_calc_mul_chain` | 16 | 19 (+const ONE) | ~192 ns | ~99 M |
-| `settle_calc_mul_chain` | 64 | 67 | ~541 ns | ~124 M |
-| `settle_sqrt_chain` | 16 | 18 | ~253 ns | ~71 M |
-| `settle_sqrt_chain` | 64 | 66 | ~1.08 µs | ~61 M |
+| `settle_map_chain` | 16 | 18 | ~131 ns | ~138 M |
+| `settle_map_chain` | 64 | 66 | **~578 ns** | ~114 M |
+| `settle_digitize_chain` | 16 | 18 | ~205 ns | ~88 M |
+| `settle_digitize_chain` | 64 | 66 | **~937 ns** | ~70 M |
+| `settle_calc_mul_chain` | 16 | 19 (+const ONE) | ~252 ns | ~75 M |
+| `settle_calc_mul_chain` | 64 | 67 | ~547 ns | ~123 M |
+| `settle_sqrt_chain` | 16 | 18 | ~105 ns | ~172 M |
+| `settle_sqrt_chain` | 64 | 66 | **~448 ns** | ~147 M |
 | `settle_delay_chain` (ticks=4) | 8 | 10 | ~55 ns | ~183 M |
 | `settle_delay_chain` (ticks=4) | 32 | 34 | ~209 ns | ~163 M |
 
@@ -193,13 +211,13 @@ These chains use **N copies** of the interesting arm so fixed loom tax is amorti
 | `settle_map_chain` | 16 / 64 | ~86 / ~552 ns | ~210 / ~120 M |
 | `settle_digitize_chain` | 16 / 64 | ~86 / ~396 ns | ~210 / ~167 M |
 | `settle_calc_mul_chain` | 16 / 64 | ~242 / ~561 ns | ~79 / ~119 M |
-| `settle_sqrt_chain` | 16 / 64 | ~205 / ~562 ns | ~88 / ~117 M |
+| `settle_sqrt_chain` | 16 / 64 | ~205 / **~310 ns** (iso) | ~88 / ~213 M |
 | `settle_delay_chain` | 8 / 32 | ~54 / ~203 ns | ~186 / ~168 M |
 
 **Notes**
 
-- **Digitize** and **Sqrt (f32 libm)** are clearly heavier than Map/Not on this host (~half the knot/s of Not chains).
-- **Sqrt i32** (integer isqrt) is faster than f32 at N=64 here — dual-path cost is not uniform.
+- **Digitize** is still the heaviest common pure-eval arm on f32; Map/Sqrt now sit near Mul/Not after precompute + core sqrt.
+- **Sqrt f32** no longer depends on `libm` (desktop IEEE `f32::sqrt`).
 - **Calc Mul** uses level `ONE` on the `b` port so i32 Q-mul stays non-zero (`ONE*ONE=ONE`). Whole-count mul would collapse to 0 on i32. Total knots = N muls + in + const + out.
 - **Delay chain** scales with **number of Delay knots**, unlike the single-delay microbench (often flat).
 - Digitize/Map/Sqrt/Mul benches feed **level `ONE`** (not `from_count(1)`) so f32 and i32 sit at the same end of ZERO..ONE.
@@ -251,8 +269,8 @@ cargo bench -p wyrd-runtime --bench settle_catalog -- settle_calc_div_chain
 | --- | ---: | ---: |
 | `settle_edges_pack` | ~34 ns | ~203 M |
 | `settle_logic_pack` | ~82 ns | ~134 M |
-| `settle_clamp_neg_chain` 16 / 64 | ~207 / ~838 ns | ~165 / ~155 M |
-| `settle_compare_chain` 16 / 64 | ~155 / ~614 ns | ~116 / ~107 M |
+| `settle_clamp_neg_chain` 16 / 64 | ~192 / **~771 ns** | ~177 / ~169 M |
+| `settle_compare_chain` 16 / 64 | ~135 / **~573 ns** | ~133 / ~115 M |
 | `settle_onstart` | ~8.8 ns | ~227 M |
 
 ### i32
