@@ -129,6 +129,7 @@ pub enum KnotKind {
     Sqrt,
     Xor,
     FallingToZero,
+    Change,
     SignalOut {
         path: std::string::String,
     },
@@ -247,6 +248,10 @@ impl KnotKind {
         KnotKind::FallingToZero
     }
 
+    pub fn change() -> Self {
+        KnotKind::Change
+    }
+
     pub fn arity(&self) -> Option<u8> {
         match self {
             KnotKind::And { arity } => Some(*arity),
@@ -293,6 +298,7 @@ mod tests {
         let _ = KnotKind::sqrt();
         let _ = KnotKind::xor();
         let _ = KnotKind::falling_to_zero();
+        let _ = KnotKind::change();
     }
 }
 

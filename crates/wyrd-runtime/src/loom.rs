@@ -383,6 +383,17 @@ impl Runtime {
                 self.prev_in[ki] = i;
                 self.set_port(kid, PortSlot(1), o);
             }
+            KindTag::Change => {
+                let i = self.get_port(kid, PortSlot(0));
+                let prev = self.prev_in[ki];
+                let o = if is_truthy(prev) != is_truthy(i) {
+                    ONE
+                } else {
+                    ZERO
+                };
+                self.prev_in[ki] = i;
+                self.set_port(kid, PortSlot(1), o);
+            }
             KindTag::SignalOut => {
                 let v = self.get_port(kid, PortSlot(0));
                 if let Some(path) = self.knots[ki].path {
@@ -459,6 +470,7 @@ enum KindTag {
     Sqrt,
     Xor,
     FallingToZero,
+    Change,
     SignalOut,
     EmitCommand,
 }
@@ -531,6 +543,7 @@ impl KindTag {
             KnotKind::Sqrt => KindTag::Sqrt,
             KnotKind::Xor => KindTag::Xor,
             KnotKind::FallingToZero => KindTag::FallingToZero,
+            KnotKind::Change => KindTag::Change,
             KnotKind::SignalOut { .. } => KindTag::SignalOut,
             KnotKind::EmitCommand { .. } => KindTag::EmitCommand,
         }
