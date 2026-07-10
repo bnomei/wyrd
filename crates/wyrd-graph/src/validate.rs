@@ -159,7 +159,18 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
             return Err(WyrdError::UnknownPort);
         }
         match &k.kind {
-            KnotKind::Digitize { steps, .. } if *steps == 0 => {
+            // steps=0 or inverted in-range (i32 clamp panics on den < 0).
+            KnotKind::Digitize {
+                steps,
+                in_min,
+                in_max,
+                ..
+            } if *steps == 0 || in_min > in_max => {
+                return Err(WyrdError::InvalidParam);
+            }
+            KnotKind::Map {
+                in_min, in_max, ..
+            } if in_min > in_max => {
                 return Err(WyrdError::InvalidParam);
             }
             KnotKind::Threshold {

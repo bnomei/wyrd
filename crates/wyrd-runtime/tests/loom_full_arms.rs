@@ -359,3 +359,34 @@ fn map_zero_span_and_delay_one() {
     rt.loom(&weave).unwrap();
     assert_eq!(out_v(&rt, "d"), from_count(1));
 }
+
+#[test]
+fn digitize_four_steps_mid_bin() {
+    let (b, _) = Weave::builder("dig")
+        .knot("in", KnotKind::signal_in())
+        .unwrap();
+    let (b, _) = b
+        .knot(
+            "d",
+            KnotKind::Digitize {
+                steps: 4,
+                in_min: from_count(0),
+                in_max: from_count(4),
+                out_min: from_count(0),
+                out_max: from_count(30),
+            },
+        )
+        .unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b
+        .wire_named("in", "out", "d", "in")
+        .wire_named("d", "out", "out", "in")
+        .build()
+        .unwrap();
+    let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let id = rt.sense_id("in").unwrap();
+    rt.begin_frame(HostTime { tick: 0 });
+    rt.port_writer().set_sense(id, from_count(2));
+    rt.loom(&weave).unwrap();
+    assert_eq!(out_v(&rt, "y"), from_count(20));
+}
