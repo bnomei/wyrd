@@ -34,6 +34,11 @@ jobs:
           cargo test -p wyrd-graph \
             --no-default-features \
             --features "${{ matrix.features }},serde-ron"
+      - name: Test graph serde-json (${{ matrix.signal }})
+        run: |
+          cargo test -p wyrd-graph \
+            --no-default-features \
+            --features "${{ matrix.features }},serde-json"
 
   bevy-f32:
     name: bevy (signal-f32 only)
@@ -85,6 +90,12 @@ jobs:
           cargo llvm-cov clean --workspace
           cargo llvm-cov -p wyrd-graph \
             --no-default-features --features "std,signal-f32,serde-ron" \
+            --fail-under-lines 100 --summary-only
+      - name: Coverage serde-json f32 (fail-under 100)
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov -p wyrd-graph \
+            --no-default-features --features "std,signal-f32,serde-json" \
             --fail-under-lines 100 --summary-only
       - name: Coverage bevy f32 (fail-under 100)
         run: |

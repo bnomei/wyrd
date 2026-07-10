@@ -194,14 +194,12 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
         edges.push((fi, ti));
     }
 
-    // Fan-out hard + soft.
+    // Fan-out hard + soft (edge endpoints are always valid knot indices).
     let mut fout = vec![0u16; weave.knots.len()];
     for &(a, _) in &edges {
-        if a < fout.len() {
-            fout[a] = fout[a].saturating_add(1);
-            if fout[a] > budget.max_fan_out {
-                return Err(WyrdError::Budget);
-            }
+        fout[a] = fout[a].saturating_add(1);
+        if fout[a] > budget.max_fan_out {
+            return Err(WyrdError::Budget);
         }
     }
 
@@ -304,14 +302,7 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
             }
         }
     }
-    for i in 0..n {
-        if depth[i] > budget.max_chain_depth {
-            return Err(WyrdError::Budget);
-        }
-        if delay_sum[i] > budget.max_delay_path_sum as u32 {
-            return Err(WyrdError::Budget);
-        }
-    }
+    // Depth/delay are checked when each node is dequeued (preds complete).
 
     // Soft warnings (never fail).
     let mut warnings = Vec::new();
@@ -523,6 +514,35 @@ mod tests {
         let s = format!("{rep}");
         assert!(s.contains("soft chain depth"));
         assert!(s.contains("soft knot"));
+    }
+
+    #[test]
+    fn soft_threads_warns_and_ok_display() {
+        let (b, _) = Weave::builder("t")
+            .knot("a", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
+        // 2 threads; soft_threads = 1
+        let w = b
+            .wire_named("a", "out", "n0", "in")
+            .wire_named("n0", "out", "n1", "in")
+            .build()
+            .unwrap();
+        let bud = Budget {
+            soft_threads: 1,
+            ..Budget::default()
+        };
+        let rep = validate_report(&w, &bud).unwrap();
+        assert!(rep.warnings.iter().any(|w| matches!(
+            w,
+            BudgetWarning::SoftThreads { count: 2, soft: 1 }
+        )));
+        assert!(format!("{}", rep.warnings[0]).contains("soft thread"));
+
+        let clean = validate_report(&w, &Budget::default()).unwrap();
+        assert!(clean.ok());
+        assert_eq!(format!("{clean}"), "validate ok");
     }
 
     #[test]

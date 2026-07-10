@@ -75,12 +75,15 @@ cargo test -p wyrd-runtime --test patterns_cookbook
 ```
 
 ## Features
+
+| Feature | Meaning |
 | --- | --- |
 | `std` (default) | Desktop / tests via `no-std-compat` |
 | `signal-f32` (default) | Float wire path |
 | `signal-i32` | Integer Q16 path (Playdate-class) |
 | `serde` (graph/core) | Derive Serialize/Deserialize on author types |
 | `serde-ron` (graph) | `from_ron` / `to_ron` + validate on load |
+| `serde-json` (graph) | `from_json` / `to_json` + validate on load (same schema as RON) |
 
 Enable exactly one of `signal-f32` / `signal-i32`.
 
@@ -94,6 +97,7 @@ Enable exactly one of `signal-f32` / `signal-i32`.
 
 cargo test --workspace
 cargo test -p wyrd-graph --features serde-ron
+cargo test -p wyrd-graph --features serde-json
 cargo bench -p wyrd-runtime --bench settle
 cargo test -p wyrd-bevy
 cargo run -p wyrd-bevy --example and_door

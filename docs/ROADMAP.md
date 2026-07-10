@@ -115,7 +115,7 @@ Use this file as the **progress board**. Mark items `[x]` only when they are tru
 - [x] Optional `serde` derives on author types
 - [x] `serde-ron`: `from_ron` / `to_ron` + validate on load
 - [x] Reject numeric path mismatch at load
-- [ ] JSON (or second human format) feature
+- [x] JSON codec (`serde-json`: from_json / to_json; same gates as RON)
 - [ ] Optional bincode / binary asset path — *(later)*
 
 ---

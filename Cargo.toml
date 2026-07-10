@@ -26,6 +26,7 @@ wyrd-runtime = { path = "crates/wyrd-runtime", version = "0.1.0", default-featur
 no-std-compat = { version = "0.4", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 ron = { version = "0.8", default-features = false }
+serde_json = { version = "1", default-features = false, features = ["std"] }
 
 [profile.release]
 lto = true

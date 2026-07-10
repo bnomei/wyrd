@@ -22,6 +22,21 @@ cargo test -p wyrd-graph \
   --no-default-features \
   --features "std,signal-f32,serde-ron"
 
+echo "==> signal-i32 + serde-json"
+cargo test -p wyrd-graph \
+  --no-default-features \
+  --features "std,signal-i32,serde-json"
+
+echo "==> signal-f32 + serde-json"
+cargo test -p wyrd-graph \
+  --no-default-features \
+  --features "std,signal-f32,serde-json"
+
+echo "==> signal-f32 + serde-ron + serde-json (cross-codec)"
+cargo test -p wyrd-graph \
+  --no-default-features \
+  --features "std,signal-f32,serde-ron,serde-json"
+
 echo "==> no_std core signal-i32"
 cargo check -p wyrd-core \
   --no-default-features \

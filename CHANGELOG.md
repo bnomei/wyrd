@@ -16,6 +16,7 @@
 - Hard enforcement of chain depth, fan-out, delay path sum
 - `validate_report` + `BudgetWarning` / `ValidateReport` (soft never fails bind)
 - `BindOpts.budget` and `BindOpts.max_emits_per_tick` (default 8)
+- **JSON codec** (`serde-json`): `from_json` / `to_json` with same numeric + validate gates as RON
 
 ### Loom
 

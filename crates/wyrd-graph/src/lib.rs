@@ -13,6 +13,9 @@ mod weave;
 #[cfg(feature = "serde-ron")]
 mod serde_ron;
 
+#[cfg(feature = "serde-json")]
+mod serde_json_codec;
+
 pub use builder::{slot_of, WeaveBuilder};
 pub use pattern::{expand_pattern, merge_expanded, Pattern, PatternExports};
 pub use validate::{validate, validate_report, Budget, BudgetWarning, ValidateReport};
@@ -20,6 +23,9 @@ pub use weave::{KnotDef, PortRefAuthor, ThreadDef, Weave};
 
 #[cfg(feature = "serde-ron")]
 pub use serde_ron::{from_ron, to_ron};
+
+#[cfg(feature = "serde-json")]
+pub use serde_json_codec::{from_json, to_json};
 
 pub use wyrd_core::{
     from_count, from_level, is_truthy, CalcOp, CompareOp, FlagPriority, KnotId, KnotKind,
