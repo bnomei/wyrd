@@ -372,8 +372,9 @@ pub fn stateful_kit() -> (Weave, Runtime) {
     let (b, _) = b
         .knot("pulse", KnotKind::timer(TimerMode::PulseHold, 2))
         .unwrap();
+    // ticks=2 so a 4-phase script with two consecutive feed-high samples can arm active.
     let (b, _) = b
-        .knot("fed", KnotKind::timer(TimerMode::FedCountdown, 3))
+        .knot("fed", KnotKind::timer(TimerMode::FedCountdown, 2))
         .unwrap();
     let (b, _) = b.knot("out_c", KnotKind::signal_out("count")).unwrap();
     let (b, _) = b.knot("out_f", KnotKind::signal_out("flag")).unwrap();

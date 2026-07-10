@@ -173,8 +173,8 @@ cargo bench -p wyrd-runtime --bench settle_stateful -- settle_delay_chain
 | Bench | Notes | Median | ~items/s (knots) |
 | --- | --- | ---: | ---: |
 | `settle_stateful_kit` | 11 knots; 4-phase start/feed script | ~76 ns | ~145 M |
-| `settle_emit_storm` | 8 emits (+gate) | ~57 ns | ~157 M |
-| `settle_emit_storm` | 32 emits | ~239 ns | ~138 M |
+| `settle_emit_storm` | 8 emits (+gate); **2 looms**/sample | ~113 ns | ~80 M |
+| `settle_emit_storm` | 32 emits; **2 looms**/sample | ~465 ns | ~71 M |
 | `settle_calc_div_chain` | N=16 Div (ONE divisor) | ~139 ns | ~137 M |
 | `settle_calc_div_chain` | N=64 | ~536 ns | ~125 M |
 
@@ -183,13 +183,13 @@ cargo bench -p wyrd-runtime --bench settle_stateful -- settle_delay_chain
 | Bench | Median | ~items/s |
 | --- | ---: | ---: |
 | `settle_stateful_kit` | ~69 ns | ~159 M |
-| `settle_emit_storm` 8 / 32 | ~56 / ~229 ns | ~160 / ~144 M |
+| `settle_emit_storm` 8 / 32 (2 looms) | ~114 / ~461 ns | ~79 / ~72 M |
 | `settle_calc_div_chain` 16 / 64 | ~259 / ~1.11 µs | ~73 / ~60 M |
 
 **Notes**
 
 - **Stateful kit** one loom/sample; phase cycles idle → start → start+feed → feed so Rising/Counter/Flag/Timers exercise over iterations.
-- **Emit storm** ItemsCount = knots (gate + n EmitCommands), not emit count; alternate levels so half of samples are rising edges.
+- **Emit storm** ItemsCount = knots (gate + n EmitCommands), not emit count; **two looms per sample** (low then high) so every sample forces a rising edge and n emits.
 - **Calc Div** on i32 is slower than f32 at N=64 here (Q-div vs float `/`).
 
 ```bash

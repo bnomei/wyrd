@@ -104,25 +104,22 @@ fn settle_stateful_kit(bencher: Bencher) {
         });
 }
 
-/// Shared gate → n EmitCommands; one rising edge per sample (1 loom).
-/// ItemsCount = **knots** (includes gate + n emits) for suite comparability.
+/// Shared gate → n EmitCommands; **forced rising edge every sample** (2 looms: low then high).
+/// ItemsCount = **knots** (gate + n emits) for suite comparability.
 #[divan::bench(args = [8, 32])]
 fn settle_emit_storm(bencher: Bencher, n: usize) {
     let (weave, mut rt) = emit_storm(n);
     let g = rt.sense_id("g").unwrap();
     let knots = weave.knots.len() as u64;
-    let mut high = false;
     bencher
         .counter(ItemsCount::new(knots))
         .bench_local(|| {
-            // Alternate so every sample is a rising edge (prev low, now high).
-            // Odd samples fall (no emit); even samples rise.
-            // Prefer always-rise: force low then high would be 2 looms — instead
-            // keep prev_in by toggling so only rising samples emit; count all samples.
-            high = !high;
             rt.begin_frame(HostTime { tick: 0 });
-            rt.port_writer()
-                .set_sense(g, if high { ONE } else { ZERO });
+            rt.port_writer().set_sense(g, ZERO);
+            rt.loom(black_box(&weave)).unwrap();
+
+            rt.begin_frame(HostTime { tick: 1 });
+            rt.port_writer().set_sense(g, ONE);
             rt.loom(black_box(&weave)).unwrap();
             black_box(rt.outbox().emits().len());
         });
