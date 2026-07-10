@@ -3,10 +3,10 @@
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
 use wyrd_core::{HostTime, KnotKind, ONE};
-use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
+use wyrd_graph::{Budget, Weave};
+use wyrd_runtime::{tick_once, BindOpts, NullHost, Runtime};
 
-/// Constant → Not × n → SignalOut
+/// Constant → Not × n → SignalOut (deep chain; raised depth budget for benches).
 fn chain_not(n: usize) -> (Weave, Runtime) {
     let (mut b, _) = Weave::builder("chain")
         .knot("c0", KnotKind::constant(ONE))
@@ -20,7 +20,17 @@ fn chain_not(n: usize) -> (Weave, Runtime) {
     }
     let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
     let weave = b.wire_named(&prev, "out", "out", "in").build().unwrap();
-    let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+    let mut budget = Budget::default();
+    budget.max_chain_depth = 512;
+    budget.max_knots = 512;
+    let rt = Runtime::bind(
+        &weave,
+        BindOpts {
+            budget,
+            ..BindOpts::default()
+        },
+    )
+    .unwrap();
     (weave, rt)
 }
 
@@ -62,6 +72,20 @@ fn settle_and_door(bencher: Bencher) {
                 w.set_sense(b_id, ONE);
             }
             rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+/// Host tick_once on a small chain (NullHost, no sample writes).
+#[divan::bench(args = [16, 64])]
+fn tick_once_not_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_not(n);
+    let mut host = NullHost::default();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            tick_once(&mut host, &mut rt, black_box(&weave)).unwrap();
             black_box(rt.outbox().signals().len());
         });
 }

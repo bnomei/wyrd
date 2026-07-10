@@ -18,6 +18,8 @@ pub struct BindOpts {
     /// Hard cap on EmitCommand outbox entries per loom (default 8).
     /// Further emits in the same tick are dropped (no panic).
     pub max_emits_per_tick: u16,
+    /// Validate budget (default matches [`Budget::default`]).
+    pub budget: Budget,
 }
 
 impl Default for BindOpts {
@@ -25,6 +27,7 @@ impl Default for BindOpts {
         Self {
             seed: None,
             max_emits_per_tick: 8,
+            budget: Budget::default(),
         }
     }
 }
@@ -84,7 +87,7 @@ const MAX_PORTS: usize = 8;
 
 impl Runtime {
     pub fn bind(weave: &Weave, opts: BindOpts) -> Result<Self> {
-        validate(weave, &Budget::default())?;
+        validate(weave, &opts.budget)?;
 
         let mut name_to_id = BTreeMap::new();
         let mut id_to_name = Vec::new();
