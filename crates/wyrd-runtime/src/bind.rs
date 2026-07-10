@@ -81,6 +81,8 @@ pub struct Runtime {
     tick: u64,
     /// Deterministic xorshift state for Random knots (never zero).
     pub(crate) rng: u64,
+    /// `fnv1a64(weave.id)` mixed into seeds at bind and [`Self::reseed`].
+    seed_mix: u64,
 }
 
 const MAX_PORTS: usize = 8;
@@ -195,8 +197,8 @@ impl Runtime {
         out_emits.reserve(act_emits);
 
         let base = opts.seed.unwrap_or(Seed(0xC0FF_EE00_D15C_AFEDu64));
-        let mixed = base.0 ^ fnv1a64(weave.id.as_bytes());
-        let rng = mixed | 1;
+        let seed_mix = fnv1a64(weave.id.as_bytes());
+        let rng = (base.0 ^ seed_mix) | 1;
 
         Ok(Runtime {
             knots,
@@ -226,16 +228,17 @@ impl Runtime {
             max_emits_per_tick: opts.max_emits_per_tick,
             tick: 0,
             rng,
+            seed_mix,
         })
     }
 
-    /// Restore PRNG stream (room retry). Mixes with empty weave id hash of 0.
+    /// Restore PRNG stream (room retry). Same mix as bind: `seed ^ fnv(weave.id) | 1`.
     pub fn reseed(&mut self, seed: Seed) {
-        self.rng = (seed.0) | 1;
+        self.rng = (seed.0 ^ self.seed_mix) | 1;
     }
 
     pub(crate) fn next_rng_u32(&mut self) -> u32 {
-        // xorshift64*
+        // Marsaglia xorshift64
         let mut x = self.rng;
         x ^= x << 13;
         x ^= x >> 7;

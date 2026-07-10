@@ -126,6 +126,8 @@ pub enum KnotKind {
     Random {
         require_gate: bool,
     },
+    /// Square root. f32: `libm::sqrtf` on levels. i32: integer isqrt on Signal
+    /// bits (count-domain friendly; not Q16.16 level-sqrt).
     Sqrt,
     Xor,
     FallingToZero,

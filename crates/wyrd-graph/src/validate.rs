@@ -231,14 +231,12 @@ pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport>
             if p.dir != PortDir::In {
                 continue;
             }
-            let need = if let KnotKind::Compare { rhs_const, .. } = &k.kind {
-                if p.name == "rhs" {
-                    rhs_const.is_none()
-                } else {
-                    p.required
-                }
-            } else {
-                p.required
+            let need = match &k.kind {
+                KnotKind::Compare { rhs_const, .. } if p.name == "rhs" => rhs_const.is_none(),
+                KnotKind::Random {
+                    require_gate: true,
+                } if p.name == "gate" => true,
+                _ => p.required,
             };
             if !need {
                 continue;

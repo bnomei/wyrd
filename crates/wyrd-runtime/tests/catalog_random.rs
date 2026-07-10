@@ -1,7 +1,7 @@
 //! Seeded Random knot.
 
 use wyrd_core::{HostTime, KnotKind, Seed, ONE, ZERO};
-use wyrd_graph::Weave;
+use wyrd_graph::{validate, Budget, Weave};
 use wyrd_runtime::{BindOpts, Runtime};
 
 fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
@@ -65,19 +65,38 @@ fn gate_rising_samples_once() {
     rt.port_writer().set_sense(g, ZERO);
     rt.loom(&weave).unwrap();
     let held0 = out_v(&rt, "y"); // first sample false → hold 0
+    assert_eq!(held0, ZERO);
 
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer().set_sense(g, ONE);
     rt.loom(&weave).unwrap();
     let v1 = out_v(&rt, "y");
+    // Rising edge draws a sample (typically non-zero for this seed; always in [0,1] defaults).
+    #[cfg(feature = "signal-f32")]
+    {
+        assert!((0.0..=1.0).contains(&v1));
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        assert!(v1 >= ZERO && v1 <= ONE);
+    }
 
     rt.begin_frame(HostTime { tick: 2 });
     rt.port_writer().set_sense(g, ONE); // held — no new sample
     rt.loom(&weave).unwrap();
     assert_eq!(out_v(&rt, "y"), v1);
 
-    let _ = held0;
-    let _ = ONE;
+    // Fall then rise → new sample.
+    rt.begin_frame(HostTime { tick: 3 });
+    rt.port_writer().set_sense(g, ZERO);
+    rt.loom(&weave).unwrap();
+    assert_eq!(out_v(&rt, "y"), v1); // still hold last
+
+    rt.begin_frame(HostTime { tick: 4 });
+    rt.port_writer().set_sense(g, ONE);
+    rt.loom(&weave).unwrap();
+    let v2 = out_v(&rt, "y");
+    assert_ne!(v1, v2);
 }
 
 #[test]
@@ -105,10 +124,9 @@ fn random_with_min_max_ports() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom(&weave).unwrap();
     let v = out_v(&rt, "y");
-    // In [ZERO, ONE]
     #[cfg(feature = "signal-f32")]
     {
-        assert!(v >= 0.0 && v <= 1.0);
+        assert!((0.0..=1.0).contains(&v));
     }
     #[cfg(feature = "signal-i32")]
     {
@@ -144,16 +162,13 @@ fn random_min_eq_max_is_constant() {
 }
 
 #[test]
-fn reseed_resets_stream() {
+fn reseed_matches_fresh_bind() {
     let weave = random_weave(false);
-    let mut rt = Runtime::bind(
-        &weave,
-        BindOpts {
-            seed: Some(Seed(1)),
-            ..BindOpts::default()
-        },
-    )
-    .unwrap();
+    let opts = BindOpts {
+        seed: Some(Seed(1)),
+        ..BindOpts::default()
+    };
+    let mut rt = Runtime::bind(&weave, opts.clone()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom(&weave).unwrap();
     let first = out_v(&rt, "y");
@@ -162,13 +177,28 @@ fn reseed_resets_stream() {
     let second = out_v(&rt, "y");
     assert_ne!(first, second);
 
+    // Room retry: reseed to the same BindOpts seed restores the bind stream.
     rt.reseed(Seed(1));
-    // reseed alone doesn't rematch weave mix — reseed sets raw seed|1
-    // after reseed, next sample should equal a fresh bind with same seed if we
-    // reseed to mixed value — for simplicity just ensure reseed changes path:
     rt.begin_frame(HostTime { tick: 2 });
     rt.loom(&weave).unwrap();
     let after = out_v(&rt, "y");
-    // after reseed to 1, stream differs from continued second
-    let _ = after;
+    assert_eq!(after, first);
+
+    let mut fresh = Runtime::bind(&weave, opts).unwrap();
+    fresh.begin_frame(HostTime { tick: 0 });
+    fresh.loom(&weave).unwrap();
+    assert_eq!(out_v(&fresh, "y"), after);
+}
+
+#[test]
+fn require_gate_without_wire_rejected() {
+    let (b, _) = Weave::builder("r")
+        .knot("rnd", KnotKind::random(true))
+        .unwrap();
+    let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let weave = b.wire_named("rnd", "out", "out", "in").build().unwrap();
+    assert_eq!(
+        validate(&weave, &Budget::default()),
+        Err(wyrd_core::WyrdError::UnconnectedRequired)
+    );
 }

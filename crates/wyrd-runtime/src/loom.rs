@@ -395,13 +395,13 @@ impl Runtime {
                 self.set_port(kid, PortSlot(1), o);
             }
             KindTag::Clamp { min, max } => {
+                // validate rejects min > max before bind.
+                debug_assert!(min <= max);
                 let i = self.get_port(kid, PortSlot(0));
-                let lo = if min <= max { min } else { max };
-                let hi = if min <= max { max } else { min };
-                let o = if i < lo {
-                    lo
-                } else if i > hi {
-                    hi
+                let o = if i < min {
+                    min
+                } else if i > max {
+                    max
                 } else {
                     i
                 };
@@ -657,7 +657,9 @@ fn random_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
         if span <= 0 {
             return lo as i32;
         }
-        (lo + (u as i64) * span / (u32::MAX as i64)) as i32
+        // u128 product avoids overflow when span is large (full Signal domain).
+        let offset = ((u as u128) * (span as u128)) / (u32::MAX as u128);
+        (lo + offset as i64) as i32
     }
 }
 
