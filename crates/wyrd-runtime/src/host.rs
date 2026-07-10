@@ -96,13 +96,18 @@ impl Host for NullHost {
 
 /// Scripted senses + recorded apply commands for deterministic replay tests.
 ///
-/// Hold dense [`KnotId`]s resolved at bind. Each frame is a list of
-/// `(KnotId, Signal)` writes applied in `sample_into`. After each tick,
-/// `commands` grows with that frame's outbox mapping (reused buffer).
+/// Hold dense [`KnotId`]s resolved at bind. Each frame is a **write list**
+/// (not a full port snapshot) applied in `sample_into` when
+/// `HostTime.tick == frame_index`. Missing sense keys **hold last** value
+/// (runtime does not clear senses each frame). Ticks past `frames.len()`
+/// write nothing (last values remain). Prefer setting every sense every frame
+/// in tests so scripts stay explicit.
+///
+/// After each tick, `commands` grows with that frame's outbox mapping.
 #[derive(Clone, Debug, Default)]
 pub struct ScriptedHost {
     pub tick: u64,
-    /// Per-tick sense samples: index = tick at sample time.
+    /// Write list for sample when `tick == i` (before `apply` increments tick).
     pub frames: Vec<Vec<(KnotId, Signal)>>,
     /// Flattened HostCommand history (append-only across ticks).
     pub commands: Vec<HostCommand>,
