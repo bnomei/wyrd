@@ -61,3 +61,6 @@
 - **Arm-math + residual structure**: Digitize/Map bind precompute (+ f32 Digitize
   `bin_scale`/`mul_add`); Sqrt via `f32::sqrt` + Newton isqrt (drop `libm`); sense seed
   list; Calc tags split by op; Compare const as `Signal`; Emit/Random wire flags at bind
+- **Ranks 1–8 settle pass**: `div` by ONE identity; `CalcDivConst` when `b` is Constant;
+  gather n=1/2 fast path; clear only unwired Ins; Delay power-of-two head mask; new
+  `settle_iso` filters (div/clamp/compare/delay)

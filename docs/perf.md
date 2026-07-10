@@ -189,11 +189,41 @@ Each area: isolation baseline → change → after×2 (f32) + i32 check when dua
 | after r2 (`bench-area-residual-after-r2`) | **~267.9 ns** | agrees with r1 |
 | map control (`bench-area-residual-control-map`) | ~502 ns | no Map regression |
 
-**Final isolation medians (f32, long):** Digitize **~646–693 ns** · Map ~502–505 ns · Sqrt ~395 ns · Not64 **~268 ns** · Fanout64 ~572 ns.
+**Final isolation medians (f32, long, pre ranks 1–8):** Digitize **~646–693 ns** · Map ~502–505 ns · Sqrt ~395 ns · Not64 **~268 ns** · Fanout64 ~572 ns.
 
-**Final isolation (i32, long):** Map ~286 ns · Sqrt ~291 ns · Not64 ~284 ns · Digitize still noisy on iso (prefer catalog / fastest).
+### Ranks 1–8 (post arm-math campaign)
 
-**Why stop here:** Digitize f32 still above Map/Not (bin cast + clamp) but ~1.6× closer than pre-area1. Remaining arms (Calc Div i32 Q-div) are live arithmetic; further wins need algorithmic/host batching.
+Settings: `--sample-count 300 --min-time 1`. New iso filters: `iso_eval_div_chain`, `iso_eval_clamp_neg_chain`, `iso_eval_compare_chain`, `iso_eval_delay_chain`; reuse `iso_gather_fanout`, `iso_struct_not_chain`, `settle_emit_storm`, `settle_stateful_kit`.
+
+**Shipped changes (shared + rank-targeted)**
+
+1. **`div` identity** — `b == ONE` (and i32 `-ONE`) short-circuit in `signal_ops::div`
+2. **`CalcDivConst`** — bind specializes when `b` is Constant (bench Div-by-ONE)
+3. **gather n=1/n=2** — no stack temp for common arities
+4. **clear only unwired Ins** — fully wired chains clear zero slots per loom
+5. **Delay power-of-two ring** — mask head when `len` is power of two
+
+| Rank | Isolation | Before (cite) | After r1 / r2 (median) | Outcome |
+| --- | --- | ---: | ---: | --- |
+| **1 Div** | `iso_eval_div_chain` 64 | f32 ~536 ns · i32 **~1.11 µs** (catalog) | f32 **~229–230 ns** · i32 **~224 ns** | **win** (identity + const + structure) |
+| **2 gather** | `iso_gather_fanout` 64 | ~572 ns | **~408.6 / ~408.6 ns** | **win** (n=1/2 gather) |
+| **3 clear** | `iso_struct_not_chain` 64 | ~268 ns | **~197.6 / ~198.9 ns** | **win** (clear only unwired) |
+| **4 Clamp/Neg** | `iso_eval_clamp_neg_chain` 64 | ~771 ns | **~390.3 / ~390.3 ns** | **win** (structure) |
+| **5 Compare** | `iso_eval_compare_chain` 64 | ~573 ns | **~299.2 / ~299.2 ns** | **win** (structure) |
+| **6 Emit** | `settle_emit_storm` 32 | ~465 ns | **~278.2 / ~278.3 ns** | **win** (structure + enable_wired) |
+| **7 Delay** | `iso_eval_delay_chain` 32 (ticks=4) | ~209 ns | **~154.6 / ~152 ns** | **win** (pow2 mask + structure) |
+| **8 Counter** | `settle_stateful_kit` | ~76 ns | **~39.8 / ~39.8 ns** | **win** (structural ride; no separate Counter rewrite — `from_count` still used) |
+
+**Stop / gains diminish:** all eight ranks still showed decision-quality wins under long weight (no mid-queue abandon). Remaining headroom is mostly live arithmetic (Digitize bins, general non-const Div) and product paths (bind load, Bevy host) — not more KindTag fields of the same class.
+
+```bash
+cargo bench -p wyrd-runtime --bench settle_iso -- \
+  iso_eval_div_chain iso_gather_fanout iso_struct_not_chain \
+  iso_eval_clamp_neg_chain iso_eval_compare_chain iso_eval_delay_chain \
+  --sample-count 300 --min-time 1
+cargo bench -p wyrd-runtime --bench settle_stateful -- \
+  settle_emit_storm settle_stateful_kit --sample-count 300 --min-time 1
+```
 
 ## Scaled catalog / delay (P0 — amortized)
 

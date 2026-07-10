@@ -4,8 +4,8 @@ use std::vec;
 use std::vec::Vec;
 
 use wyrd_core::{
-    port_slot, ports_of, CmdId, HostPathId, HostTime, KnotId, KnotKind, PortDir, PortSlot, Result,
-    Seed, Signal, WyrdError, ZERO,
+    port_slot, ports_of, CalcOp, CmdId, HostPathId, HostTime, KnotId, KnotKind, PortDir, PortSlot,
+    Result, Seed, Signal, WyrdError, ZERO,
 };
 use wyrd_graph::{validate, Budget, Weave};
 
@@ -199,7 +199,14 @@ impl Runtime {
             for p in ports_of(&k.kind) {
                 if p.dir == PortDir::In {
                     slots.push(p.slot);
-                    clear_port_idx.push(ki * MAX_PORTS + p.slot.0 as usize);
+                    // Wired Ins are overwritten by gather each loom — only clear
+                    // unwired Ins (must stay ZERO / default).
+                    let wired = inbound_lists[ki]
+                        .iter()
+                        .any(|&(_, _, ts)| ts == p.slot);
+                    if !wired {
+                        clear_port_idx.push(ki * MAX_PORTS + p.slot.0 as usize);
+                    }
                 }
             }
             input_slots.push(slots);
@@ -240,6 +247,18 @@ impl Runtime {
                         min_wired,
                         max_wired,
                     };
+                }
+                KnotKind::Calc { op: CalcOp::Div } => {
+                    // Specialize when `b` (PortSlot 1) is fed by a Constant.
+                    if let Some(&(from, _, _)) = inbound_lists[ki]
+                        .iter()
+                        .find(|&&(_, _, ts)| ts == PortSlot(1))
+                    {
+                        if let KnotKind::Constant { value } = knots[from.0 as usize].kind {
+                            kind_tags[ki] =
+                                crate::kind_tag::KindTag::CalcDivConst { divisor: value };
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -593,6 +612,47 @@ mod tests {
         let _ = FlagPriority::SetWins;
     }
 
+    #[test]
+    fn clear_only_unwired_ins_and_div_const_specializes() {
+        use wyrd_core::CalcOp;
+        // Flag with no set/reset/toggle wires → 3 clear slots.
+        let (b, _) = Weave::builder("fl")
+            .knot("f", KnotKind::flag(FlagPriority::SetWins, false))
+            .unwrap();
+        let (b, _) = b.knot("o", KnotKind::signal_out("y")).unwrap();
+        let weave = b.wire_named("f", "out", "o", "in").build().unwrap();
+        let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        assert_eq!(
+            rt.clear_port_index_count(),
+            3,
+            "unwired Flag Ins must clear"
+        );
+
+        // Div with Constant ONE on b → CalcDivConst.
+        let (b, _) = Weave::builder("dv")
+            .knot("in", KnotKind::signal_in())
+            .unwrap();
+        let (b, _) = b.knot("one", KnotKind::constant(ONE)).unwrap();
+        let (b, _) = b
+            .knot("d", KnotKind::Calc { op: CalcOp::Div })
+            .unwrap();
+        let (b, _) = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let weave = b
+            .wire_named("in", "out", "d", "a")
+            .wire_named("one", "out", "d", "b")
+            .wire_named("d", "out", "out", "in")
+            .build()
+            .unwrap();
+        let rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
+        let d = rt.sense_id("d").expect("div knot");
+        match rt.kind_tags[d.0 as usize] {
+            crate::kind_tag::KindTag::CalcDivConst { divisor } => {
+                assert_eq!(divisor, ONE);
+            }
+            other => panic!("expected CalcDivConst, got {other:?}"),
+        }
+    }
+
     /// Bind builds KindTag cache, flat clear indices, and CSR inbound.
     #[test]
     fn bind_builds_hot_path_tables() {
@@ -608,8 +668,8 @@ mod tests {
             .unwrap();
         let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
         assert_eq!(rt.kind_tag_count(), weave.knots.len());
-        // Not has 1 In, SignalOut has 1 In → 2 clear indices.
-        assert_eq!(rt.clear_port_index_count(), 2);
+        // Both Ins are wired → clear list empty (gather overwrites).
+        assert_eq!(rt.clear_port_index_count(), 0);
         // Two threads → two CSR edges.
         assert_eq!(rt.inbound_edge_count(), 2);
         assert_eq!(rt.inbound_off.len(), weave.knots.len() + 1);

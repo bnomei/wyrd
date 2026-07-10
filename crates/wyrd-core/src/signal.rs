@@ -84,12 +84,20 @@ pub fn div(a: Signal, b: Signal) -> Signal {
     if b == ZERO {
         return ZERO;
     }
+    // Identity divisors: Q-div by ONE and float `/ 1.0` are no-ops.
+    if b == ONE {
+        return a;
+    }
     #[cfg(feature = "signal-f32")]
     {
         a / b
     }
     #[cfg(feature = "signal-i32")]
     {
+        // (-ONE) → negate in Q domain (still saturating via i64 path for a==MIN).
+        if b == -ONE {
+            return a.saturating_neg();
+        }
         let n = (a as i64) << FRAC_BITS;
         (n / b as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32
     }
@@ -169,6 +177,7 @@ mod tests {
         {
             assert_eq!(div(from_count(6), from_count(2)), from_count(3));
             assert_eq!(div(from_count(6), ZERO), ZERO);
+            assert_eq!(div(from_count(7), ONE), from_count(7), "div by ONE identity");
             assert_eq!(sat_add(from_count(1), from_count(2)), from_count(3));
             assert_eq!(sat_sub(from_count(5), from_count(2)), from_count(3));
         }
@@ -176,6 +185,8 @@ mod tests {
         {
             // Q-div: levels in ONE units (not whole-count integers).
             assert_eq!(div(ONE * 2, ONE), ONE * 2); // 2.0 / 1.0
+            assert_eq!(div(ONE * 3, ONE), ONE * 3, "div by ONE identity");
+            assert_eq!(div(ONE, -ONE), -ONE, "div by -ONE");
             assert_eq!(div(ONE, ZERO), ZERO);
             assert_eq!(sat_add(from_count(1), from_count(2)), from_count(3));
             assert_eq!(sat_sub(from_count(5), from_count(2)), from_count(3));

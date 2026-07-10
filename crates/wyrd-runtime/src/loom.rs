@@ -58,12 +58,29 @@ impl Runtime {
         let ki = kid.0 as usize;
         let start = self.inbound_off[ki] as usize;
         let end = self.inbound_off[ki + 1] as usize;
-        if start == end {
+        let n = end - start;
+        if n == 0 {
+            return;
+        }
+        // Fast paths: chain knots usually have 1 inbound edge (no stack tmp).
+        if n == 1 {
+            let (f, fs, ts) = self.inbound_edges[start];
+            let v = self.get_port_hot(f, fs);
+            self.set_port_hot(kid, ts, v);
+            return;
+        }
+        if n == 2 {
+            let (f0, fs0, ts0) = self.inbound_edges[start];
+            let (f1, fs1, ts1) = self.inbound_edges[start + 1];
+            let v0 = self.get_port_hot(f0, fs0);
+            let v1 = self.get_port_hot(f1, fs1);
+            self.set_port_hot(kid, ts0, v0);
+            self.set_port_hot(kid, ts1, v1);
             return;
         }
         // Stack buffer: max ports per knot is 8.
         let mut tmp: [(PortSlot, Signal); 8] = [(PortSlot(0), ZERO); 8];
-        let n = (end - start).min(8);
+        let n = n.min(8);
         for i in 0..n {
             let (f, fs, ts) = self.inbound_edges[start + i];
             tmp[i] = (ts, self.get_port_hot(f, fs));
@@ -174,6 +191,7 @@ impl Runtime {
                 }
                 self.prev_in[ki] = inc;
                 self.prev_dec[ki] = dec;
+                // Whole-count Signal: i32 from_count is identity; f32 casts.
                 self.set_port_hot(kid, PortSlot(3), crate::from_count(self.counter[ki]));
             }
             KindTag::TimerPulseHold { ticks } => {
@@ -222,8 +240,15 @@ impl Runtime {
                     let head = self.delay_head[ki] as usize;
                     let o = self.delay_buf[off + head];
                     self.delay_buf[off + head] = i;
+                    // Power-of-two ring: mask; else branch wrap.
                     let next = head + 1;
-                    self.delay_head[ki] = if next >= len { 0 } else { next as u16 };
+                    self.delay_head[ki] = if len.is_power_of_two() {
+                        (next & (len - 1)) as u16
+                    } else if next >= len {
+                        0
+                    } else {
+                        next as u16
+                    };
                     self.set_port_hot(kid, PortSlot(1), o);
                 }
             }
@@ -246,6 +271,10 @@ impl Runtime {
                 let a = self.get_port_hot(kid, PortSlot(0));
                 let b = self.get_port_hot(kid, PortSlot(1));
                 self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::div(a, b));
+            }
+            KindTag::CalcDivConst { divisor } => {
+                let a = self.get_port_hot(kid, PortSlot(0));
+                self.set_port_hot(kid, PortSlot(2), wyrd_core::signal_ops::div(a, divisor));
             }
             KindTag::Abs => {
                 let i = self.get_port_hot(kid, PortSlot(0));

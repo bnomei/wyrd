@@ -28,6 +28,8 @@ pub(crate) enum KindTag {
     CalcSub,
     CalcMul,
     CalcDiv,
+    /// `b` is a Constant resolved at bind (common Div-by-ONE pattern).
+    CalcDivConst { divisor: Signal },
     Abs,
     Neg,
     /// Linear map with bind-time inv/scale.

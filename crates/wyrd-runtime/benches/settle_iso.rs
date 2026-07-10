@@ -6,7 +6,10 @@
 #[path = "common.rs"]
 mod common;
 
-use common::{chain_digitize, chain_map, chain_not, chain_sqrt, fanout_nots};
+use common::{
+    chain_calc_div, chain_clamp_neg, chain_compare, chain_delays, chain_digitize, chain_map,
+    chain_not, chain_sqrt, fanout_nots,
+};
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
 use wyrd_core::{HostTime, ONE};
@@ -75,6 +78,70 @@ fn iso_eval_sqrt_chain(bencher: Bencher, n: usize) {
 #[divan::bench(args = [64])]
 fn iso_eval_map_chain(bencher: Bencher, n: usize) {
     let (weave, mut rt) = chain_map(n);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
+            rt.port_writer().set_sense(id, ONE);
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+/// Rank1: Calc Div chain (const ONE divisor — stresses Q-div / identity path).
+#[divan::bench(args = [64])]
+fn iso_eval_div_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_calc_div(n);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
+            rt.port_writer().set_sense(id, ONE);
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+/// Rank4: Clamp+Neg layers.
+#[divan::bench(args = [64])]
+fn iso_eval_clamp_neg_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_clamp_neg(n);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
+            rt.port_writer().set_sense(id, ONE);
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+/// Rank5: Compare chain (const rhs).
+#[divan::bench(args = [64])]
+fn iso_eval_compare_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_compare(n);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots.len() as u64;
+    bencher
+        .counter(ItemsCount::new(knots))
+        .bench_local(|| {
+            rt.begin_frame(HostTime { tick: 0 });
+            rt.port_writer().set_sense(id, ONE);
+            rt.loom(black_box(&weave)).unwrap();
+            black_box(rt.outbox().signals().len());
+        });
+}
+
+/// Rank7: Delay chain (ring traffic).
+#[divan::bench(args = [32])]
+fn iso_eval_delay_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_delays(n, 4); // ticks=4 (power-of-two ring)
     let id = rt.sense_id("in").unwrap();
     let knots = weave.knots.len() as u64;
     bencher
