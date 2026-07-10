@@ -6,11 +6,9 @@
 //! 4. Edge → Counter → Compare
 //! 5. Delayed pulse (Delay Rune)
 
-use wyrd_core::{
-    from_count, is_truthy, CompareOp, FlagPriority, HostTime, KnotKind, TimerMode, ONE, ZERO,
-};
+use wyrd_core::{is_truthy, CompareOp, FlagPriority, KnotKind, TimerMode, ONE, ZERO};
 use wyrd_graph::{Pattern, Weave};
-use wyrd_runtime::{tick_once, BindOpts, HostCommand, Runtime, ScriptedHost};
+use wyrd_runtime::{tick_once, BindOpts, Runtime, ScriptedHost};
 
 fn level(rt: &Runtime, path: &str) -> bool {
     let pid = rt.path_id(path).unwrap();
@@ -153,7 +151,7 @@ fn recipe_counter_threshold() {
     let mut rt = Runtime::bind(&weave, BindOpts::default()).unwrap();
     let inc = rt.sense_id("inc").unwrap();
     let mut host = ScriptedHost::new();
-    // rising, hold, fall, rising → two edges
+    // rising, fall, rising → two edges
     host.push_frame([(inc, ONE)]);
     host.push_frame([(inc, ZERO)]);
     host.push_frame([(inc, ONE)]);
@@ -193,10 +191,4 @@ fn recipe_delayed_pulse() {
     assert!(!level(&rt, "y"));
     tick_once(&mut host, &mut rt, &weave).unwrap();
     assert!(level(&rt, "y"));
-    let _ = from_count(0);
-    let _ = HostTime { tick: 0 };
-    let _ = HostCommand::SetLevel {
-        path: rt.path_id("y").unwrap(),
-        value: ZERO,
-    };
 }
