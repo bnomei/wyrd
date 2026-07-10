@@ -273,9 +273,18 @@ impl Runtime {
             }
             KindTag::EmitCommand => {
                 let trig = self.get_port(kid, PortSlot(0));
+                // Optional enable: unconnected → treated as ONE (enabled).
+                let enable = if self.inbound[ki]
+                    .iter()
+                    .any(|&(_, _, ts)| ts == PortSlot(1))
+                {
+                    self.get_port(kid, PortSlot(1))
+                } else {
+                    ONE
+                };
                 let payload = self.get_port(kid, PortSlot(2));
                 let prev = self.prev_in[ki];
-                if !is_truthy(prev) && is_truthy(trig) {
+                if !is_truthy(prev) && is_truthy(trig) && is_truthy(enable) {
                     if let Some(cmd) = self.knots[ki].cmd {
                         self.push_emit(cmd, payload);
                     }
