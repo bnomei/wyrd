@@ -326,7 +326,7 @@ Acceptance for “MVP done” in vision: slices **1–6 green** + flamegraph not
 | 1 | Headless truth: Constant → Not → SignalOut | [x] |
 | 2 | Pulse path: edge → Counter → Compare → out | [x] (via RisingFromZero / Counter tests) |
 | 3 | AND fan-in: two SignalIn → And → SignalOut | [x] |
-| 4 | Serde Weave RON + budget validate + topo | [x] (hard budgets; soft still open) |
+| 4 | Serde Weave RON + budget validate + topo | [x] (hard + soft report) |
 | 5 | Bevy demo: input → Weave → component/message | [x] headless component + Message confirm |
 | 6 | Divan settle N knots + items/sec | [x] N∈{16,64,128} + tick_once |
 | 7 | Flamegraph documented | [~] how-to in docs/perf.md; capture optional |
