@@ -193,28 +193,32 @@ Each area: isolation baseline → change → after×2 (f32) + i32 check when dua
 
 ### Ranks 1–8 (post arm-math campaign)
 
-Settings: `--sample-count 300 --min-time 1`. New iso filters: `iso_eval_div_chain`, `iso_eval_clamp_neg_chain`, `iso_eval_compare_chain`, `iso_eval_delay_chain`; reuse `iso_gather_fanout`, `iso_struct_not_chain`, `settle_emit_storm`, `settle_stateful_kit`.
+Settings: `--sample-count 300 --min-time 1` (long Divan).  
+**Before protocol:** sources at parent of ranks commit (`e10cc21`) + new iso benches only; full Divan transcripts under scratch `bench-rank-*-before.txt` (Timer precision + samples + median).  
+**After protocol:** ranks stack on `main`; matched filters; `bench-rank-*-after-r1.txt` / `-after-r2.txt`.
 
-**Shipped changes (shared + rank-targeted)**
+**Dedicated ships (ranks 1, 2, 3, 7)**
 
-1. **`div` identity** — `b == ONE` (and i32 `-ONE`) short-circuit in `signal_ops::div`
-2. **`CalcDivConst`** — bind specializes when `b` is Constant (bench Div-by-ONE)
-3. **gather n=1/n=2** — no stack temp for common arities
-4. **clear only unwired Ins** — fully wired chains clear zero slots per loom
-5. **Delay power-of-two ring** — mask head when `len` is power of two
+1. **`div` identity** — `b == ONE` (i32 also `-ONE`) in `signal_ops::div`
+2. **`CalcDivConst`** — bind when `b` is Constant
+3. **gather n=1/n=2** — no stack temp
+4. **clear only unwired Ins**
+5. **Delay power-of-two** head mask
 
-| Rank | Isolation | Before (cite) | After r1 / r2 (median) | Outcome |
+| Rank | Isolation filter | Before (long, pre-rank code) | After r1 / r2 | Outcome |
 | --- | --- | ---: | ---: | --- |
-| **1 Div** | `iso_eval_div_chain` 64 | f32 ~536 ns · i32 **~1.11 µs** (catalog) | f32 **~229–230 ns** · i32 **~224 ns** | **win** (identity + const + structure) |
-| **2 gather** | `iso_gather_fanout` 64 | ~572 ns | **~408.6 / ~408.6 ns** | **win** (n=1/2 gather) |
-| **3 clear** | `iso_struct_not_chain` 64 | ~268 ns | **~197.6 / ~198.9 ns** | **win** (clear only unwired) |
-| **4 Clamp/Neg** | `iso_eval_clamp_neg_chain` 64 | ~771 ns | **~390.3 / ~390.3 ns** | **win** (structure) |
-| **5 Compare** | `iso_eval_compare_chain` 64 | ~573 ns | **~299.2 / ~299.2 ns** | **win** (structure) |
-| **6 Emit** | `settle_emit_storm` 32 | ~465 ns | **~278.2 / ~278.3 ns** | **win** (structure + enable_wired) |
-| **7 Delay** | `iso_eval_delay_chain` 32 (ticks=4) | ~209 ns | **~154.6 / ~152 ns** | **win** (pow2 mask + structure) |
-| **8 Counter** | `settle_stateful_kit` | ~76 ns | **~39.8 / ~39.8 ns** | **win** (structural ride; no separate Counter rewrite — `from_count` still used) |
+| **1 Div** | `iso_eval_div_chain` 64 | f32 **869.2 ns** · i32 **947.7 ns** | f32 **231.5 / 241.9 ns** · i32 **224.9 / 225 ns** | **win** (dedicated) |
+| **2 gather** | `iso_gather_fanout` 64 | **567.4 ns** | **429.4 / 432 ns** | **win** (dedicated) |
+| **3 clear** | `iso_struct_not_chain` 64 | **273.1 ns** | **200.2 / 198.9 ns** | **win** (dedicated) |
+| **4 Clamp/Neg** | `iso_eval_clamp_neg_chain` 64 | **671.6 ns** | **392.9 / 390.3 ns** | **no dedicated ship** — co-benefit of ranks 2–3 (gather/clear); no Clamp/Neg arm change |
+| **5 Compare** | `iso_eval_compare_chain` 64 | **546.6 ns** | **312.2 / 299.2 ns** | **no dedicated ship** — co-benefit of ranks 2–3 |
+| **6 Emit** | `settle_emit_storm` 32 | **327.8 ns** | **280.7 / 301.8 ns** | **no dedicated ship** — co-benefit of ranks 2–3; r1/r2 scatter, direction still lower than before |
+| **7 Delay** | `iso_eval_delay_chain` 32 (ticks=4) | **170.3 ns** | **153.4 / 166.4 ns** | **win** (pow2 mask + structure); modest, r2 near floor |
+| **8 Counter** | `settle_stateful_kit` | **61.26 ns** | **39.78 / 43.37 ns** | **no dedicated ship** — co-benefit of ranks 2–3; `from_count` path unchanged |
 
-**Stop / gains diminish:** all eight ranks still showed decision-quality wins under long weight (no mid-queue abandon). Remaining headroom is mostly live arithmetic (Digitize bins, general non-const Div) and product paths (bind load, Bevy host) — not more KindTag fields of the same class.
+**Attribution note:** ranks 4, 5, 6, 8 had **no rank-specific code**; long pre-rank vs full-stack after measures shared gather/clear (and Div identity on Div-shaped graphs only). Sequential post-(N−1) isolation was not re-built mid-commit because those ranks intentionally no-shipped after isolation long baseline + after×2 confirmed co-benefit only.
+
+**Stop / gains diminish:** dedicated levers (1–3, 7) win under long weight; remaining ranks (4–6, 8) correctly recorded as **no dedicated ship**. Further KindTag-class work on Clamp/Compare/Emit/Counter is not justified without a new micro-opt hypothesis.
 
 ```bash
 cargo bench -p wyrd-runtime --bench settle_iso -- \
