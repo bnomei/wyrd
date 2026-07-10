@@ -1,4 +1,7 @@
+use core::fmt;
+
 use std::collections::BTreeMap;
+use std::string::String;
 use std::vec;
 use std::vec::Vec;
 
@@ -18,7 +21,7 @@ pub struct Budget {
     pub max_knots: u16,
     /// Hard max threads (default 512).
     pub max_threads: u16,
-    /// Soft knot ceiling (default 64) — warning only until report API.
+    /// Soft knot ceiling (default 64) — warning via [`validate_report`].
     pub soft_knots: u16,
     /// Soft thread ceiling (default 128).
     pub soft_threads: u16,
@@ -50,8 +53,86 @@ impl Default for Budget {
     }
 }
 
-/// Validate author Weave: names unique, ports known, fan-in ≤ 1, DAG, budgets, numeric.
+/// Soft budget exceeded (does not fail bind / [`validate`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BudgetWarning {
+    SoftKnots { count: u16, soft: u16 },
+    SoftThreads { count: u16, soft: u16 },
+    SoftChainDepth {
+        depth: u16,
+        soft: u16,
+        at_knot: String,
+    },
+    SoftFanOut {
+        fan_out: u16,
+        soft: u16,
+        at_knot: String,
+    },
+}
+
+impl fmt::Display for BudgetWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BudgetWarning::SoftKnots { count, soft } => {
+                write!(f, "soft knot budget: {count} knots (soft {soft})")
+            }
+            BudgetWarning::SoftThreads { count, soft } => {
+                write!(f, "soft thread budget: {count} threads (soft {soft})")
+            }
+            BudgetWarning::SoftChainDepth {
+                depth,
+                soft,
+                at_knot,
+            } => write!(
+                f,
+                "soft chain depth: {depth} edges at knot '{at_knot}' (soft {soft})"
+            ),
+            BudgetWarning::SoftFanOut {
+                fan_out,
+                soft,
+                at_knot,
+            } => write!(
+                f,
+                "soft fan-out: {fan_out} from knot '{at_knot}' (soft {soft})"
+            ),
+        }
+    }
+}
+
+/// Successful validation plus any soft-budget warnings for hosts/tools.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ValidateReport {
+    pub warnings: Vec<BudgetWarning>,
+}
+
+impl ValidateReport {
+    pub fn ok(&self) -> bool {
+        self.warnings.is_empty()
+    }
+}
+
+impl fmt::Display for ValidateReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.warnings.is_empty() {
+            return f.write_str("validate ok");
+        }
+        for (i, w) in self.warnings.iter().enumerate() {
+            if i > 0 {
+                f.write_str("; ")?;
+            }
+            write!(f, "{w}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Validate author Weave: hard fails as `Err`; soft budgets → empty or populated report.
 pub fn validate(weave: &Weave, budget: &Budget) -> Result<()> {
+    validate_report(weave, budget).map(|_| ())
+}
+
+/// Like [`validate`], but returns soft warnings on success.
+pub fn validate_report(weave: &Weave, budget: &Budget) -> Result<ValidateReport> {
     if weave.knots.is_empty() {
         return Err(WyrdError::Empty);
     }
@@ -113,15 +194,13 @@ pub fn validate(weave: &Weave, budget: &Budget) -> Result<()> {
         edges.push((fi, ti));
     }
 
-    // Fan-out hard budget (outbound threads per knot).
-    {
-        let mut fout = vec![0u16; weave.knots.len()];
-        for &(a, _) in &edges {
-            if a < fout.len() {
-                fout[a] = fout[a].saturating_add(1);
-                if fout[a] > budget.max_fan_out {
-                    return Err(WyrdError::Budget);
-                }
+    // Fan-out hard + soft.
+    let mut fout = vec![0u16; weave.knots.len()];
+    for &(a, _) in &edges {
+        if a < fout.len() {
+            fout[a] = fout[a].saturating_add(1);
+            if fout[a] > budget.max_fan_out {
+                return Err(WyrdError::Budget);
             }
         }
     }
@@ -234,7 +313,42 @@ pub fn validate(weave: &Weave, budget: &Budget) -> Result<()> {
         }
     }
 
-    Ok(())
+    // Soft warnings (never fail).
+    let mut warnings = Vec::new();
+    let knot_count = weave.knots.len() as u16;
+    if knot_count > budget.soft_knots {
+        warnings.push(BudgetWarning::SoftKnots {
+            count: knot_count,
+            soft: budget.soft_knots,
+        });
+    }
+    let thread_count = weave.threads.len() as u16;
+    if thread_count > budget.soft_threads {
+        warnings.push(BudgetWarning::SoftThreads {
+            count: thread_count,
+            soft: budget.soft_threads,
+        });
+    }
+    for (i, &fo) in fout.iter().enumerate() {
+        if fo > budget.soft_fan_out {
+            warnings.push(BudgetWarning::SoftFanOut {
+                fan_out: fo,
+                soft: budget.soft_fan_out,
+                at_knot: String::from(weave.knots[i].id.as_str()),
+            });
+        }
+    }
+    for (i, &d) in depth.iter().enumerate() {
+        if d > budget.soft_chain_depth {
+            warnings.push(BudgetWarning::SoftChainDepth {
+                depth: d,
+                soft: budget.soft_chain_depth,
+                at_knot: String::from(weave.knots[i].id.as_str()),
+            });
+        }
+    }
+
+    Ok(ValidateReport { warnings })
 }
 
 fn delay_ticks(kind: &KnotKind) -> u16 {
@@ -248,6 +362,7 @@ fn delay_ticks(kind: &KnotKind) -> u16 {
 mod tests {
     use super::*;
     use crate::Weave;
+    use std::format;
     use std::vec;
     use wyrd_core::{KnotKind, NumericPath, ONE};
 
@@ -372,6 +487,73 @@ mod tests {
             ..Budget::default()
         };
         assert_eq!(validate(&w, &bud), Err(WyrdError::Budget));
+    }
+
+    #[test]
+    fn soft_warnings_do_not_fail_validate() {
+        // 3 edges, soft_chain_depth 2 → warning, still Ok.
+        let (b, _) = Weave::builder("d")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("n2", KnotKind::not()).unwrap();
+        let w = b
+            .wire_named("c", "out", "n0", "in")
+            .wire_named("n0", "out", "n1", "in")
+            .wire_named("n1", "out", "n2", "in")
+            .build()
+            .unwrap();
+        let bud = Budget {
+            soft_chain_depth: 2,
+            soft_knots: 2, // also soft knots (4 knots)
+            ..Budget::default()
+        };
+        validate(&w, &bud).unwrap();
+        let rep = validate_report(&w, &bud).unwrap();
+        assert!(!rep.ok());
+        assert!(rep.warnings.iter().any(|w| matches!(
+            w,
+            BudgetWarning::SoftChainDepth { depth: 3, soft: 2, .. }
+        )));
+        assert!(rep.warnings.iter().any(|w| matches!(
+            w,
+            BudgetWarning::SoftKnots { count: 4, soft: 2 }
+        )));
+        let s = format!("{rep}");
+        assert!(s.contains("soft chain depth"));
+        assert!(s.contains("soft knot"));
+    }
+
+    #[test]
+    fn soft_fan_out_warns() {
+        let (b, _) = Weave::builder("f")
+            .knot("c", KnotKind::constant(ONE))
+            .unwrap();
+        let (b, _) = b.knot("n0", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("n1", KnotKind::not()).unwrap();
+        let (b, _) = b.knot("n2", KnotKind::not()).unwrap();
+        let w = b
+            .wire_named("c", "out", "n0", "in")
+            .wire_named("c", "out", "n1", "in")
+            .wire_named("c", "out", "n2", "in")
+            .build()
+            .unwrap();
+        let bud = Budget {
+            soft_fan_out: 2,
+            max_fan_out: 8,
+            ..Budget::default()
+        };
+        let rep = validate_report(&w, &bud).unwrap();
+        assert!(rep.warnings.iter().any(|w| matches!(
+            w,
+            BudgetWarning::SoftFanOut {
+                fan_out: 3,
+                soft: 2,
+                at_knot
+            } if at_knot == "c"
+        )));
+        assert!(format!("{}", rep.warnings[0]).contains("'c'"));
     }
 
     #[test]

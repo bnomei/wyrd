@@ -15,7 +15,7 @@ mod serde_ron;
 
 pub use builder::{slot_of, WeaveBuilder};
 pub use pattern::{expand_pattern, merge_expanded, Pattern, PatternExports};
-pub use validate::{validate, Budget};
+pub use validate::{validate, validate_report, Budget, BudgetWarning, ValidateReport};
 pub use weave::{KnotDef, PortRefAuthor, ThreadDef, Weave};
 
 #[cfg(feature = "serde-ron")]

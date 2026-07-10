@@ -20,4 +20,6 @@ pub use wyrd_core::{
     from_count, is_truthy, CmdId, HostPathId, HostTime, KnotId, PortSlot, Result, Seed, Signal,
     WyrdError, ONE, ZERO,
 };
-pub use wyrd_graph::{validate, Budget, KnotKind, Weave};
+pub use wyrd_graph::{
+    validate, validate_report, Budget, BudgetWarning, KnotKind, ValidateReport, Weave,
+};
