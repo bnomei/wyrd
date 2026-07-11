@@ -46,8 +46,8 @@ pub mod runtime {
     pub use crate::runtime_impl::{
         append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, CookbookError,
         Emit, HandleError, Host, HostCommand, HostPathId, KnotHandle, NullHost, Outbox, PortWriter,
-        Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeResolveError, Runtime,
-        ScriptedHost, SenseId, SignalOutSample,
+        Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeResolveError, Runtime, Scenario,
+        ScenarioError, ScriptedHost, SenseId, SignalOutSample,
     };
 }
 
@@ -75,6 +75,6 @@ pub use runtime_impl::{
     append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, CookbookError,
     Emit, EmitCommandManifest, HandleError, Host, HostCommand, HostPathId, NullHost, Outbox,
     PortWriter, Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeManifest,
-    RecipeResolveError, Runtime, ScriptedHost, SenseId, SignalInManifest, SignalOutManifest,
-    SignalOutSample,
+    RecipeResolveError, Runtime, Scenario, ScenarioError, ScriptedHost, SenseId, SignalInManifest,
+    SignalOutManifest, SignalOutSample,
 };

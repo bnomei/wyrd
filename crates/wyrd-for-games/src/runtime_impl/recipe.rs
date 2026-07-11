@@ -6,7 +6,7 @@ use std::vec::Vec;
 use crate::authoring::{BuildError, Weave};
 use crate::foundation::{KnotKind, NumericPath, SignalDomain};
 use crate::runtime_impl::error::{RecipeError, RecipeResolveError};
-use crate::runtime_impl::{BindOpts, Runtime};
+use crate::runtime_impl::{BindOpts, PortWriter, Runtime};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -67,6 +67,15 @@ impl<R: Recipe> RecipeInstance<R> {
     /// Borrow the recipe's typed, runtime-owned ports.
     pub fn ports(&self) -> &R::Ports {
         &self.ports
+    }
+
+    /// Borrow the typed ports and a writer for this instance's runtime together.
+    ///
+    /// This is crate-visible support for [`crate::Scenario`], which must keep
+    /// frame writes tied to the same recipe instance that resolved the ports.
+    pub(crate) fn port_writer_with_ports(&mut self) -> (&R::Ports, PortWriter<'_>) {
+        let Self { runtime, ports } = self;
+        (ports, runtime.port_writer())
     }
 
     /// Split this instance into its runtime and typed ports.

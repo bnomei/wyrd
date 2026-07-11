@@ -2,12 +2,115 @@
 
 #![allow(clippy::result_large_err)]
 
-use super::helpers::{bind_default, sample_loom, signal_out_truthy, tick_senses};
 use super::Result;
 use crate::authoring::{BuildError, ValidationError, Weave};
-use crate::foundation::{from_count, HostTime, KnotKind, SignalDomain, ONE, ZERO};
-use crate::runtime_impl::host::ScriptedHost;
+use crate::foundation::{from_count, KnotKind, SignalDomain, ONE, ZERO};
 use crate::weave;
+use crate::{HostPathId, Recipe, RecipeResolveError, Scenario, SenseId};
+
+/// Typed ports for the A01 tutorial recipe.
+pub struct A01HelloInvertPorts {
+    pub inverted: HostPathId,
+}
+
+/// Typed recipe binding for A01.
+pub struct A01HelloInvertRecipe;
+
+impl Recipe for A01HelloInvertRecipe {
+    type Ports = A01HelloInvertPorts;
+
+    fn weave() -> core::result::Result<Weave, BuildError> {
+        a01_hello_invert_weave()
+    }
+
+    fn resolve_ports(
+        runtime: &crate::Runtime,
+    ) -> core::result::Result<Self::Ports, RecipeResolveError> {
+        Ok(A01HelloInvertPorts {
+            inverted: runtime.required_path("debug.inverted")?,
+        })
+    }
+}
+
+/// Typed ports for the A02 tutorial recipe.
+pub struct A02TwoPlateAndPorts {
+    pub plate_a: SenseId,
+    pub plate_b: SenseId,
+    pub door: HostPathId,
+}
+
+/// Typed recipe binding for A02.
+pub struct A02TwoPlateAndRecipe;
+
+impl Recipe for A02TwoPlateAndRecipe {
+    type Ports = A02TwoPlateAndPorts;
+
+    fn weave() -> core::result::Result<Weave, BuildError> {
+        a02_two_plate_and_weave()
+    }
+
+    fn resolve_ports(
+        runtime: &crate::Runtime,
+    ) -> core::result::Result<Self::Ports, RecipeResolveError> {
+        Ok(A02TwoPlateAndPorts {
+            plate_a: runtime.required_sense("plate_a")?,
+            plate_b: runtime.required_sense("plate_b")?,
+            door: runtime.required_path("door.open")?,
+        })
+    }
+}
+
+/// Typed ports for the A03 tutorial recipe.
+pub struct A03BindSampleLoomPorts {
+    pub input: SenseId,
+    pub output: HostPathId,
+}
+
+/// Typed recipe binding for A03.
+pub struct A03BindSampleLoomRecipe;
+
+impl Recipe for A03BindSampleLoomRecipe {
+    type Ports = A03BindSampleLoomPorts;
+
+    fn weave() -> core::result::Result<Weave, BuildError> {
+        a03_bind_sample_loom_weave()
+    }
+
+    fn resolve_ports(
+        runtime: &crate::Runtime,
+    ) -> core::result::Result<Self::Ports, RecipeResolveError> {
+        Ok(A03BindSampleLoomPorts {
+            input: runtime.required_sense("in")?,
+            output: runtime.required_path("y")?,
+        })
+    }
+}
+
+/// Typed ports for the A04 tutorial recipe.
+pub struct A04HostTickOncePorts {
+    pub input: SenseId,
+    pub lamp: HostPathId,
+}
+
+/// Typed recipe binding for A04.
+pub struct A04HostTickOnceRecipe;
+
+impl Recipe for A04HostTickOnceRecipe {
+    type Ports = A04HostTickOncePorts;
+
+    fn weave() -> core::result::Result<Weave, BuildError> {
+        a04_host_tick_once_weave()
+    }
+
+    fn resolve_ports(
+        runtime: &crate::Runtime,
+    ) -> core::result::Result<Self::Ports, RecipeResolveError> {
+        Ok(A04HostTickOncePorts {
+            input: runtime.required_sense("in")?,
+            lamp: runtime.required_path("lamp")?,
+        })
+    }
+}
 
 /// Topology for A01: Constant(ONE) → Not → SignalOut.
 pub fn a01_hello_invert_weave() -> core::result::Result<Weave, BuildError> {
@@ -30,14 +133,10 @@ pub fn a01_hello_invert_weave() -> core::result::Result<Weave, BuildError> {
 /// wyrd::cookbook::tier_a::run_a01_hello_invert().unwrap();
 /// ```
 pub fn run_a01_hello_invert() -> Result<()> {
-    let weave = a01_hello_invert_weave()?;
-    let mut rt = bind_default(&weave)?;
-    rt.begin_frame(HostTime { tick: 0 });
-    rt.loom();
-    assert!(
-        !signal_out_truthy(&rt, "debug.inverted"),
-        "Not of ONE is falsey"
-    );
+    Scenario::<A01HelloInvertRecipe>::run(|scenario| {
+        scenario.frame(|_| Ok(()))?;
+        scenario.expect_value(|ports| ports.inverted, ZERO)
+    })?;
     Ok(())
 }
 
@@ -63,14 +162,18 @@ pub fn a02_two_plate_and_weave() -> core::result::Result<Weave, BuildError> {
 /// wyrd::cookbook::tier_a::run_a02_two_plate_and().unwrap();
 /// ```
 pub fn run_a02_two_plate_and() -> Result<()> {
-    let weave = a02_two_plate_and_weave()?;
-    let mut rt = bind_default(&weave)?;
-    let a = rt.sense_id("plate_a").expect("plate_a");
-    let b = rt.sense_id("plate_b").expect("plate_b");
-    sample_loom(&mut rt, 0, &[(a, ONE), (b, ZERO)])?;
-    assert!(!signal_out_truthy(&rt, "door.open"));
-    sample_loom(&mut rt, 1, &[(a, ONE), (b, ONE)])?;
-    assert!(signal_out_truthy(&rt, "door.open"));
+    Scenario::<A02TwoPlateAndRecipe>::run(|scenario| {
+        scenario.frame(|frame| {
+            frame.set(|ports| ports.plate_a, ONE)?;
+            frame.set(|ports| ports.plate_b, ZERO)
+        })?;
+        scenario.expect_value(|ports| ports.door, ZERO)?;
+        scenario.frame(|frame| {
+            frame.set(|ports| ports.plate_a, ONE)?;
+            frame.set(|ports| ports.plate_b, ONE)
+        })?;
+        scenario.expect_truthy(|ports| ports.door)
+    })?;
     Ok(())
 }
 
@@ -95,13 +198,12 @@ pub fn a03_bind_sample_loom_weave() -> core::result::Result<Weave, BuildError> {
 /// wyrd::cookbook::tier_a::run_a03_bind_sample_loom().unwrap();
 /// ```
 pub fn run_a03_bind_sample_loom() -> Result<()> {
-    let weave = a03_bind_sample_loom_weave()?;
-    let mut rt = bind_default(&weave)?;
-    let id = rt.sense_id("in").expect("in");
-    sample_loom(&mut rt, 0, &[(id, ZERO)])?;
-    assert!(signal_out_truthy(&rt, "y"), "Not of ZERO is truthy");
-    sample_loom(&mut rt, 1, &[(id, ONE)])?;
-    assert!(!signal_out_truthy(&rt, "y"));
+    Scenario::<A03BindSampleLoomRecipe>::run(|scenario| {
+        scenario.frame(|frame| frame.set(|ports| ports.input, ZERO))?;
+        scenario.expect_truthy(|ports| ports.output)?;
+        scenario.frame(|frame| frame.set(|ports| ports.input, ONE))?;
+        scenario.expect_value(|ports| ports.output, ZERO)
+    })?;
     Ok(())
 }
 
@@ -122,14 +224,12 @@ pub fn a04_host_tick_once_weave() -> core::result::Result<Weave, BuildError> {
 /// wyrd::cookbook::tier_a::run_a04_host_tick_once().unwrap();
 /// ```
 pub fn run_a04_host_tick_once() -> Result<()> {
-    let weave = a04_host_tick_once_weave()?;
-    let mut rt = bind_default(&weave)?;
-    let id = rt.sense_id("in").expect("in");
-    let mut host = ScriptedHost::new();
-    tick_senses(&mut host, &mut rt, &[(id, ZERO)])?;
-    assert!(!signal_out_truthy(&rt, "lamp"));
-    tick_senses(&mut host, &mut rt, &[(id, ONE)])?;
-    assert!(signal_out_truthy(&rt, "lamp"));
+    Scenario::<A04HostTickOnceRecipe>::run(|scenario| {
+        scenario.frame(|frame| frame.set(|ports| ports.input, ZERO))?;
+        scenario.expect_value(|ports| ports.lamp, ZERO)?;
+        scenario.frame(|frame| frame.set(|ports| ports.input, ONE))?;
+        scenario.expect_truthy(|ports| ports.lamp)
+    })?;
     Ok(())
 }
 

@@ -289,8 +289,113 @@ impl std::error::Error for RecipeError {
     }
 }
 
+/// Failure while driving or asserting a typed [`crate::Scenario`].
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum ScenarioError {
+    /// Binding the recipe for the scenario failed.
+    Recipe(RecipeError),
+    /// A typed frame write or endpoint lookup used an invalid runtime handle.
+    Handle(HandleError),
+    /// An expectation ran before the scenario had produced a sample for the path.
+    MissingSignal {
+        /// Host path selected through the recipe's typed ports.
+        path: String,
+        /// Scenario frame that was being inspected.
+        tick: u64,
+    },
+    /// A signal sample did not have the expected value.
+    UnexpectedSignal {
+        /// Host path selected through the recipe's typed ports.
+        path: String,
+        /// Expected sample.
+        expected: crate::Signal,
+        /// Sample produced by the runtime.
+        actual: crate::Signal,
+        /// Scenario frame that produced the sample.
+        tick: u64,
+    },
+    /// A signal sample was present but falsey.
+    ExpectedTruthy {
+        /// Host path selected through the recipe's typed ports.
+        path: String,
+        /// Falsey sample produced by the runtime.
+        actual: crate::Signal,
+        /// Scenario frame that produced the sample.
+        tick: u64,
+    },
+    /// A command was emitted a different number of times than expected.
+    UnexpectedEmits {
+        /// Command selected through the recipe's typed ports.
+        command: String,
+        /// Expected number of emits in the current frame.
+        expected: usize,
+        /// Actual number of emits in the current frame.
+        actual: usize,
+        /// Scenario frame that produced the emits.
+        tick: u64,
+    },
+}
+
+impl From<RecipeError> for ScenarioError {
+    fn from(value: RecipeError) -> Self {
+        Self::Recipe(value)
+    }
+}
+
+impl From<HandleError> for ScenarioError {
+    fn from(value: HandleError) -> Self {
+        Self::Handle(value)
+    }
+}
+
+impl fmt::Display for ScenarioError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Recipe(source) => write!(f, "cannot start scenario: {source}"),
+            Self::Handle(source) => write!(f, "scenario handle error: {source}"),
+            Self::MissingSignal { path, tick } => {
+                write!(f, "SignalOut path '{path}' has no sample in scenario frame {tick}")
+            }
+            Self::UnexpectedSignal {
+                path,
+                expected,
+                actual,
+                tick,
+            } => write!(
+                f,
+                "SignalOut path '{path}' in scenario frame {tick} was {actual:?}, expected {expected:?}"
+            ),
+            Self::ExpectedTruthy { path, actual, tick } => write!(
+                f,
+                "SignalOut path '{path}' in scenario frame {tick} was falsey ({actual:?})"
+            ),
+            Self::UnexpectedEmits {
+                command,
+                expected,
+                actual,
+                tick,
+            } => write!(
+                f,
+                "EmitCommand '{command}' in scenario frame {tick} fired {actual} times, expected {expected}"
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ScenarioError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Recipe(source) => Some(source),
+            Self::Handle(source) => Some(source),
+            _ => None,
+        }
+    }
+}
+
 /// Error returned by executable cookbook recipes.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum CookbookError {
     /// Graph build failed before validation.
@@ -301,6 +406,8 @@ pub enum CookbookError {
     Bind(BindError),
     /// Dense handle misuse after bind.
     Handle(HandleError),
+    /// Typed scenario setup, execution, or expectation failed.
+    Scenario(ScenarioError),
 }
 
 impl From<BuildError> for CookbookError {
@@ -327,6 +434,12 @@ impl From<HandleError> for CookbookError {
     }
 }
 
+impl From<ScenarioError> for CookbookError {
+    fn from(value: ScenarioError) -> Self {
+        Self::Scenario(value)
+    }
+}
+
 impl fmt::Display for CookbookError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -334,6 +447,7 @@ impl fmt::Display for CookbookError {
             Self::Validation(source) => write!(f, "cookbook validation failed: {source}"),
             Self::Bind(source) => write!(f, "cookbook bind failed: {source}"),
             Self::Handle(source) => write!(f, "cookbook handle failed: {source}"),
+            Self::Scenario(source) => write!(f, "cookbook scenario failed: {source}"),
         }
     }
 }
@@ -346,6 +460,7 @@ impl std::error::Error for CookbookError {
             Self::Validation(source) => Some(source),
             Self::Bind(source) => Some(source),
             Self::Handle(source) => Some(source),
+            Self::Scenario(source) => Some(source),
         }
     }
 }
