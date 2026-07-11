@@ -1,6 +1,6 @@
 //! Emit-per-tick hard cap (BindOpts::max_emits_per_tick).
 
-use wyrd_core::{HostTime, KnotKind, ONE};
+use wyrd_core::{HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{BindOpts, Runtime};
 
@@ -50,7 +50,13 @@ fn many_emits_same_tick_capped() {
         }
     }
     rt.loom();
-    assert_eq!(rt.outbox().emits().len(), 2);
+    let outbox = rt.outbox();
+    assert_eq!(outbox.emits().len(), 2);
+    assert_eq!(outbox.dropped_emits(), 2);
+
+    rt.begin_frame(HostTime { tick: 1 });
+    assert!(rt.outbox().emits().is_empty());
+    assert_eq!(rt.outbox().dropped_emits(), 0);
 }
 
 #[test]
@@ -64,8 +70,67 @@ fn default_cap_allows_typical_emit() {
     let weave = b.build().unwrap();
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let btn = rt.sense_id("btn").unwrap();
+    assert_eq!(rt.outbox().dropped_emits(), 0);
+
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(btn, ONE).unwrap();
     rt.loom();
     assert_eq!(rt.outbox().emits().len(), 1);
+    assert_eq!(rt.outbox().dropped_emits(), 0);
+}
+
+#[test]
+fn zero_cap_drops_every_emit() {
+    let mut b = Weave::builder("zero-cap").unwrap();
+    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
+    let from = b.output(&k_btn, "out").unwrap();
+    let to = b.input(&k_em, "trigger").unwrap();
+    b.connect(from, to).unwrap();
+    let mut rt = Runtime::bind(
+        b.build().unwrap(),
+        BindOpts {
+            max_emits_per_tick: 0,
+            ..BindOpts::default()
+        },
+    )
+    .unwrap();
+    let btn = rt.sense_id("btn").unwrap();
+
+    rt.begin_frame(HostTime { tick: 0 });
+    rt.port_writer().set_sense(btn, ONE).unwrap();
+    rt.loom();
+
+    assert!(rt.outbox().emits().is_empty());
+    assert_eq!(rt.outbox().dropped_emits(), 1);
+}
+
+#[test]
+fn emit_cap_is_shared_by_multiple_looms_in_one_frame() {
+    let mut b = Weave::builder("multi-loom-cap").unwrap();
+    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
+    let from = b.output(&k_btn, "out").unwrap();
+    let to = b.input(&k_em, "trigger").unwrap();
+    b.connect(from, to).unwrap();
+    let mut rt = Runtime::bind(
+        b.build().unwrap(),
+        BindOpts {
+            max_emits_per_tick: 1,
+            ..BindOpts::default()
+        },
+    )
+    .unwrap();
+    let btn = rt.sense_id("btn").unwrap();
+
+    rt.begin_frame(HostTime { tick: 0 });
+    rt.port_writer().set_sense(btn, ONE).unwrap();
+    rt.loom();
+    rt.port_writer().set_sense(btn, ZERO).unwrap();
+    rt.loom();
+    rt.port_writer().set_sense(btn, ONE).unwrap();
+    rt.loom();
+
+    assert_eq!(rt.outbox().emits().len(), 1);
+    assert_eq!(rt.outbox().dropped_emits(), 1);
 }

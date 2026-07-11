@@ -32,8 +32,11 @@ pub(crate) enum SenseSeed {
 #[derive(Clone, Debug)]
 pub struct BindOpts {
     pub seed: Option<Seed>,
-    /// Hard cap on EmitCommand outbox entries per loom (default 8).
-    /// Further emits in the same tick are dropped (no panic).
+    /// Hard cap on `EmitCommand` outbox entries per frame (default 8).
+    ///
+    /// Further emits in the same frame are dropped without panicking. Their
+    /// exact count is exposed through [`Outbox::dropped_emits`] until the next
+    /// [`Runtime::begin_frame`]. A cap of zero drops every emit.
     pub max_emits_per_tick: u16,
     /// Validate budget (default matches [`Budget::default`]).
     pub budget: Budget,
@@ -107,6 +110,7 @@ pub struct Runtime {
     pub(crate) delay_head: Vec<u16>,
     out_signals: Vec<SignalOutSample>,
     out_emits: Vec<Emit>,
+    dropped_emits: usize,
     max_emits_per_tick: u16,
     tick: u64,
     /// Deterministic xorshift state for Random knots (never zero).
@@ -412,6 +416,7 @@ impl Runtime {
             delay_head,
             out_signals,
             out_emits,
+            dropped_emits: 0,
             max_emits_per_tick: opts.max_emits_per_tick,
             tick: 0,
             rng,
@@ -486,11 +491,12 @@ impl Runtime {
             .ok_or(HandleError::InvalidCommand { cmd: id })
     }
 
-    /// Start a frame: set tick and clear the outbox for this loom.
+    /// Start a frame: set tick and clear acts and dropped-emit telemetry.
     pub fn begin_frame(&mut self, time: HostTime) {
         self.tick = time.tick;
         self.out_signals.clear();
         self.out_emits.clear();
+        self.dropped_emits = 0;
     }
 
     /// Borrow for host sense writes (`set_sense` with dense ids only).
@@ -498,11 +504,12 @@ impl Runtime {
         PortWriter { rt: self }
     }
 
-    /// Read-only view of SignalOut samples and EmitCommand entries for this frame.
+    /// Read-only view of acts and dropped-emit telemetry for this frame.
     pub fn outbox(&self) -> Outbox<'_> {
         Outbox {
             signals: &self.out_signals,
             emits: &self.out_emits,
+            dropped_emits: self.dropped_emits,
         }
     }
 
@@ -641,7 +648,8 @@ impl Runtime {
     }
 
     pub(crate) fn push_emit(&mut self, cmd: CmdId, payload: Signal) {
-        if self.out_emits.len() as u16 >= self.max_emits_per_tick {
+        if self.out_emits.len() >= usize::from(self.max_emits_per_tick) {
+            self.dropped_emits = self.dropped_emits.saturating_add(1);
             return;
         }
         self.out_emits.push(Emit { cmd, payload });
@@ -801,6 +809,31 @@ mod tests {
             Err(HandleError::InvalidKnot { knot: far_handle })
         );
         let _ = FlagPriority::SetWins;
+    }
+
+    #[test]
+    fn dropped_emit_count_saturates() {
+        let mut b = Weave::builder("emit-saturation").unwrap();
+        let input = b.knot("input", KnotKind::signal_in()).unwrap();
+        let emit = b.knot("emit", KnotKind::emit_command("fire")).unwrap();
+        let from = b.output(&input, "out").unwrap();
+        let to = b.input(&emit, "trigger").unwrap();
+        b.connect(from, to).unwrap();
+        let mut rt = Runtime::bind(
+            b.build().unwrap(),
+            BindOpts {
+                max_emits_per_tick: 0,
+                ..BindOpts::default()
+            },
+        )
+        .unwrap();
+        let cmd = rt.cmd_id("fire").unwrap();
+        rt.dropped_emits = usize::MAX;
+
+        rt.push_emit(cmd, ONE);
+
+        assert_eq!(rt.dropped_emits, usize::MAX);
+        assert!(rt.out_emits.is_empty());
     }
 
     #[test]
