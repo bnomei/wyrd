@@ -46,13 +46,16 @@ struct PlateState {
 fn setup(mut world: ResMut<WyrdWorld>, mut commands: Commands) {
     let weave = and_door_weave();
     let inst = WyrdInstance::new("and_door", weave).expect("bind weave");
+    let plate_a = inst.sense_id("plate_a").expect("plate_a");
+    let plate_b = inst.sense_id("plate_b").expect("plate_b");
+    let door_path = inst.path_id("door.open").expect("door.open");
+    let instance = world.insert(inst);
     let binding = AndDoorBinding {
-        plate_a: inst.sense_id("plate_a").expect("plate_a"),
-        plate_b: inst.sense_id("plate_b").expect("plate_b"),
-        door_path: inst.path_id("door.open").expect("door.open"),
-        instance: 0,
+        plate_a,
+        plate_b,
+        door_path,
+        instance,
     };
-    world.instances.push(inst);
     commands.insert_resource(binding);
     commands.spawn(Door { open: false });
     eprintln!("wyrd-bevy and_door: host Door component; frames 1–2 A only, 3–4 both plates");
@@ -85,7 +88,7 @@ fn drive_plates(
     plates.a = plates.frame >= 1;
     plates.b = plates.frame >= 3;
 
-    let Some(inst) = world.instances.get_mut(binding.instance) else {
+    let Some(inst) = world.get_mut(binding.instance) else {
         return;
     };
     set_sense_bool(inst, binding.plate_a, plates.a).expect("bound plate_a handle");
@@ -98,7 +101,7 @@ fn apply_door(
     mut q: Query<&mut Door>,
     mut confirms: MessageWriter<WyrdSignalConfirm>,
 ) {
-    let Some(inst) = world.instances.get(binding.instance) else {
+    let Some(inst) = world.get(binding.instance) else {
         return;
     };
     for mut door in &mut q {

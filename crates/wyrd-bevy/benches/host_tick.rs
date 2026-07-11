@@ -42,7 +42,7 @@ fn sample_plates(
     let Some(plates) = plates else {
         return;
     };
-    let Some(inst) = world.instances.get_mut(binding.instance) else {
+    let Some(inst) = world.get_mut(binding.instance) else {
         return;
     };
     set_sense_bool(inst, binding.plate_a, plates.a).expect("bound plate_a handle");
@@ -54,7 +54,7 @@ fn apply_door_component(
     world: Res<WyrdWorld>,
     mut q: Query<&mut Door>,
 ) {
-    let Some(inst) = world.instances.get(binding.instance) else {
+    let Some(inst) = world.get(binding.instance) else {
         return;
     };
     for mut door in &mut q {
@@ -72,16 +72,16 @@ fn setup_app() -> App {
 
     let weave = and_door_weave();
     let inst = WyrdInstance::new("demo", weave).unwrap();
+    let plate_a = inst.sense_id("plate_a").unwrap();
+    let plate_b = inst.sense_id("plate_b").unwrap();
+    let door_path = inst.path_id("door.open").unwrap();
+    let instance = app.world_mut().resource_mut::<WyrdWorld>().insert(inst);
     let binding = AndDoorBinding {
-        plate_a: inst.sense_id("plate_a").unwrap(),
-        plate_b: inst.sense_id("plate_b").unwrap(),
-        door_path: inst.path_id("door.open").unwrap(),
-        instance: 0,
+        plate_a,
+        plate_b,
+        door_path,
+        instance,
     };
-    app.world_mut()
-        .resource_mut::<WyrdWorld>()
-        .instances
-        .push(inst);
     app.insert_resource(binding);
     app.world_mut().spawn(Door { open: false });
     app.insert_resource(PlateState { a: false, b: false });

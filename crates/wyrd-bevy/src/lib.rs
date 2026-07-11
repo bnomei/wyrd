@@ -6,6 +6,7 @@
 //! never Weave Threads. f32 signal path only.
 
 use bevy::prelude::*;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use wyrd_core::{HostTime, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{BindError, HandleError, HostPathId, Outbox, Runtime, SenseId};
@@ -72,10 +73,178 @@ impl WyrdInstance {
     }
 }
 
-/// All active Wyrd instances (dense ids already bound).
-#[derive(Resource, Default)]
+/// Stable, opaque handle to an instance stored in [`WyrdWorld`].
+///
+/// Handles are generational: removing an instance permanently invalidates its
+/// handle, even if a later insertion reuses the same storage slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct WyrdInstanceId {
+    owner: usize,
+    index: usize,
+    generation: u64,
+}
+
+struct WyrdInstanceSlot {
+    generation: u64,
+    instance: Option<WyrdInstance>,
+    next_free: Option<usize>,
+}
+
+// Monotonic owner identity prevents handles from crossing WyrdWorld resources.
+static NEXT_WORLD_OWNER: AtomicUsize = AtomicUsize::new(1);
+
+fn next_world_owner() -> usize {
+    NEXT_WORLD_OWNER
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+            owner.checked_add(1)
+        })
+        .expect("WyrdWorld owner token space exhausted")
+}
+
+/// All active Wyrd instances, addressed through stable generational handles.
+#[derive(Resource)]
 pub struct WyrdWorld {
-    pub instances: Vec<WyrdInstance>,
+    owner: usize,
+    slots: Vec<WyrdInstanceSlot>,
+    free_head: Option<usize>,
+    len: usize,
+}
+
+impl Default for WyrdWorld {
+    fn default() -> Self {
+        Self {
+            owner: next_world_owner(),
+            slots: Vec::new(),
+            free_head: None,
+            len: 0,
+        }
+    }
+}
+
+impl WyrdWorld {
+    /// Insert an instance and return its stable handle.
+    pub fn insert(&mut self, instance: WyrdInstance) -> WyrdInstanceId {
+        let (index, generation) = if let Some(index) = self.free_head {
+            let slot = &mut self.slots[index];
+            self.free_head = slot.next_free.take();
+            debug_assert!(slot.instance.is_none());
+            slot.instance = Some(instance);
+            (index, slot.generation)
+        } else {
+            let index = self.slots.len();
+            self.slots.push(WyrdInstanceSlot {
+                generation: 0,
+                instance: Some(instance),
+                next_free: None,
+            });
+            (index, 0)
+        };
+        self.len += 1;
+        WyrdInstanceId {
+            owner: self.owner,
+            index,
+            generation,
+        }
+    }
+
+    /// Remove and return an instance when `id` is still current.
+    ///
+    /// A slot whose generation reaches [`u64::MAX`] is retired after removal
+    /// instead of wrapping around and making an ancient handle valid again.
+    pub fn remove(&mut self, id: WyrdInstanceId) -> Option<WyrdInstance> {
+        if id.owner != self.owner {
+            return None;
+        }
+        let slot = self.slots.get_mut(id.index)?;
+        if slot.generation != id.generation {
+            return None;
+        }
+        let instance = slot.instance.take()?;
+        self.len -= 1;
+
+        if let Some(generation) = slot.generation.checked_add(1) {
+            slot.generation = generation;
+            slot.next_free = self.free_head;
+            self.free_head = Some(id.index);
+        } else {
+            slot.next_free = None;
+        }
+
+        Some(instance)
+    }
+
+    /// Borrow an instance when `id` is still current.
+    pub fn get(&self, id: WyrdInstanceId) -> Option<&WyrdInstance> {
+        if id.owner != self.owner {
+            return None;
+        }
+        let slot = self.slots.get(id.index)?;
+        if slot.generation == id.generation {
+            slot.instance.as_ref()
+        } else {
+            None
+        }
+    }
+
+    /// Mutably borrow an instance when `id` is still current.
+    pub fn get_mut(&mut self, id: WyrdInstanceId) -> Option<&mut WyrdInstance> {
+        if id.owner != self.owner {
+            return None;
+        }
+        let slot = self.slots.get_mut(id.index)?;
+        if slot.generation == id.generation {
+            slot.instance.as_mut()
+        } else {
+            None
+        }
+    }
+
+    /// Iterate over active instance handles and shared references.
+    pub fn iter(&self) -> impl Iterator<Item = (WyrdInstanceId, &WyrdInstance)> {
+        self.slots.iter().enumerate().filter_map(|(index, slot)| {
+            slot.instance.as_ref().map(|instance| {
+                (
+                    WyrdInstanceId {
+                        owner: self.owner,
+                        index,
+                        generation: slot.generation,
+                    },
+                    instance,
+                )
+            })
+        })
+    }
+
+    /// Iterate over active instance handles and mutable references.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (WyrdInstanceId, &mut WyrdInstance)> {
+        let owner = self.owner;
+        self.slots
+            .iter_mut()
+            .enumerate()
+            .filter_map(move |(index, slot)| {
+                let generation = slot.generation;
+                slot.instance.as_mut().map(|instance| {
+                    (
+                        WyrdInstanceId {
+                            owner,
+                            index,
+                            generation,
+                        },
+                        instance,
+                    )
+                })
+            })
+    }
+
+    /// Number of active instances.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether there are no active instances.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 }
 
 /// Demo/test binding for the and-door sample (not a general host primitive).
@@ -85,7 +254,7 @@ pub struct AndDoorBinding {
     pub plate_a: SenseId,
     pub plate_b: SenseId,
     pub door_path: HostPathId,
-    pub instance: usize,
+    pub instance: WyrdInstanceId,
 }
 
 /// Host-owned door state on an Entity (not a Wyrd Knot).
@@ -123,7 +292,7 @@ impl Plugin for WyrdPlugin {
 ///
 /// Loom is infallible after a successful bind (validate already ran).
 pub fn loom_all(mut world: ResMut<WyrdWorld>) {
-    for inst in world.instances.iter_mut() {
+    for (_, inst) in world.iter_mut() {
         inst.tick = inst.tick.wrapping_add(1);
         inst.runtime.begin_frame(HostTime { tick: inst.tick });
         inst.runtime.loom();
@@ -208,7 +377,7 @@ mod tests {
         let Some(plates) = plates else {
             return;
         };
-        let Some(inst) = world.instances.get_mut(binding.instance) else {
+        let Some(inst) = world.get_mut(binding.instance) else {
             return;
         };
         set_sense_bool(inst, binding.plate_a, plates.a).expect("bound plate_a handle");
@@ -216,7 +385,7 @@ mod tests {
     }
 
     fn apply_door(binding: Res<AndDoorBinding>, world: Res<WyrdWorld>, mut door: ResMut<DoorOpen>) {
-        let Some(inst) = world.instances.get(binding.instance) else {
+        let Some(inst) = world.get(binding.instance) else {
             return;
         };
         door.0 = signal_truthy(inst, binding.door_path).expect("bound door path");
@@ -228,7 +397,7 @@ mod tests {
         mut q: Query<&mut Door>,
         mut confirms: MessageWriter<WyrdSignalConfirm>,
     ) {
-        let Some(inst) = world.instances.get(binding.instance) else {
+        let Some(inst) = world.get(binding.instance) else {
             return;
         };
         for mut door in &mut q {
@@ -253,12 +422,9 @@ mod tests {
         let inst = WyrdInstance::new("demo", weave).unwrap();
         assert!(inst.sense_id("nope").is_none());
         assert!(inst.path_id("nope").is_none());
-        let binding = AndDoorBinding {
-            plate_a: inst.sense_id("plate_a").unwrap(),
-            plate_b: inst.sense_id("plate_b").unwrap(),
-            door_path: inst.path_id("door.open").unwrap(),
-            instance: 0,
-        };
+        let plate_a = inst.sense_id("plate_a").unwrap();
+        let plate_b = inst.sense_id("plate_b").unwrap();
+        let door_path = inst.path_id("door.open").unwrap();
         let foreign = WyrdInstance::new("foreign", and_door_weave()).unwrap();
         assert_eq!(
             signal_truthy(&inst, foreign.path_id("door.open").unwrap()),
@@ -275,10 +441,13 @@ mod tests {
         );
         assert!(open, "a rejected handle must not mutate host state");
 
-        app.world_mut()
-            .resource_mut::<WyrdWorld>()
-            .instances
-            .push(inst);
+        let instance = app.world_mut().resource_mut::<WyrdWorld>().insert(inst);
+        let binding = AndDoorBinding {
+            plate_a,
+            plate_b,
+            door_path,
+            instance,
+        };
         app.insert_resource(binding);
         app.add_systems(Update, sample_plates.in_set(WyrdSet::Sample));
         app.add_systems(Update, apply_door.in_set(WyrdSet::Apply));
@@ -296,13 +465,14 @@ mod tests {
         app.update();
         assert!(app.world().resource::<DoorOpen>().0);
 
-        app.insert_resource(AndDoorBinding {
-            plate_a: binding.plate_a,
-            plate_b: binding.plate_b,
-            door_path: binding.door_path,
-            instance: 99,
-        });
+        let removed = app
+            .world_mut()
+            .resource_mut::<WyrdWorld>()
+            .remove(binding.instance)
+            .unwrap();
+        let removed_tick = removed.tick();
         app.update();
+        assert_eq!(removed.tick(), removed_tick);
     }
 
     #[derive(Resource, Default)]
@@ -323,18 +493,17 @@ mod tests {
 
         let weave = and_door_weave();
         let inst = WyrdInstance::new("demo", weave).unwrap();
+        let plate_a = inst.sense_id("plate_a").unwrap();
+        let plate_b = inst.sense_id("plate_b").unwrap();
+        let door_path = inst.path_id("door.open").unwrap();
+        let instance = app.world_mut().resource_mut::<WyrdWorld>().insert(inst);
         let binding = AndDoorBinding {
-            plate_a: inst.sense_id("plate_a").unwrap(),
-            plate_b: inst.sense_id("plate_b").unwrap(),
-            door_path: inst.path_id("door.open").unwrap(),
-            instance: 0,
+            plate_a,
+            plate_b,
+            door_path,
+            instance,
         };
         let door_path = binding.door_path;
-
-        app.world_mut()
-            .resource_mut::<WyrdWorld>()
-            .instances
-            .push(inst);
         app.insert_resource(binding);
         app.world_mut().spawn(Door { open: false });
         app.add_systems(Update, sample_plates.in_set(WyrdSet::Sample));
@@ -366,5 +535,82 @@ mod tests {
         assert_eq!(inst.tick(), 0);
         assert!(inst.runtime().sense_id("plate_a").is_some());
         assert!(inst.outbox().signals().is_empty());
+    }
+
+    #[test]
+    fn generational_ids_survive_removal_and_reject_stale_handles() {
+        let mut world = WyrdWorld::default();
+        let first = world.insert(WyrdInstance::new("first", and_door_weave()).unwrap());
+        let second = world.insert(WyrdInstance::new("second", and_door_weave()).unwrap());
+
+        let removed = world.remove(first).unwrap();
+        assert_eq!(removed.label(), "first");
+        assert_eq!(world.get(second).unwrap().label(), "second");
+        assert!(world.get(first).is_none());
+
+        let replacement = world.insert(WyrdInstance::new("replacement", and_door_weave()).unwrap());
+        assert_eq!(replacement.index, first.index);
+        assert_ne!(replacement.generation, first.generation);
+        assert!(world.get(first).is_none());
+        assert_eq!(world.get(replacement).unwrap().label(), "replacement");
+        assert_eq!(world.len(), 2);
+        assert_eq!(world.iter().count(), 2);
+        let iter_ids: Vec<_> = world.iter().map(|(id, _)| id).collect();
+        assert!(iter_ids.iter().all(|id| world.get(*id).is_some()));
+        let iter_mut_ids: Vec<_> = world.iter_mut().map(|(id, _)| id).collect();
+        assert!(iter_mut_ids.iter().all(|id| world.get(*id).is_some()));
+        assert!(!world.is_empty());
+    }
+
+    #[test]
+    fn instance_ids_are_rejected_by_other_worlds() {
+        let mut first_world = WyrdWorld::default();
+        let mut second_world = WyrdWorld::default();
+        let first_id = first_world.insert(WyrdInstance::new("first", and_door_weave()).unwrap());
+        let second_id = second_world.insert(WyrdInstance::new("second", and_door_weave()).unwrap());
+
+        assert!(second_world.get(first_id).is_none());
+        assert!(second_world.get_mut(first_id).is_none());
+        assert!(second_world.remove(first_id).is_none());
+        assert_eq!(second_world.get(second_id).unwrap().label(), "second");
+    }
+
+    #[test]
+    fn replacing_world_resource_invalidates_old_ids() {
+        let mut app = App::new();
+        app.init_resource::<WyrdWorld>();
+        let old_id = app
+            .world_mut()
+            .resource_mut::<WyrdWorld>()
+            .insert(WyrdInstance::new("old", and_door_weave()).unwrap());
+
+        app.insert_resource(WyrdWorld::default());
+        let new_id = app
+            .world_mut()
+            .resource_mut::<WyrdWorld>()
+            .insert(WyrdInstance::new("new", and_door_weave()).unwrap());
+
+        let world = app.world().resource::<WyrdWorld>();
+        assert!(world.get(old_id).is_none());
+        assert_eq!(world.get(new_id).unwrap().label(), "new");
+    }
+
+    #[test]
+    fn generation_overflow_retires_slot() {
+        let mut world = WyrdWorld::default();
+        let original = world.insert(WyrdInstance::new("original", and_door_weave()).unwrap());
+        world.slots[original.index].generation = u64::MAX;
+        let final_id = WyrdInstanceId {
+            owner: world.owner,
+            index: original.index,
+            generation: u64::MAX,
+        };
+
+        world.remove(final_id).unwrap();
+        let replacement = world.insert(WyrdInstance::new("replacement", and_door_weave()).unwrap());
+
+        assert_ne!(replacement.index, final_id.index);
+        assert!(world.get(final_id).is_none());
+        assert_eq!(world.get(replacement).unwrap().label(), "replacement");
     }
 }
