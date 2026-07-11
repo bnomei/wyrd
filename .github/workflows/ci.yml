@@ -98,9 +98,12 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Coverage f32 core suite (fail-under 100)
         run: |
-          cargo llvm-cov --workspace --exclude wyrd-for-games-bevy \
+          if ! cargo llvm-cov --workspace --exclude wyrd-for-games-bevy \
             --lcov --output-path lcov-f32.info \
-            --fail-under-lines 100
+            --fail-under-lines 100; then
+            cargo llvm-cov report --show-missing-lines
+            exit 1
+          fi
       - name: Coverage i32 core suite (fail-under 100)
         run: |
           cargo llvm-cov clean --workspace
