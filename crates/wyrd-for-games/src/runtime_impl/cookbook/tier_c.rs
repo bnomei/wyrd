@@ -12,6 +12,19 @@ use crate::foundation::{
 };
 use crate::runtime_impl::host::ScriptedHost;
 
+fn duplicate_knot_id<'a>(
+    failure_at: Option<&str>,
+    target: &str,
+    default: &'a str,
+    duplicate: &'a str,
+) -> &'a str {
+    if failure_at == Some(target) {
+        duplicate
+    } else {
+        default
+    }
+}
+
 /// C01: MultiSwitchLatch — both plates once together → Flag until reset.
 ///
 /// # Examples
@@ -106,11 +119,15 @@ pub fn run_c02_timed_hold() -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c03_press_n_then_window().unwrap();
 /// ```
 pub fn run_c03_press_n_then_window() -> Result<()> {
+    run_c03_press_n_then_window_with(None)
+}
+
+fn run_c03_press_n_then_window_with(failure_at: Option<&str>) -> Result<()> {
     let mut b = Weave::builder("c03")?;
     let k_inc = b.knot("inc", KnotKind::signal_in(SignalDomain::Bool))?;
     let k_cnt = b.knot("cnt", KnotKind::counter())?;
     let k_cmp = b.knot(
-        "cmp",
+        duplicate_knot_id(failure_at, "c03.compare", "cmp", "inc"),
         KnotKind::compare(CompareOp::Gte, Some(from_count(2)), SignalDomain::Count),
     )?;
     let k_rise = b.knot("rise", KnotKind::rising_from_zero())?;
@@ -205,10 +222,14 @@ pub fn run_c04_button_cooldown() -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c05_axis_digital().unwrap();
 /// ```
 pub fn run_c05_axis_digital() -> Result<()> {
+    run_c05_axis_digital_with(None)
+}
+
+fn run_c05_axis_digital_with(failure_at: Option<&str>) -> Result<()> {
     let mut b = Weave::builder("c05")?;
     let k_axis = b.knot("axis", KnotKind::signal_in(SignalDomain::Level))?;
     let k_th = b.knot(
-        "th",
+        duplicate_knot_id(failure_at, "c05.threshold", "th", "axis"),
         KnotKind::Threshold {
             domain: SignalDomain::Level,
             high: from_count(5),
@@ -217,11 +238,11 @@ pub fn run_c05_axis_digital() -> Result<()> {
         },
     )?;
     let k_pressed = b.knot(
-        "pressed",
+        duplicate_knot_id(failure_at, "c05.pressed", "pressed", "axis"),
         KnotKind::signal_out("pressed", SignalDomain::Bool),
     )?;
     let k_just = b.knot(
-        "just",
+        duplicate_knot_id(failure_at, "c05.just_pressed", "just", "axis"),
         KnotKind::signal_out("just_pressed", SignalDomain::Bool),
     )?;
     let from = b.output(&k_axis, "out")?;
@@ -259,10 +280,14 @@ pub fn run_c05_axis_digital() -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c06_map_remap().unwrap();
 /// ```
 pub fn run_c06_map_remap() -> Result<()> {
+    run_c06_map_remap_with(None)
+}
+
+fn run_c06_map_remap_with(failure_at: Option<&str>) -> Result<()> {
     let mut b = Weave::builder("c06")?;
     let k_in = b.knot("in", KnotKind::signal_in(SignalDomain::Count))?;
     let k_map = b.knot(
-        "map",
+        duplicate_knot_id(failure_at, "c06.map", "map", "in"),
         KnotKind::Map {
             domain: SignalDomain::Count,
             in_min: ZERO,
@@ -299,10 +324,14 @@ pub fn run_c06_map_remap() -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c07_digitize_steps().unwrap();
 /// ```
 pub fn run_c07_digitize_steps() -> Result<()> {
+    run_c07_digitize_steps_with(None)
+}
+
+fn run_c07_digitize_steps_with(failure_at: Option<&str>) -> Result<()> {
     let mut b = Weave::builder("c07")?;
     let k_in = b.knot("in", KnotKind::signal_in(SignalDomain::Level))?;
     let k_dig = b.knot(
-        "dig",
+        duplicate_knot_id(failure_at, "c07.digitize", "dig", "in"),
         KnotKind::Digitize {
             domain: SignalDomain::Level,
             steps: 2,
@@ -429,4 +458,31 @@ pub fn run_c10_or_any_of_keys() -> Result<()> {
     tick_senses(&mut host, &mut rt, &[(a, ZERO), (b_id, ONE)])?;
     assert!(signal_out_truthy(&rt, "open"));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn c03_duplicate_compare_propagates_the_real_builder_error() {
+        assert!(run_c03_press_n_then_window_with(Some("c03.compare")).is_err());
+    }
+
+    #[test]
+    fn c05_duplicate_knots_propagate_the_real_builder_error() {
+        for failure_at in ["c05.threshold", "c05.pressed", "c05.just_pressed"] {
+            assert!(run_c05_axis_digital_with(Some(failure_at)).is_err());
+        }
+    }
+
+    #[test]
+    fn c06_duplicate_map_propagates_the_real_builder_error() {
+        assert!(run_c06_map_remap_with(Some("c06.map")).is_err());
+    }
+
+    #[test]
+    fn c07_duplicate_digitize_propagates_the_real_builder_error() {
+        assert!(run_c07_digitize_steps_with(Some("c07.digitize")).is_err());
+    }
 }

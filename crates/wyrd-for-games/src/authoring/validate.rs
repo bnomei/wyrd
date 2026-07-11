@@ -530,13 +530,7 @@ fn validate_domains(
 
     for (knot_index, knot) in def.knots.iter().enumerate() {
         for port in ports_of(&knot.kind) {
-            let constraint = port_domain(&knot.kind, port.slot).ok_or_else(|| {
-                ValidationError::InvalidParameter {
-                    knot_id: knot.id.clone(),
-                    parameter: "domain",
-                    reason: "port has no domain constraint",
-                }
-            })?;
+            let constraint = require_port_domain(knot, port.slot)?;
             let domain = match constraint {
                 PortDomain::Fixed(domain) => Some(domain),
                 PortDomain::Variable(_) | PortDomain::Any => None,
@@ -547,14 +541,8 @@ fn validate_domains(
             if let PortDomain::Variable(variable) = constraint {
                 active.insert(node);
                 if let Some(&(first, first_port)) = variables.get(&(knot_index, variable)) {
-                    validate_variable_domains(
-                        &mut inference,
-                        first,
-                        node,
-                        &knot.id,
-                        first_port,
-                        port.name,
-                    )?;
+                    let ports = (first_port, port.name);
+                    validate_variable_domains(&mut inference, first, node, knot, ports)?;
                 } else {
                     variables.insert((knot_index, variable), (node, port.name));
                 }
@@ -612,21 +600,31 @@ fn validate_domains(
     Ok(())
 }
 
+fn require_port_domain(
+    knot: &crate::KnotDef,
+    slot: PortSlot,
+) -> Result<PortDomain, ValidationError> {
+    port_domain(&knot.kind, slot).ok_or_else(|| ValidationError::InvalidParameter {
+        knot_id: knot.id.clone(),
+        parameter: "domain",
+        reason: "port has no domain constraint",
+    })
+}
+
 fn validate_variable_domains(
     inference: &mut DomainInference,
     first: usize,
     node: usize,
-    knot_id: &str,
-    first_port: &str,
-    port: &str,
+    knot: &crate::KnotDef,
+    ports: (&str, &str),
 ) -> Result<(), ValidationError> {
     if let Some((from_domain, to_domain)) = inference.union(first, node) {
         return Err(ValidationError::SignalDomainMismatch {
-            from_knot: String::from(knot_id),
-            from_port: String::from(first_port),
+            from_knot: knot.id.clone(),
+            from_port: String::from(ports.0),
             from_domain,
-            to_knot: String::from(knot_id),
-            to_port: String::from(port),
+            to_knot: knot.id.clone(),
+            to_port: String::from(ports.1),
             to_domain,
         });
     }
@@ -769,22 +767,31 @@ fn delay_ticks(kind: &KnotKind) -> u16 {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{validate_resolved_domain, validate_variable_domains, DomainInference};
-    use crate::{SignalDomain, ValidationError};
+    use super::{
+        require_port_domain, validate_resolved_domain, validate_variable_domains, DomainInference,
+    };
+    use crate::{KnotDef, KnotKind, PortSlot, SignalDomain, ValidationError};
+
+    fn select_knot() -> KnotDef {
+        KnotDef {
+            id: "select".into(),
+            kind: KnotKind::select(),
+        }
+    }
 
     #[test]
     fn domain_inference_reports_internal_conflicts_and_unresolved_components() {
         let mut inference = DomainInference::default();
         let level = inference.make_set(Some(SignalDomain::Level));
         let boolean = inference.make_set(Some(SignalDomain::Bool));
+        let select = select_knot();
         assert!(matches!(
             validate_variable_domains(
                 &mut inference,
                 level,
                 boolean,
-                "select",
-                "a",
-                "b",
+                &select,
+                ("a", "b"),
             ),
             Err(ValidationError::SignalDomainMismatch {
                 from_knot,
@@ -812,9 +819,22 @@ mod tests {
         let mut inference = DomainInference::default();
         let first = inference.make_set(None);
         let second = inference.make_set(None);
+        let select = select_knot();
         assert!(
-            validate_variable_domains(&mut inference, first, second, "delay", "in", "out",).is_ok()
+            validate_variable_domains(&mut inference, first, second, &select, ("a", "b")).is_ok()
         );
         assert!(inference.union(first, second).is_none());
+    }
+
+    #[test]
+    fn missing_catalog_domain_is_a_structured_validation_error() {
+        assert!(matches!(
+            require_port_domain(&select_knot(), PortSlot::new(u8::MAX)),
+            Err(ValidationError::InvalidParameter {
+                knot_id,
+                parameter: "domain",
+                reason: "port has no domain constraint",
+            }) if knot_id == "select"
+        ));
     }
 }

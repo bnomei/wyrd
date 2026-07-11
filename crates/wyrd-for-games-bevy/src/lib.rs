@@ -532,19 +532,29 @@ mod tests {
             .expect("door entity");
         assert!(door.open);
 
-        let log = app.world().resource::<ConfirmLog>();
-        assert!(
-            log.0.iter().any(|c| c.path == door_path && c.truthy),
-            "expected WyrdSignalConfirm for door.open"
-        );
+        {
+            let log = app.world().resource::<ConfirmLog>();
+            assert!(
+                log.0.iter().any(|c| c.path == door_path && c.truthy),
+                "expected WyrdSignalConfirm for door.open"
+            );
+        }
+
+        app.world_mut()
+            .resource_mut::<WyrdWorld>()
+            .remove(binding.instance)
+            .expect("bound instance");
+        app.update();
+        assert_eq!(app.world().resource::<ConfirmLog>().0.len(), 1);
     }
 
     #[test]
     fn instance_state_is_exposed_through_accessors() {
-        let inst = WyrdInstance::new("demo", and_door_weave()).unwrap();
+        let mut inst = WyrdInstance::new("demo", and_door_weave()).unwrap();
         assert_eq!(inst.label(), "demo");
         assert_eq!(inst.tick(), 0);
         assert!(inst.runtime().sense_id("plate_a").is_some());
+        assert!(inst.runtime_mut().sense_id("plate_b").is_some());
         assert!(inst.outbox().signals().is_empty());
     }
 
@@ -563,6 +573,7 @@ mod tests {
         assert_eq!(replacement.index, first.index);
         assert_ne!(replacement.generation, first.generation);
         assert!(world.get(first).is_none());
+        assert!(world.remove(first).is_none());
         assert_eq!(world.get(replacement).unwrap().label(), "replacement");
         assert_eq!(world.len(), 2);
         assert_eq!(world.iter().count(), 2);

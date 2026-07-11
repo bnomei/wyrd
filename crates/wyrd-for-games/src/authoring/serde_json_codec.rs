@@ -71,3 +71,33 @@ pub fn from_json(text: &str) -> Result<Weave, JsonCodecError> {
 pub fn to_json(weave: &Weave) -> Result<String, JsonCodecError> {
     serde_json::to_string_pretty(&weave.to_def()).map_err(JsonCodecError::Serialize)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error as _;
+    use std::io;
+    use std::string::ToString;
+
+    struct FailingWriter;
+
+    impl io::Write for FailingWriter {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::Other, "writer unavailable"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn serialize_error_formats_and_retains_its_source() {
+        let source = serde_json::to_writer(FailingWriter, &"codec")
+            .expect_err("writer failure must be preserved as a JSON error");
+        let error = JsonCodecError::Serialize(source);
+
+        assert!(error.to_string().starts_with("JSON serialization error: "));
+        assert!(error.source().is_some());
+    }
+}

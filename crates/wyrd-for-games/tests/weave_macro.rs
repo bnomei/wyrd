@@ -177,3 +177,21 @@ fn alias_changes_author_id() {
 
     assert_eq!(graph.threads()[0].to, PortRefDef::new("path.sink", "in"));
 }
+
+#[test]
+fn duplicate_authored_ids_are_build_errors() {
+    let error = weave! {
+        id: "duplicate-alias";
+        knots {
+            left as "same.id" = KnotKind::signal_in(SignalDomain::Bool);
+            right as "same.id" = KnotKind::signal_in(SignalDomain::Bool);
+        }
+        threads {}
+    }
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        BuildError::DuplicateKnotId { knot_id } if knot_id == "same.id"
+    ));
+}

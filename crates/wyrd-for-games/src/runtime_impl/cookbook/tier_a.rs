@@ -11,6 +11,19 @@ use crate::authoring::{ValidationError, Weave};
 use crate::foundation::{from_count, HostTime, KnotKind, SignalDomain, ONE, ZERO};
 use crate::runtime_impl::host::ScriptedHost;
 
+fn duplicate_knot_id<'a>(
+    failure_at: Option<&str>,
+    target: &str,
+    default: &'a str,
+    duplicate: &'a str,
+) -> &'a str {
+    if failure_at == Some(target) {
+        duplicate
+    } else {
+        default
+    }
+}
+
 /// A01: Constant(ONE) → Not → SignalOut (falsey).
 ///
 /// # Examples
@@ -19,11 +32,15 @@ use crate::runtime_impl::host::ScriptedHost;
 /// wyrd::cookbook::tier_a::run_a01_hello_invert().unwrap();
 /// ```
 pub fn run_a01_hello_invert() -> Result<()> {
+    run_a01_hello_invert_with(None)
+}
+
+fn run_a01_hello_invert_with(failure_at: Option<&str>) -> Result<()> {
     let mut b = Weave::builder("a01")?;
     let k_c = b.knot("c", KnotKind::constant(ONE, SignalDomain::Bool))?;
     let k_n = b.knot("n", KnotKind::not())?;
     let k_o = b.knot(
-        "o",
+        duplicate_knot_id(failure_at, "a01.output", "o", "c"),
         KnotKind::signal_out("debug.inverted", SignalDomain::Bool),
     )?;
     let from = b.output(&k_c, "out")?;
@@ -51,6 +68,10 @@ pub fn run_a01_hello_invert() -> Result<()> {
 /// wyrd::cookbook::tier_a::run_a02_two_plate_and().unwrap();
 /// ```
 pub fn run_a02_two_plate_and() -> Result<()> {
+    run_a02_two_plate_and_with(None)
+}
+
+fn run_a02_two_plate_and_with(failure_at: Option<&str>) -> Result<()> {
     let mut b = Weave::builder("a02")?;
     let pa = b.knot("plate_a", KnotKind::signal_in(SignalDomain::Bool))?;
     let pb = b.knot("plate_b", KnotKind::signal_in(SignalDomain::Bool))?;
@@ -62,7 +83,7 @@ pub fn run_a02_two_plate_and() -> Result<()> {
     let to = b.input(&k_both, "in_1")?;
     b.connect(from, to)?;
     let k_door = b.knot(
-        "door",
+        duplicate_knot_id(failure_at, "a02.door", "door", "plate_a"),
         KnotKind::signal_out("door.open", SignalDomain::Bool),
     )?;
     let from = b.output(&k_both, "out")?;
@@ -145,13 +166,17 @@ pub fn run_a04_host_tick_once() -> Result<()> {
 /// wyrd::cookbook::tier_a::run_a05_validate_fails().unwrap();
 /// ```
 pub fn run_a05_validate_fails() -> Result<()> {
+    run_a05_validate_fails_with(None, false)
+}
+
+fn run_a05_validate_fails_with(failure_at: Option<&str>, valid_map: bool) -> Result<()> {
     let mut b = Weave::builder("a05")?;
     let k_c = b.knot("c", KnotKind::constant(ONE, SignalDomain::Level))?;
     let k_map = b.knot(
-        "map",
+        duplicate_knot_id(failure_at, "a05.map", "map", "c"),
         KnotKind::Map {
             domain: SignalDomain::Level,
-            in_min: from_count(5),
+            in_min: from_count(if valid_map { 0 } else { 5 }),
             in_max: from_count(1),
             out_min: ZERO,
             out_max: ONE,
@@ -167,5 +192,31 @@ pub fn run_a05_validate_fails() -> Result<()> {
     match b.build() {
         Err(ValidationError::InvalidParameter { .. }) => Ok(()),
         other => panic!("expected invalid Map range, got {other:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a01_duplicate_output_propagates_the_real_builder_error() {
+        assert!(run_a01_hello_invert_with(Some("a01.output")).is_err());
+    }
+
+    #[test]
+    fn a02_duplicate_door_propagates_the_real_builder_error() {
+        assert!(run_a02_two_plate_and_with(Some("a02.door")).is_err());
+    }
+
+    #[test]
+    fn a05_duplicate_map_propagates_the_real_builder_error() {
+        assert!(run_a05_validate_fails_with(Some("a05.map"), false).is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "expected invalid Map range")]
+    fn a05_valid_map_reaches_the_diagnostic_branch() {
+        let _ = run_a05_validate_fails_with(None, true);
     }
 }

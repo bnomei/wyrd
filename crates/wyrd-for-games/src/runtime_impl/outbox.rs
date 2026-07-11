@@ -138,6 +138,10 @@ mod tests {
             assert!(!domain_value_is_valid(SignalDomain::Level, f32::NAN));
             assert!(domain_value_is_valid(SignalDomain::Count, 42.0));
             assert!(!domain_value_is_valid(SignalDomain::Count, 1.5));
+            assert!(!domain_value_is_valid(
+                SignalDomain::Count,
+                -2_147_483_904.0,
+            ));
             assert!(!domain_value_is_valid(SignalDomain::Count, 2_147_483_648.0));
         }
 

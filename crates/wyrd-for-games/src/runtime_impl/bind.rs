@@ -133,6 +133,106 @@ fn fnv1a64(data: &[u8]) -> u64 {
     h
 }
 
+/// Convert an authoring-order index to the compact runtime knot id.
+///
+/// Both bind passes use this guard: the first protects name and intern tables,
+/// and the second protects the dense hot-path arrays built from those tables.
+fn dense_knot_id(index: usize, weave_id: &str) -> Result<KnotId, BindError> {
+    KnotId::try_from(index).map_err(|_| BindError::CapacityExceeded {
+        weave_id: String::from(weave_id),
+        resource: "knot",
+        count: index + 1,
+    })
+}
+
+/// Intern a SignalOut path while preserving compact host-path ids.
+fn intern_host_path(
+    owner: usize,
+    path: &str,
+    path_index: &mut BTreeMap<String, HostPathId>,
+    path_names: &mut Vec<String>,
+    weave_id: &str,
+) -> Result<HostPathId, BindError> {
+    if let Some(id) = path_index.get(path) {
+        return Ok(*id);
+    }
+
+    let index = u16::try_from(path_names.len()).map_err(|_| BindError::CapacityExceeded {
+        weave_id: String::from(weave_id),
+        resource: "host path",
+        count: path_names.len() + 1,
+    })?;
+    let id = HostPathId::new(owner, index);
+    path_names.push(String::from(path));
+    path_index.insert(String::from(path), id);
+    Ok(id)
+}
+
+/// Intern an EmitCommand name while preserving compact command ids.
+fn intern_command(
+    owner: usize,
+    name: &str,
+    cmd_index: &mut BTreeMap<String, CmdId>,
+    cmd_names: &mut Vec<String>,
+    weave_id: &str,
+) -> Result<CmdId, BindError> {
+    if let Some(id) = cmd_index.get(name) {
+        return Ok(*id);
+    }
+
+    let index = u16::try_from(cmd_names.len()).map_err(|_| BindError::CapacityExceeded {
+        weave_id: String::from(weave_id),
+        resource: "command",
+        count: cmd_names.len() + 1,
+    })?;
+    let id = CmdId::new(owner, index);
+    cmd_names.push(String::from(name));
+    cmd_index.insert(String::from(name), id);
+    Ok(id)
+}
+
+/// Add a delay extent while preserving the error reported by the original bind
+/// phase when the host architecture's usize capacity would overflow.
+fn checked_delay_buffer_len(
+    current_len: usize,
+    len: usize,
+    weave_id: &str,
+) -> Result<usize, BindError> {
+    current_len
+        .checked_add(len)
+        .ok_or_else(|| BindError::CapacityExceeded {
+            weave_id: String::from(weave_id),
+            resource: "delay buffer",
+            count: usize::MAX,
+        })
+}
+
+/// Calculate the next delay-ring extent before allocating the backing buffer.
+///
+/// `current_len` is passed separately so the compact-index guard remains
+/// directly testable even though a validated weave cannot reach its impossible
+/// overflow state.
+fn delay_buffer_layout(
+    current_len: usize,
+    len: usize,
+    weave_id: &str,
+) -> Result<(u16, usize), BindError> {
+    let offset = u16::try_from(current_len).map_err(|_| BindError::CapacityExceeded {
+        weave_id: String::from(weave_id),
+        resource: "delay buffer offset",
+        count: current_len,
+    })?;
+    let new_len = checked_delay_buffer_len(current_len, len, weave_id)?;
+    if new_len > u16::MAX as usize {
+        return Err(BindError::CapacityExceeded {
+            weave_id: String::from(weave_id),
+            resource: "delay buffer",
+            count: new_len,
+        });
+    }
+    Ok((offset, new_len))
+}
+
 impl Runtime {
     /// Validate and consume a weave into dense executable state.
     ///
@@ -155,63 +255,53 @@ impl Runtime {
     /// Keeping this phase separate makes the defensive error handling below
     /// testable without exposing a way to bypass validation to callers.
     fn bind_validated(weave: Weave, opts: BindOpts, weave_id: String) -> Result<Self, BindError> {
+        Self::bind_validated_with_preinterned_names(weave, opts, weave_id, Vec::new(), Vec::new())
+    }
+
+    /// Internal bind entrypoint with explicit preinterned names for capacity
+    /// validation. Normal binding always starts with empty tables.
+    fn bind_validated_with_preinterned_names(
+        weave: Weave,
+        opts: BindOpts,
+        weave_id: String,
+        mut path_names: Vec<String>,
+        mut cmd_names: Vec<String>,
+    ) -> Result<Self, BindError> {
         let owner = NEXT_RUNTIME_OWNER.fetch_add(1, Ordering::Relaxed);
         reserve_owner(owner, &weave_id)?;
 
         let mut name_to_id = BTreeMap::new();
         let mut id_to_name = Vec::new();
-        let mut path_names = Vec::new();
-        let mut cmd_names = Vec::new();
         let mut path_index: BTreeMap<String, HostPathId> = BTreeMap::new();
         let mut cmd_index: BTreeMap<String, CmdId> = BTreeMap::new();
 
         let mut knots = Vec::with_capacity(weave.knots().len());
         for (i, k) in weave.knots().iter().enumerate() {
-            let id = KnotId::try_from(i).map_err(|_| BindError::CapacityExceeded {
-                weave_id: weave_id.clone(),
-                resource: "knot",
-                count: i + 1,
-            })?;
+            let id = dense_knot_id(i, &weave_id)?;
             name_to_id.insert(k.id.clone(), id);
             id_to_name.push(k.id.clone());
 
             let (path, cmd) = match &k.kind {
-                KnotKind::SignalOut { path, .. } => {
-                    let pid = if let Some(id) = path_index.get(path) {
-                        *id
-                    } else {
-                        let index = u16::try_from(path_names.len()).map_err(|_| {
-                            BindError::CapacityExceeded {
-                                weave_id: weave_id.clone(),
-                                resource: "host path",
-                                count: path_names.len() + 1,
-                            }
-                        })?;
-                        let id = HostPathId::new(owner, index);
-                        path_names.push(path.clone());
-                        path_index.insert(path.clone(), id);
-                        id
-                    };
-                    (Some(pid), None)
-                }
-                KnotKind::EmitCommand { name } => {
-                    let cid = if let Some(id) = cmd_index.get(name) {
-                        *id
-                    } else {
-                        let index = u16::try_from(cmd_names.len()).map_err(|_| {
-                            BindError::CapacityExceeded {
-                                weave_id: weave_id.clone(),
-                                resource: "command",
-                                count: cmd_names.len() + 1,
-                            }
-                        })?;
-                        let id = CmdId::new(owner, index);
-                        cmd_names.push(name.clone());
-                        cmd_index.insert(name.clone(), id);
-                        id
-                    };
-                    (None, Some(cid))
-                }
+                KnotKind::SignalOut { path, .. } => (
+                    Some(intern_host_path(
+                        owner,
+                        path,
+                        &mut path_index,
+                        &mut path_names,
+                        &weave_id,
+                    )?),
+                    None,
+                ),
+                KnotKind::EmitCommand { name } => (
+                    None,
+                    Some(intern_command(
+                        owner,
+                        name,
+                        &mut cmd_index,
+                        &mut cmd_names,
+                        &weave_id,
+                    )?),
+                ),
                 _ => (None, None),
             };
 
@@ -282,11 +372,7 @@ impl Runtime {
             .map(|k| crate::runtime_impl::kind_tag::KindTag::from_kind(&k.kind))
             .collect();
         for (ki, k) in knots.iter().enumerate() {
-            let kid = KnotId::try_from(ki).map_err(|_| BindError::CapacityExceeded {
-                weave_id: weave_id.clone(),
-                resource: "knot",
-                count: ki + 1,
-            })?;
+            let kid = dense_knot_id(ki, &weave_id)?;
             let mut slots = Vec::new();
             for p in ports_of(&k.kind) {
                 if p.dir == PortDir::In {
@@ -357,27 +443,7 @@ impl Runtime {
             if let KnotKind::Delay { ticks } = k.kind {
                 let len = ticks as usize;
                 if len > 0 {
-                    let offset = u16::try_from(delay_buf.len()).map_err(|_| {
-                        BindError::CapacityExceeded {
-                            weave_id: weave_id.clone(),
-                            resource: "delay buffer offset",
-                            count: delay_buf.len(),
-                        }
-                    })?;
-                    let new_len = delay_buf.len().checked_add(len).ok_or_else(|| {
-                        BindError::CapacityExceeded {
-                            weave_id: weave_id.clone(),
-                            resource: "delay buffer",
-                            count: usize::MAX,
-                        }
-                    })?;
-                    if new_len > u16::MAX as usize {
-                        return Err(BindError::CapacityExceeded {
-                            weave_id: weave_id.clone(),
-                            resource: "delay buffer",
-                            count: new_len,
-                        });
-                    }
+                    let (offset, new_len) = delay_buffer_layout(delay_buf.len(), len, &weave_id)?;
                     delay_off[i] = offset;
                     delay_len[i] = ticks;
                     delay_buf.resize(new_len, ZERO);
@@ -712,7 +778,7 @@ fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Opt
 mod tests {
     use super::*;
     use crate::authoring::{KnotDef, PortRefDef, ThreadDef, Weave, WeaveDef};
-    use crate::foundation::{FlagPriority, KnotKind, NumericPath, SignalDomain, ONE};
+    use crate::foundation::{CalcOp, FlagPriority, KnotKind, NumericPath, SignalDomain, ONE};
     use std::vec;
 
     fn unchecked_weave(id: &str, knots: Vec<KnotDef>, threads: Vec<ThreadDef>) -> Weave {
@@ -725,14 +791,13 @@ mod tests {
     }
 
     fn bind_unchecked(id: &str, knots: Vec<KnotDef>, threads: Vec<ThreadDef>) -> BindError {
-        match Runtime::bind_validated(
+        Runtime::bind_validated(
             unchecked_weave(id, knots, threads),
             BindOpts::default(),
             String::from(id),
-        ) {
-            Ok(_) => panic!("malformed internal weave must not bind"),
-            Err(error) => error,
-        }
+        )
+        .err()
+        .expect("malformed internal weave must not bind")
     }
 
     fn knot(id: &str, kind: KnotKind) -> KnotDef {
@@ -790,12 +855,12 @@ mod tests {
         )
         .unwrap();
         let em = *rt.name_to_id.get("em").expect("em knot");
-        match rt.kind_tags[usize::from(em)] {
-            crate::runtime_impl::kind_tag::KindTag::EmitCommand { enable_wired } => {
-                assert!(!enable_wired);
+        assert!(matches!(
+            rt.kind_tags[usize::from(em)],
+            crate::runtime_impl::kind_tag::KindTag::EmitCommand {
+                enable_wired: false
             }
-            _ => panic!("expected EmitCommand tag"),
-        }
+        ));
     }
 
     #[test]
@@ -952,12 +1017,10 @@ mod tests {
         let weave = b.build().unwrap();
         let rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
         let d = *rt.name_to_id.get("d").expect("div knot");
-        match rt.kind_tags[usize::from(d)] {
-            crate::runtime_impl::kind_tag::KindTag::CalcDivLevelConst { divisor } => {
-                assert_eq!(divisor, ONE);
-            }
-            other => panic!("expected CalcDivLevelConst, got {other:?}"),
-        }
+        assert!(matches!(
+            rt.kind_tags[usize::from(d)],
+            crate::runtime_impl::kind_tag::KindTag::CalcDivLevelConst { divisor } if divisor == ONE
+        ));
     }
 
     /// Bind builds KindTag cache, flat clear indices, and CSR inbound.
@@ -1101,5 +1164,173 @@ mod tests {
                 count: usize::from(u16::MAX) + 1,
             }
         );
+    }
+
+    #[test]
+    fn defensive_compact_capacity_guards_report_the_next_entry() {
+        let overflow_index = usize::from(u16::MAX) + 1;
+        let mut path_index = BTreeMap::new();
+        let mut path_names = vec![String::new(); overflow_index];
+        assert_eq!(
+            intern_host_path(
+                1,
+                "overflow",
+                &mut path_index,
+                &mut path_names,
+                "path-capacity",
+            ),
+            Err(BindError::CapacityExceeded {
+                weave_id: String::from("path-capacity"),
+                resource: "host path",
+                count: overflow_index + 1,
+            })
+        );
+
+        let mut cmd_index = BTreeMap::new();
+        let mut cmd_names = vec![String::new(); overflow_index];
+        assert_eq!(
+            intern_command(
+                1,
+                "overflow",
+                &mut cmd_index,
+                &mut cmd_names,
+                "command-capacity",
+            ),
+            Err(BindError::CapacityExceeded {
+                weave_id: String::from("command-capacity"),
+                resource: "command",
+                count: overflow_index + 1,
+            })
+        );
+
+        assert_eq!(
+            delay_buffer_layout(overflow_index, 1, "delay-offset-capacity"),
+            Err(BindError::CapacityExceeded {
+                weave_id: String::from("delay-offset-capacity"),
+                resource: "delay buffer offset",
+                count: overflow_index,
+            })
+        );
+        assert_eq!(
+            checked_delay_buffer_len(usize::MAX, 1, "delay-overflow"),
+            Err(BindError::CapacityExceeded {
+                weave_id: String::from("delay-overflow"),
+                resource: "delay buffer",
+                count: usize::MAX,
+            })
+        );
+    }
+
+    #[test]
+    fn preinterned_tables_propagate_path_and_command_capacity_errors() {
+        let full_names = vec![String::new(); usize::from(u16::MAX) + 1];
+        let path_error = Runtime::bind_validated_with_preinterned_names(
+            unchecked_weave(
+                "path-capacity",
+                vec![knot(
+                    "output",
+                    KnotKind::signal_out("too-many-paths", SignalDomain::Bool),
+                )],
+                Vec::new(),
+            ),
+            BindOpts::default(),
+            String::from("path-capacity"),
+            full_names,
+            Vec::new(),
+        )
+        .err()
+        .expect("the next host path must exceed its compact id space");
+        assert!(matches!(
+            path_error,
+            BindError::CapacityExceeded {
+                resource: "host path",
+                count,
+                ..
+            } if count == usize::from(u16::MAX) + 2
+        ));
+
+        let full_names = vec![String::new(); usize::from(u16::MAX) + 1];
+        let command_error = Runtime::bind_validated_with_preinterned_names(
+            unchecked_weave(
+                "command-capacity",
+                vec![knot("emit", KnotKind::emit_command("too-many-commands"))],
+                Vec::new(),
+            ),
+            BindOpts::default(),
+            String::from("command-capacity"),
+            Vec::new(),
+            full_names,
+        )
+        .err()
+        .expect("the next command must exceed its compact id space");
+        assert!(matches!(
+            command_error,
+            BindError::CapacityExceeded {
+                resource: "command",
+                count,
+                ..
+            } if count == usize::from(u16::MAX) + 2
+        ));
+    }
+
+    #[test]
+    fn div_with_a_dynamic_rhs_keeps_the_general_dispatch_tag() {
+        let mut b = Weave::builder("dynamic-divisor").unwrap();
+        let lhs = b
+            .knot("lhs", KnotKind::signal_in(SignalDomain::Level))
+            .unwrap();
+        let rhs = b
+            .knot("rhs", KnotKind::signal_in(SignalDomain::Level))
+            .unwrap();
+        let div = b
+            .knot(
+                "div",
+                KnotKind::Calc {
+                    domain: SignalDomain::Level,
+                    op: CalcOp::Div,
+                },
+            )
+            .unwrap();
+        b.connect(b.output(&lhs, "out").unwrap(), b.input(&div, "a").unwrap())
+            .unwrap();
+        b.connect(b.output(&rhs, "out").unwrap(), b.input(&div, "b").unwrap())
+            .unwrap();
+
+        let rt = Runtime::bind(b.build().unwrap(), BindOpts::default()).unwrap();
+        let div = rt.name_to_id["div"];
+        assert!(matches!(
+            rt.kind_tags[usize::from(div)],
+            crate::runtime_impl::kind_tag::KindTag::CalcDivLevel
+        ));
+    }
+
+    #[test]
+    fn div_without_an_rhs_edge_keeps_the_general_dispatch_tag_defensively() {
+        let weave = unchecked_weave(
+            "unwired-divisor",
+            vec![knot(
+                "div",
+                KnotKind::calc(CalcOp::Div, SignalDomain::Level),
+            )],
+            Vec::new(),
+        );
+        let runtime =
+            Runtime::bind_validated(weave, BindOpts::default(), String::from("unwired-divisor"))
+                .expect("the defensive bind phase can represent an unwired calc");
+
+        assert!(matches!(
+            runtime.kind_tags[0],
+            crate::runtime_impl::kind_tag::KindTag::CalcDivLevel
+        ));
+    }
+
+    #[test]
+    fn sense_id_rejects_existing_non_sense_knots() {
+        let mut b = Weave::builder("sense-id-kind").unwrap();
+        b.knot("constant", KnotKind::constant(ONE, SignalDomain::Bool))
+            .unwrap();
+        let rt = Runtime::bind(b.build().unwrap(), BindOpts::default()).unwrap();
+
+        assert_eq!(rt.sense_id("constant"), None);
     }
 }

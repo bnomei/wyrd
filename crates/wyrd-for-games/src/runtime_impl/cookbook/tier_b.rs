@@ -14,6 +14,19 @@ use crate::foundation::{
 };
 use crate::runtime_impl::host::ScriptedHost;
 
+fn duplicate_knot_id<'a>(
+    failure_at: Option<&str>,
+    target: &str,
+    default: &'a str,
+    duplicate: &'a str,
+) -> &'a str {
+    if failure_at == Some(target) {
+        duplicate
+    } else {
+        default
+    }
+}
+
 /// B01: Monostable Pattern — RisingFromZero → PulseHold (expand-at-load).
 ///
 /// # Examples
@@ -81,6 +94,10 @@ pub fn run_b01_monostable_pattern() -> Result<()> {
 /// wyrd::cookbook::tier_b::run_b02_two_plate_door().unwrap();
 /// ```
 pub fn run_b02_two_plate_door() -> Result<()> {
+    run_b02_two_plate_door_with(None)
+}
+
+fn run_b02_two_plate_door_with(failure_at: Option<&str>) -> Result<()> {
     let mut b = Weave::builder("door")?;
     let pa = b.knot("plate_a", KnotKind::signal_in(SignalDomain::Bool))?;
     let pb = b.knot("plate_b", KnotKind::signal_in(SignalDomain::Bool))?;
@@ -92,7 +109,7 @@ pub fn run_b02_two_plate_door() -> Result<()> {
     let to = b.input(&k_both, "in_1")?;
     b.connect(from, to)?;
     let k_door = b.knot(
-        "door",
+        duplicate_knot_id(failure_at, "b02.door", "door", "plate_a"),
         KnotKind::signal_out("door.open", SignalDomain::Bool),
     )?;
     let from = b.output(&k_both, "out")?;
@@ -158,11 +175,15 @@ pub fn run_b03_flag_toggle() -> Result<()> {
 /// wyrd::cookbook::tier_b::run_b04_counter_threshold().unwrap();
 /// ```
 pub fn run_b04_counter_threshold() -> Result<()> {
+    run_b04_counter_threshold_with(None)
+}
+
+fn run_b04_counter_threshold_with(failure_at: Option<&str>) -> Result<()> {
     let mut b = Weave::builder("c")?;
     let k_inc = b.knot("inc", KnotKind::signal_in(SignalDomain::Bool))?;
     let k_cnt = b.knot("cnt", KnotKind::counter())?;
     let k_cmp = b.knot(
-        "cmp",
+        duplicate_knot_id(failure_at, "b04.compare", "cmp", "inc"),
         KnotKind::compare(CompareOp::Gte, Some(from_count(2)), SignalDomain::Count),
     )?;
     let k_out = b.knot("out", KnotKind::signal_out("ready", SignalDomain::Bool))?;
@@ -221,4 +242,19 @@ pub fn run_b05_delayed_pulse() -> Result<()> {
     tick_senses(&mut host, &mut rt, &[(id, ONE)])?;
     assert!(signal_out_truthy(&rt, "y"));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn b02_duplicate_door_propagates_the_real_builder_error() {
+        assert!(run_b02_two_plate_door_with(Some("b02.door")).is_err());
+    }
+
+    #[test]
+    fn b04_duplicate_compare_propagates_the_real_builder_error() {
+        assert!(run_b04_counter_threshold_with(Some("b04.compare")).is_err());
+    }
 }

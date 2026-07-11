@@ -537,3 +537,21 @@ impl KindTag {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::KindTag;
+    use crate::foundation::{KnotKind, SignalDomain};
+
+    #[test]
+    fn defensive_identity_conversion_and_non_random_wiring_are_preserved() {
+        assert!(matches!(
+            KindTag::from_kind(&KnotKind::convert(SignalDomain::Level, SignalDomain::Level)),
+            KindTag::ConvertIdentity
+        ));
+        assert!(matches!(
+            KindTag::Not.with_random_wiring(true, true),
+            KindTag::Not
+        ));
+    }
+}

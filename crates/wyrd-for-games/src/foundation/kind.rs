@@ -502,6 +502,7 @@ mod tests {
         assert!(!KnotKind::calc(CalcOp::Mul, SignalDomain::Bool).has_valid_domains());
         assert!(KnotKind::convert(SignalDomain::Bool, SignalDomain::Level).has_valid_domains());
         assert!(!KnotKind::convert(SignalDomain::Bool, SignalDomain::Bool).has_valid_domains());
+        assert!(KnotKind::signal_in(SignalDomain::Bool).has_valid_domains());
 
         let numeric_kinds = [
             KnotKind::map(ZERO, ONE, ZERO, ONE, SignalDomain::Level),

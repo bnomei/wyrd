@@ -10,6 +10,40 @@ use super::Result;
 use crate::authoring::Weave;
 use crate::foundation::{from_level, FlagPriority, KnotKind, SignalDomain, ONE, ZERO};
 use crate::runtime_impl::host::ScriptedHost;
+use crate::SenseId;
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum D01Knot {
+    PlayerOnPad,
+    GateOpen,
+    BridgeTarget,
+    BridgeOut,
+    Transition,
+}
+
+fn d01_knot_id(
+    duplicate_at: Option<D01Knot>,
+    target: D01Knot,
+    default: &'static str,
+) -> &'static str {
+    if duplicate_at == Some(target) {
+        "crate_on_sun_pad"
+    } else {
+        default
+    }
+}
+
+fn d01_sense_id(
+    valid: SenseId,
+    foreign: Option<SenseId>,
+    invalid_sense_at: Option<u8>,
+    tick: u8,
+) -> SenseId {
+    match (invalid_sense_at == Some(tick), foreign) {
+        (true, Some(foreign)) => foreign,
+        _ => valid,
+    }
+}
 
 /// D01: Shrine chamber — multi-object latch, mover target, and edge-only transition request.
 ///
@@ -28,11 +62,18 @@ use crate::runtime_impl::host::ScriptedHost;
 /// wyrd::cookbook::tier_d::run_d01_shrine_chamber().unwrap();
 /// ```
 pub fn run_d01_shrine_chamber() -> Result<()> {
+    run_d01_shrine_chamber_with(None, None)
+}
+
+fn run_d01_shrine_chamber_with(
+    duplicate_at: Option<D01Knot>,
+    invalid_sense_at: Option<u8>,
+) -> Result<()> {
     let mut b = Weave::builder("shrine-chamber")?;
 
     let crate_on_pad = b.knot("crate_on_sun_pad", KnotKind::signal_in(SignalDomain::Bool))?;
     let player_on_pad = b.knot(
-        "player_on_moon_pad",
+        d01_knot_id(duplicate_at, D01Knot::PlayerOnPad, "player_on_moon_pad"),
         KnotKind::signal_in(SignalDomain::Bool),
     )?;
     let relic_placed = b.knot("relic_placed", KnotKind::signal_in(SignalDomain::Bool))?;
@@ -41,17 +82,17 @@ pub fn run_d01_shrine_chamber() -> Result<()> {
     let unlock_edge = b.knot("unlock_edge", KnotKind::rising_from_zero())?;
     let gate_latch = b.knot("gate_latch", KnotKind::flag(FlagPriority::ResetWins, false))?;
     let gate_open = b.knot(
-        "gate_open",
+        d01_knot_id(duplicate_at, D01Knot::GateOpen, "gate_open"),
         KnotKind::signal_out("shrine.gate.open", SignalDomain::Bool),
     )?;
 
     let bridge_lever = b.knot("bridge_lever", KnotKind::signal_in(SignalDomain::Level))?;
     let bridge_target = b.knot(
-        "bridge_target",
+        d01_knot_id(duplicate_at, D01Knot::BridgeTarget, "bridge_target"),
         KnotKind::map(ZERO, ONE, ZERO, from_level(8.0), SignalDomain::Level),
     )?;
     let bridge_out = b.knot(
-        "bridge_out",
+        d01_knot_id(duplicate_at, D01Knot::BridgeOut, "bridge_out"),
         KnotKind::signal_out("shrine.bridge.target", SignalDomain::Level),
     )?;
 
@@ -59,7 +100,7 @@ pub fn run_d01_shrine_chamber() -> Result<()> {
     let exit_ready = b.knot("exit_ready", KnotKind::and2())?;
     let exit_edge = b.knot("exit_edge", KnotKind::rising_from_zero())?;
     let transition = b.knot(
-        "transition",
+        d01_knot_id(duplicate_at, D01Knot::Transition, "transition"),
         KnotKind::emit_command("world.request_transition"),
     )?;
 
@@ -112,13 +153,24 @@ pub fn run_d01_shrine_chamber() -> Result<()> {
     let relic_placed = rt.sense_id("relic_placed").expect("relic sense");
     let bridge_lever = rt.sense_id("bridge_lever").expect("bridge sense");
     let player_at_exit = rt.sense_id("player_at_exit").expect("exit sense");
+    let foreign_sense = if invalid_sense_at.is_some() {
+        let mut foreign_builder = Weave::builder("d01-fault")?;
+        foreign_builder.knot("foreign", KnotKind::signal_in(SignalDomain::Bool))?;
+        let foreign_rt = bind_default(&foreign_builder.build()?)?;
+        Some(foreign_rt.sense_id("foreign").expect("foreign sense"))
+    } else {
+        None
+    };
     let mut host = ScriptedHost::new();
 
     tick_senses(
         &mut host,
         &mut rt,
         &[
-            (crate_on_pad, ZERO),
+            (
+                d01_sense_id(crate_on_pad, foreign_sense, invalid_sense_at, 1),
+                ZERO,
+            ),
             (player_on_pad, ZERO),
             (relic_placed, ZERO),
             (bridge_lever, ZERO),
@@ -133,7 +185,10 @@ pub fn run_d01_shrine_chamber() -> Result<()> {
         &mut host,
         &mut rt,
         &[
-            (crate_on_pad, ONE),
+            (
+                d01_sense_id(crate_on_pad, foreign_sense, invalid_sense_at, 2),
+                ONE,
+            ),
             (player_on_pad, ONE),
             (relic_placed, ZERO),
             (bridge_lever, ONE),
@@ -150,7 +205,10 @@ pub fn run_d01_shrine_chamber() -> Result<()> {
         &mut host,
         &mut rt,
         &[
-            (crate_on_pad, ONE),
+            (
+                d01_sense_id(crate_on_pad, foreign_sense, invalid_sense_at, 3),
+                ONE,
+            ),
             (player_on_pad, ONE),
             (relic_placed, ONE),
             (bridge_lever, ONE),
@@ -166,7 +224,10 @@ pub fn run_d01_shrine_chamber() -> Result<()> {
         &mut host,
         &mut rt,
         &[
-            (crate_on_pad, ZERO),
+            (
+                d01_sense_id(crate_on_pad, foreign_sense, invalid_sense_at, 4),
+                ZERO,
+            ),
             (player_on_pad, ZERO),
             (relic_placed, ZERO),
             (bridge_lever, ZERO),
@@ -180,7 +241,10 @@ pub fn run_d01_shrine_chamber() -> Result<()> {
         &mut host,
         &mut rt,
         &[
-            (crate_on_pad, ZERO),
+            (
+                d01_sense_id(crate_on_pad, foreign_sense, invalid_sense_at, 5),
+                ZERO,
+            ),
             (player_on_pad, ZERO),
             (relic_placed, ZERO),
             (bridge_lever, ZERO),
@@ -194,7 +258,10 @@ pub fn run_d01_shrine_chamber() -> Result<()> {
         &mut host,
         &mut rt,
         &[
-            (crate_on_pad, ZERO),
+            (
+                d01_sense_id(crate_on_pad, foreign_sense, invalid_sense_at, 6),
+                ZERO,
+            ),
             (player_on_pad, ZERO),
             (relic_placed, ZERO),
             (bridge_lever, ZERO),
@@ -203,4 +270,29 @@ pub fn run_d01_shrine_chamber() -> Result<()> {
     )?;
     assert_eq!(emit_count(&rt, "world.request_transition"), 0);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn d01_duplicate_knots_propagate_the_real_builder_error() {
+        for duplicate_at in [
+            D01Knot::PlayerOnPad,
+            D01Knot::GateOpen,
+            D01Knot::BridgeTarget,
+            D01Knot::BridgeOut,
+            D01Knot::Transition,
+        ] {
+            assert!(run_d01_shrine_chamber_with(Some(duplicate_at), None).is_err());
+        }
+    }
+
+    #[test]
+    fn d01_foreign_senses_propagate_the_real_tick_error() {
+        for tick in 1..=6 {
+            assert!(run_d01_shrine_chamber_with(None, Some(tick)).is_err());
+        }
+    }
 }

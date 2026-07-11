@@ -1070,6 +1070,50 @@ mod sense_dispatch_tests {
     }
 }
 
+#[cfg(test)]
+mod count_div_dispatch_tests {
+    use super::Runtime;
+    use crate::authoring::Weave;
+    use crate::foundation::{from_count, CalcOp, KnotKind, PortSlot, SignalDomain};
+    use crate::BindOpts;
+
+    #[test]
+    fn dynamic_count_division_uses_the_general_dispatch_path() {
+        let mut builder = Weave::builder("dynamic-count-divisor").unwrap();
+        let numerator = builder
+            .knot("numerator", KnotKind::signal_in(SignalDomain::Count))
+            .unwrap();
+        let denominator = builder
+            .knot("denominator", KnotKind::signal_in(SignalDomain::Count))
+            .unwrap();
+        let divide = builder
+            .knot("divide", KnotKind::calc(CalcOp::Div, SignalDomain::Count))
+            .unwrap();
+        let numerator_out = builder.output(&numerator, "out").unwrap();
+        let denominator_out = builder.output(&denominator, "out").unwrap();
+        let divide_a = builder.input(&divide, "a").unwrap();
+        let divide_b = builder.input(&divide, "b").unwrap();
+        builder.connect(numerator_out, divide_a).unwrap();
+        builder.connect(denominator_out, divide_b).unwrap();
+
+        let mut runtime = Runtime::bind(builder.build().unwrap(), BindOpts::default()).unwrap();
+        let numerator = runtime.sense_id("numerator").unwrap();
+        let denominator = runtime.sense_id("denominator").unwrap();
+        {
+            let mut writer = runtime.port_writer();
+            writer.set_sense(numerator, from_count(9)).unwrap();
+            writer.set_sense(denominator, from_count(2)).unwrap();
+        }
+        runtime.loom();
+
+        let divide = runtime.knot_id("divide").unwrap();
+        assert_eq!(
+            runtime.get_port_checked(divide, PortSlot::new(2)),
+            Ok(from_count(4))
+        );
+    }
+}
+
 fn count_sqrt(i: Signal) -> Signal {
     #[cfg(feature = "signal-f32")]
     {
@@ -1420,17 +1464,24 @@ mod map_tests {
     }
 
     #[cfg(feature = "signal-i32")]
+    fn i32_map_plan(tag: KindTag) -> I32MapPlan {
+        match tag {
+            KindTag::Map { plan, .. } => plan,
+            _ => panic!("map precompute must return a Map tag"),
+        }
+    }
+
+    #[cfg(feature = "signal-i32")]
     #[test]
     fn map_i32_uses_specialized_bind_plans() {
-        let plan = |in_min, in_max, out_min, out_max| match KindTag::map_precomputed(
-            SignalDomain::Count,
-            in_min,
-            in_max,
-            out_min,
-            out_max,
-        ) {
-            KindTag::Map { plan, .. } => plan,
-            _ => unreachable!("map precompute must return a Map tag"),
+        let plan = |in_min, in_max, out_min, out_max| {
+            i32_map_plan(KindTag::map_precomputed(
+                SignalDomain::Count,
+                in_min,
+                in_max,
+                out_min,
+                out_max,
+            ))
         };
 
         assert!(matches!(plan(3, 3, 7, 9), I32MapPlan::Constant { .. }));
@@ -1438,6 +1489,13 @@ mod map_tests {
         assert!(matches!(plan(0, 8, 0, 16), I32MapPlan::Scale { .. }));
         assert!(matches!(plan(0, 8, 0, 4), I32MapPlan::Shift { .. }));
         assert!(matches!(plan(0, 10, 0, 3), I32MapPlan::Divide { .. }));
+    }
+
+    #[cfg(feature = "signal-i32")]
+    #[test]
+    #[should_panic(expected = "map precompute must return a Map tag")]
+    fn i32_map_plan_rejects_non_map_tags() {
+        let _ = i32_map_plan(KindTag::Not);
     }
 
     #[cfg(feature = "signal-i32")]

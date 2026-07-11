@@ -71,3 +71,29 @@ pub fn to_ron(weave: &Weave) -> Result<String, RonCodecError> {
     ron::ser::to_string_pretty(&weave.to_def(), ron::ser::PrettyConfig::default())
         .map_err(RonCodecError::Serialize)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error as _;
+    use std::string::ToString;
+
+    struct FailingWriter;
+
+    impl fmt::Write for FailingWriter {
+        fn write_str(&mut self, _: &str) -> fmt::Result {
+            Err(fmt::Error)
+        }
+    }
+
+    #[test]
+    fn serialize_error_formats_and_retains_its_source() {
+        let source =
+            ron::ser::to_writer_pretty(FailingWriter, &"codec", ron::ser::PrettyConfig::default())
+                .expect_err("writer failure must be preserved as a RON error");
+        let error = RonCodecError::Serialize(source);
+
+        assert!(error.to_string().starts_with("RON serialization error: "));
+        assert!(error.source().is_some());
+    }
+}
