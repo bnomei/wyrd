@@ -1,0 +1,11 @@
+error: no rules expected `[`
+  --> tests/ui/pattern_invalid_endpoint.rs:10:31
+   |
+10 |             input start = edge["in"];
+   |                               ^ no rules expected this token in macro call
+   |
+note: while trying to match `.`
+  --> src/authoring/macros.rs
+   |
+   |             $( input $input_name:ident = $input_knot:ident . $input_port:ident; )*
+   |                                                            ^

@@ -4,15 +4,12 @@
 
 use super::helpers::{bind_default, signal_out_truthy, tick_senses};
 use super::Result;
-use crate::authoring::{
-    BuildError, KnotDef, Pattern, PatternDef, PatternExportDef, PortRefDef, ThreadDef, Weave,
-    WeaveDef,
-};
+use crate::authoring::{BuildError, Pattern, Weave};
 use crate::foundation::{
     from_count, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
 };
 use crate::runtime_impl::host::ScriptedHost;
-use crate::weave;
+use crate::{pattern, weave};
 
 /// Topology for B01, with the monostable pattern supplied by the caller.
 pub fn b01_monostable_pattern_weave(pat: &Pattern) -> core::result::Result<Weave, BuildError> {
@@ -32,29 +29,24 @@ pub fn b01_monostable_pattern_weave(pat: &Pattern) -> core::result::Result<Weave
 /// wyrd::cookbook::tier_b::run_b01_monostable_pattern().unwrap();
 /// ```
 pub fn run_b01_monostable_pattern() -> Result<()> {
-    let pat = Pattern::try_from(PatternDef {
-        id: "pat.mono".into(),
-        inner: WeaveDef {
-            id: "pat.mono.inner".into(),
-            numeric: crate::foundation::NumericPath::compiled(),
-            knots: alloc::vec![
-                KnotDef {
-                    id: "edge".into(),
-                    kind: KnotKind::rising_from_zero()
-                },
-                KnotDef {
-                    id: "t".into(),
-                    kind: KnotKind::timer(TimerMode::PulseHold, 2)
-                }
-            ],
-            threads: alloc::vec![ThreadDef {
-                from: PortRefDef::new("edge", "out"),
-                to: PortRefDef::new("t", "start")
-            }],
-        },
-        inputs: alloc::vec![PatternExportDef::new("start", "edge", "in")],
-        outputs: alloc::vec![PatternExportDef::new("active", "t", "active")],
-    })?;
+    run_b01_monostable_pattern_with(false)
+}
+
+fn run_b01_monostable_pattern_with(invalid_pattern_id: bool) -> Result<()> {
+    let pat = pattern! {
+        id: if invalid_pattern_id { "pat/mono" } else { "pat.mono" };
+        knots {
+            edge = KnotKind::rising_from_zero();
+            t = KnotKind::timer(TimerMode::PulseHold, 2);
+        }
+        exports {
+            input start = edge.in;
+            output active = t.active;
+        }
+        threads {
+            edge.out -> t.start;
+        }
+    }?;
     let weave = b01_monostable_pattern_weave(&pat)?;
     let mut rt = bind_default(&weave)?;
     let btn = rt.sense_id("btn").expect("btn");
@@ -188,6 +180,21 @@ pub fn run_b05_delayed_pulse() -> Result<()> {
     tick_senses(&mut host, &mut rt, &[(id, ONE)])?;
     assert!(signal_out_truthy(&rt, "y"));
     Ok(())
+}
+
+#[cfg(test)]
+mod scenario_tests {
+    use super::*;
+
+    #[test]
+    fn b01_pattern_recipe_runs() {
+        run_b01_monostable_pattern().unwrap();
+    }
+
+    #[test]
+    fn b01_pattern_validation_error_propagates() {
+        assert!(run_b01_monostable_pattern_with(true).is_err());
+    }
 }
 
 #[cfg(test)]

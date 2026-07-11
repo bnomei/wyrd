@@ -1,6 +1,7 @@
 use wyrd::{
-    weave, BuildError, KnotDef, KnotKind, NumericPath, Pattern, PatternDef, PatternExportDef,
-    PortRefDef, SignalDomain, Weave, WeaveBuilder, WeaveDef,
+    pattern, weave, BuildError, KnotDef, KnotKind, NumericPath, Pattern, PatternDef,
+    PatternExportDef, PortRefDef, SignalDomain, TimerMode, ValidationError, Weave, WeaveBuilder,
+    WeaveDef,
 };
 
 fn edge_pattern() -> Pattern {
@@ -19,6 +20,132 @@ fn edge_pattern() -> Pattern {
         outputs: vec![PatternExportDef::new("active", "edge", "out")],
     })
     .unwrap()
+}
+
+#[test]
+fn pattern_macro_matches_typed_definition_and_preserves_aliases() {
+    let from_macro = pattern! {
+        id: "pulse";
+        numeric: NumericPath::compiled();
+        knots {
+            edge as "edge.detect" = KnotKind::rising_from_zero();
+            timer = KnotKind::timer(TimerMode::PulseHold, 2);
+        }
+        exports {
+            input start = edge.in;
+            output active = timer.active;
+        }
+        threads {
+            edge.out -> timer.start;
+        }
+    }
+    .unwrap();
+
+    let expected = Pattern::try_from(PatternDef {
+        id: "pulse".into(),
+        inner: WeaveDef {
+            id: "pulse.inner".into(),
+            numeric: NumericPath::compiled(),
+            knots: vec![
+                KnotDef {
+                    id: "edge.detect".into(),
+                    kind: KnotKind::rising_from_zero(),
+                },
+                KnotDef {
+                    id: "timer".into(),
+                    kind: KnotKind::timer(TimerMode::PulseHold, 2),
+                },
+            ],
+            threads: vec![wyrd::ThreadDef {
+                from: PortRefDef::new("edge.detect", "out"),
+                to: PortRefDef::new("timer", "start"),
+            }],
+        },
+        inputs: vec![PatternExportDef::new("start", "edge.detect", "in")],
+        outputs: vec![PatternExportDef::new("active", "timer", "active")],
+    })
+    .unwrap();
+
+    assert_eq!(from_macro, expected);
+}
+
+#[test]
+fn pattern_macro_expressions_are_evaluated_once_in_source_order() -> Result<(), BuildError> {
+    use std::cell::RefCell;
+
+    let seen = RefCell::new(Vec::new());
+    let pattern: Pattern = pattern! {
+        id: { seen.borrow_mut().push("id"); "ordered" };
+        numeric: { seen.borrow_mut().push("numeric"); NumericPath::compiled() };
+        knots {
+            edge = { seen.borrow_mut().push("edge-kind"); KnotKind::rising_from_zero() };
+            timer = { seen.borrow_mut().push("timer-kind"); KnotKind::timer(TimerMode::PulseHold, 2) };
+        }
+        exports {
+            input start = edge.in;
+            output active = timer.active;
+        }
+        threads {
+            edge.out -> timer.start;
+        }
+    }?;
+
+    assert_eq!(pattern.id(), "ordered");
+    assert_eq!(
+        seen.into_inner(),
+        vec!["id", "numeric", "edge-kind", "timer-kind"]
+    );
+    Ok(())
+}
+
+#[test]
+fn pattern_macro_invalid_and_duplicate_exports_are_contextual() {
+    let duplicate_name = pattern! {
+        id: "duplicate-name";
+        knots {
+            edge = KnotKind::rising_from_zero();
+            timer = KnotKind::timer(TimerMode::PulseHold, 2);
+        }
+        exports {
+            input start = edge.in;
+            input start = timer.start;
+            output active = timer.active;
+        }
+        threads {}
+    }
+    .unwrap_err();
+    assert!(matches!(
+        duplicate_name,
+        BuildError::Validation(ValidationError::DuplicateExport { export }) if export == "start"
+    ));
+
+    let duplicate_input = pattern! {
+        id: "duplicate-input";
+        knots { edge = KnotKind::rising_from_zero(); }
+        exports {
+            input start = edge.in;
+            input again = edge.in;
+            output active = edge.out;
+        }
+        threads {}
+    }
+    .unwrap_err();
+    assert!(matches!(
+        duplicate_input,
+        BuildError::Validation(ValidationError::DuplicatePatternInput { .. })
+    ));
+
+    let wrong_direction = pattern! {
+        id: "wrong-direction";
+        knots { edge = KnotKind::rising_from_zero(); }
+        exports { output not_an_output = edge.in; }
+        threads {}
+    }
+    .unwrap_err();
+    assert!(matches!(
+        wrong_direction,
+        BuildError::Validation(ValidationError::WrongPortDirection { .. })
+    ));
 }
 
 #[test]

@@ -135,11 +135,15 @@ pub fn run_a04_host_tick_once() -> Result<()> {
 
 /// Topology for A05, deliberately invalid because its Map range is inverted.
 pub fn a05_validate_fails_weave() -> core::result::Result<Weave, BuildError> {
+    a05_validate_fails_weave_with(false)
+}
+
+fn a05_validate_fails_weave_with(valid_map: bool) -> core::result::Result<Weave, BuildError> {
     weave! {
         id: "a05";
         knots {
             c = KnotKind::constant(ONE, SignalDomain::Level);
-            map = KnotKind::Map { domain: SignalDomain::Level, in_min: from_count(5), in_max: from_count(1), out_min: ZERO, out_max: ONE };
+            map = KnotKind::Map { domain: SignalDomain::Level, in_min: from_count(if valid_map { 0 } else { 5 }), in_max: from_count(1), out_min: ZERO, out_max: ONE };
             o = KnotKind::signal_out("y", SignalDomain::Level);
         }
         threads { c.out -> map.in; map.out -> o.in; }
@@ -154,7 +158,11 @@ pub fn a05_validate_fails_weave() -> core::result::Result<Weave, BuildError> {
 /// wyrd::cookbook::tier_a::run_a05_validate_fails().unwrap();
 /// ```
 pub fn run_a05_validate_fails() -> Result<()> {
-    match a05_validate_fails_weave() {
+    run_a05_validate_fails_with(false)
+}
+
+fn run_a05_validate_fails_with(valid_map: bool) -> Result<()> {
+    match a05_validate_fails_weave_with(valid_map) {
         Err(BuildError::Validation(ValidationError::InvalidParameter { .. })) => Ok(()),
         other => panic!("expected invalid Map range, got {other:?}"),
     }
@@ -172,5 +180,11 @@ mod tests {
                 ValidationError::InvalidParameter { .. }
             ))
         ));
+    }
+
+    #[test]
+    #[should_panic(expected = "expected invalid Map range")]
+    fn a05_valid_map_reaches_the_diagnostic_branch() {
+        let _ = run_a05_validate_fails_with(true);
     }
 }

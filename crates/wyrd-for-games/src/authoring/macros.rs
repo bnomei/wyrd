@@ -1,7 +1,161 @@
-//! Authoring macros: [`weave!`](crate::weave) and hidden expand helpers.
+//! Authoring macros: [`pattern!`](crate::pattern), [`weave!`](crate::weave),
+//! and hidden expand helpers.
 //!
-//! The public surface is [`weave!`](crate::weave); it expands into
-//! [`WeaveBuilder`](crate::WeaveBuilder) calls with compile-time binding names.
+//! The public surface lowers declarative definitions into the existing validated
+//! authoring types while retaining compile-time binding names.
+
+/// Builds and validates a reusable [`Pattern`](crate::Pattern).
+///
+/// The declaration order is `id`, optional `numeric`, `knots`, `exports`, then
+/// `threads`. Exports name input and output ports that the enclosing
+/// [`weave!`](crate::weave) can connect through `in(name)` and `out(name)`.
+/// Knot aliases control the authored ids used by exports and threads.
+///
+/// The macro evaluates each expression once in source order and delegates all
+/// structural and export validation to [`Pattern::try_from`](crate::Pattern).
+/// It returns `Result<Pattern, BuildError>`.
+///
+/// ```
+/// use wyrd::{pattern, KnotKind, Pattern};
+///
+/// fn pulse() -> Result<Pattern, wyrd::BuildError> {
+///     pattern! {
+///         id: "pulse";
+///         knots {
+///             edge as "edge.detect" = KnotKind::rising_from_zero();
+///             timer = KnotKind::timer(wyrd::TimerMode::PulseHold, 2);
+///         }
+///         exports {
+///             input start = edge.in;
+///             output active = timer.active;
+///         }
+///         threads {
+///             edge.out -> timer.start;
+///         }
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! pattern {
+    {
+        id: $id:expr;
+        numeric: $numeric:expr;
+        knots {
+            $( $knot:ident $(as $alias:literal)? = $kind:expr; )*
+        }
+        exports {
+            $( input $input_name:ident = $input_knot:ident . $input_port:ident; )*
+            $( output $output_name:ident = $output_knot:ident . $output_port:ident; )*
+        }
+        threads {
+            $( $from:ident . $from_port:ident -> $to:ident . $to_port:ident; )*
+        }
+    } => {
+        $crate::__pattern_expand! {
+            id: $id;
+            numeric: $numeric;
+            knots { $( $knot $(as $alias)? = $kind; )* }
+            exports {
+                $( input $input_name = $input_knot . $input_port; )*
+                $( output $output_name = $output_knot . $output_port; )*
+            }
+            threads { $( $from . $from_port -> $to . $to_port; )* }
+        }
+    };
+
+    {
+        id: $id:expr;
+        knots {
+            $( $knot:ident $(as $alias:literal)? = $kind:expr; )*
+        }
+        exports {
+            $( input $input_name:ident = $input_knot:ident . $input_port:ident; )*
+            $( output $output_name:ident = $output_knot:ident . $output_port:ident; )*
+        }
+        threads {
+            $( $from:ident . $from_port:ident -> $to:ident . $to_port:ident; )*
+        }
+    } => {
+        $crate::__pattern_expand! {
+            id: $id;
+            numeric: $crate::NumericPath::compiled();
+            knots { $( $knot $(as $alias)? = $kind; )* }
+            exports {
+                $( input $input_name = $input_knot . $input_port; )*
+                $( output $output_name = $output_knot . $output_port; )*
+            }
+            threads { $( $from . $from_port -> $to . $to_port; )* }
+        }
+    };
+}
+
+/// Implementation detail for [`pattern!`](crate::pattern).
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __pattern_expand {
+    {
+        id: $id:expr;
+        numeric: $numeric:expr;
+        knots {
+            $( $knot:ident $(as $alias:literal)? = $kind:expr; )*
+        }
+        exports {
+            $( input $input_name:ident = $input_knot:ident . $input_port:ident; )*
+            $( output $output_name:ident = $output_knot:ident . $output_port:ident; )*
+        }
+        threads {
+            $( $from:ident . $from_port:ident -> $to:ident . $to_port:ident; )*
+        }
+    } => {{
+        (|| -> ::core::result::Result<$crate::Pattern, $crate::BuildError> {
+            // Duplicate bindings become duplicate struct fields, which makes
+            // this authoring mistake a compile error instead of shadowing.
+            #[allow(dead_code, non_camel_case_types)]
+            struct __PatternBindingNames {
+                $( $knot: (), )*
+            }
+
+            $( let $knot = $crate::__weave_author_id!($knot $(as $alias)?); )*
+            let __id: ::std::string::String = ($id).into();
+            let __numeric = $numeric;
+            Ok(<$crate::Pattern as ::core::convert::TryFrom<$crate::PatternDef>>::try_from(
+                $crate::PatternDef {
+                    id: __id.clone(),
+                    inner: $crate::WeaveDef {
+                        id: ::std::format!("{__id}.inner"),
+                        numeric: __numeric,
+                        knots: ::std::vec![
+                            $( $crate::KnotDef {
+                                id: $knot.into(),
+                                kind: $kind,
+                            }, )*
+                        ],
+                        threads: ::std::vec![
+                            $( $crate::ThreadDef {
+                                from: $crate::PortRefDef::new($from, ::core::stringify!($from_port)),
+                                to: $crate::PortRefDef::new($to, ::core::stringify!($to_port)),
+                            }, )*
+                        ],
+                    },
+                    inputs: ::std::vec![
+                        $( $crate::PatternExportDef::new(
+                            ::core::stringify!($input_name),
+                            $input_knot,
+                            ::core::stringify!($input_port),
+                        ), )*
+                    ],
+                    outputs: ::std::vec![
+                        $( $crate::PatternExportDef::new(
+                            ::core::stringify!($output_name),
+                            $output_knot,
+                            ::core::stringify!($output_port),
+                        ), )*
+                    ],
+                },
+            )?)
+        })()
+    }};
+}
 
 /// Builds and validates a [`Weave`](crate::Weave) with the typed graph API.
 ///

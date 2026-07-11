@@ -1,0 +1,17 @@
+error[E0124]: field `same` is already declared
+  --> tests/ui/pattern_duplicate_binding.rs:4:13
+   |
+ 4 |       let _ = pattern! {
+   |  _____________^
+ 5 | |         id: "duplicate";
+ 6 | |         knots {
+ 7 | |             same = KnotKind::rising_from_zero();
+...  |
+14 | |         threads {}
+15 | |     };
+   | |     ^
+   | |     |
+   | |_____field already declared
+   |       `same` first declared here
+   |
+   = note: this error originates in the macro `$crate::__pattern_expand` which comes from the expansion of the macro `pattern` (in Nightly builds, run with -Z macro-backtrace for more info)
