@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- Add Bool, Level, and Count signal domains with graph-time compatibility validation; use explicit
+  conversion knots to cross domains.
+
+### Changed
+
+- Update the Bevy adapter to Bevy 0.19.
+
+### Performance
+
+- Optimize integer `Map` and `Sqrt` execution for constrained hosts such as Playdate.
+
 ## 0.2.0
 
 ### Breaking API redesign
@@ -14,8 +27,7 @@
 - Privatized dense ID fields and added the host-writable `SenseId` type.
 - Added the declarative `weave!` graph and pattern authoring macro.
 
-The 0.1 Rust API and serialized graph schema are not compatibility targets. See
-[`MIGRATION-0.2.md`](MIGRATION-0.2.md).
+The 0.1 Rust API and serialized graph schema are not compatibility targets.
 
 ### Pedagogy
 

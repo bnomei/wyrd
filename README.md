@@ -8,8 +8,7 @@ its outputs back to your game.
 
 [![CodSpeed](https://img.shields.io/github/actions/workflow/status/bnomei/wyrd/codspeed.yml?branch=main&label=CodSpeed)](https://github.com/bnomei/wyrd/actions/workflows/codspeed.yml)
 
-Wyrd 0.2 is pre-1.0 and contains a breaking API redesign. If you used 0.1, start with the
-[0.2 migration guide](MIGRATION-0.2.md).
+Wyrd 0.2 is pre-1.0 and contains a breaking API redesign.
 
 ## When Wyrd fits
 
@@ -276,7 +275,6 @@ builds, runtime `no_std` checks, warnings as errors, and line-coverage gates.
 - [Bevy integration boundary](crates/wyrd-bevy/README.md)
 - [Closed knot port tables](crates/wyrd-core/src/ports.rs)
 - [Runtime error contracts](crates/wyrd-runtime/src/error.rs)
-- [0.2 migration guide](MIGRATION-0.2.md)
 - [Changelog](CHANGELOG.md)
 
 ## License
