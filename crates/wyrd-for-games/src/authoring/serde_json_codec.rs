@@ -93,6 +93,9 @@ mod tests {
 
     #[test]
     fn serialize_error_formats_and_retains_its_source() {
+        let mut writer = FailingWriter;
+        io::Write::flush(&mut writer).expect("test writer flushes successfully");
+
         let source = serde_json::to_writer(FailingWriter, &"codec")
             .expect_err("writer failure must be preserved as a JSON error");
         let error = JsonCodecError::Serialize(source);
