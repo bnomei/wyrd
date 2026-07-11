@@ -213,11 +213,7 @@ Enable exactly one of `signal-f32` and `signal-i32`.
 
 `wyrd-bevy` always uses `signal-f32`. Use `wyrd-runtime` directly for `signal-i32` hosts.
 
-Verify both numeric paths, codecs, runtime `no_std` builds, and Bevy:
-
-```bash
-./scripts/dual-check.sh
-```
+CI verifies both numeric paths, codecs, runtime `no_std` builds, and Bevy.
 
 ## Playdate / constrained hosts
 
@@ -247,7 +243,6 @@ Run the same primary checks used during development:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-./scripts/dual-check.sh
 ```
 
 Run the full local performance suite:
@@ -258,15 +253,8 @@ cargo bench --workspace
 
 CodSpeed runs the same runtime and Bevy benchmark targets on pushes to `main` and pull requests.
 
-For local line-coverage reports:
-
-```bash
-./scripts/coverage.sh
-./scripts/coverage.sh --i32
-```
-
-The HTML report is written under `target/coverage/`. CI enforces the numeric/codec matrix, Bevy
-builds, runtime `no_std` checks, warnings as errors, and line-coverage gates.
+CI enforces the numeric/codec matrix, Bevy builds, runtime `no_std` checks, warnings as errors,
+and line-coverage gates.
 
 ## Reference and next steps
 

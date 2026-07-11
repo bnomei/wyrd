@@ -32,11 +32,7 @@ Helpers: `set_sense_bool`, `signal_truthy`, `apply_signal_bool`. Each returns a
 Bevy is float-native (`Transform`, time, etc.). This crate **always** depends on
 `wyrd-*` with `signal-f32`. It does **not** offer `signal-i32`.
 
-Integer / Q16 dual-path coverage lives on **core / graph / runtime**:
-
-```bash
-./scripts/dual-check.sh
-```
+CI exercises integer / Q16 dual-path coverage on **core / graph / runtime**.
 
 Playdate-class hosts should depend on `wyrd-runtime` with `signal-i32` directly,
 not through `wyrd-bevy`.
