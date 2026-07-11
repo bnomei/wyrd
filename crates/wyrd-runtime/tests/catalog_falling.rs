@@ -2,17 +2,7 @@
 
 use wyrd_core::{is_truthy, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO)
-}
+use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 #[test]
 fn falling_to_zero_edge() {
@@ -33,15 +23,15 @@ fn falling_to_zero_edge() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(id, ONE).unwrap();
     rt.loom();
-    assert!(!is_truthy(out_v(&rt, "y")));
+    assert!(!is_truthy(signal_out_value(&rt, "y")));
 
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer().set_sense(id, ZERO).unwrap();
     rt.loom();
-    assert!(is_truthy(out_v(&rt, "y")));
+    assert!(is_truthy(signal_out_value(&rt, "y")));
 
     rt.begin_frame(HostTime { tick: 2 });
     rt.port_writer().set_sense(id, ZERO).unwrap();
     rt.loom();
-    assert!(!is_truthy(out_v(&rt, "y")));
+    assert!(!is_truthy(signal_out_value(&rt, "y")));
 }

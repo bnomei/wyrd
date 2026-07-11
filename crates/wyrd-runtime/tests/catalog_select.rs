@@ -2,17 +2,7 @@
 
 use wyrd_core::{from_count, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO)
-}
+use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 #[test]
 fn select_a_when_sel_false() {
@@ -41,12 +31,12 @@ fn select_a_when_sel_false() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(sel, ZERO).unwrap();
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), from_count(3));
+    assert_eq!(signal_out_value(&rt, "y"), from_count(3));
 
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer().set_sense(sel, ONE).unwrap();
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), from_count(7));
+    assert_eq!(signal_out_value(&rt, "y"), from_count(7));
 
     // Non-ONE truthy still selects b; b can be ZERO (forward, don't force ONE).
     let mut b = Weave::builder("s2").unwrap();
@@ -73,5 +63,5 @@ fn select_a_when_sel_false() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(sel, from_count(2)).unwrap();
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), ZERO);
+    assert_eq!(signal_out_value(&rt, "y"), ZERO);
 }

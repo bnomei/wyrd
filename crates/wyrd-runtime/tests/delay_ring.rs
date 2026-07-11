@@ -2,17 +2,7 @@
 
 use wyrd_core::{HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_val(rt: &Runtime, path: &str) -> wyrd_core::Signal {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO)
-}
+use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 fn tick(rt: &mut Runtime, t: u64, v: wyrd_core::Signal) {
     rt.begin_frame(HostTime { tick: t });
@@ -36,7 +26,7 @@ fn delay_zero_is_passthrough() {
     let weave = b.build().unwrap();
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     tick(&mut rt, 0, ONE);
-    assert!(wyrd_core::is_truthy(out_val(&rt, "y")));
+    assert!(wyrd_core::is_truthy(signal_out_value(&rt, "y")));
 }
 
 #[test]
@@ -55,13 +45,13 @@ fn delay_three_ticks() {
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
 
     tick(&mut rt, 0, ONE);
-    assert!(!wyrd_core::is_truthy(out_val(&rt, "y")));
+    assert!(!wyrd_core::is_truthy(signal_out_value(&rt, "y")));
     tick(&mut rt, 1, ZERO);
-    assert!(!wyrd_core::is_truthy(out_val(&rt, "y")));
+    assert!(!wyrd_core::is_truthy(signal_out_value(&rt, "y")));
     tick(&mut rt, 2, ZERO);
-    assert!(!wyrd_core::is_truthy(out_val(&rt, "y")));
+    assert!(!wyrd_core::is_truthy(signal_out_value(&rt, "y")));
     tick(&mut rt, 3, ZERO);
-    assert!(wyrd_core::is_truthy(out_val(&rt, "y")));
+    assert!(wyrd_core::is_truthy(signal_out_value(&rt, "y")));
     tick(&mut rt, 4, ZERO);
-    assert!(!wyrd_core::is_truthy(out_val(&rt, "y")));
+    assert!(!wyrd_core::is_truthy(signal_out_value(&rt, "y")));
 }

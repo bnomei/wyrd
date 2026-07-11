@@ -2,17 +2,10 @@
 
 use wyrd_core::{CalcOp, CompareOp, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_truthy(rt: &Runtime, path: &str) -> bool {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| wyrd_core::is_truthy(s.value))
-        .unwrap_or(false)
-}
+use wyrd_runtime::{
+    cookbook::helpers::{signal_out_truthy, signal_out_value},
+    BindOpts, Runtime,
+};
 
 #[test]
 fn compare_gte_rhs_const() {
@@ -37,14 +30,14 @@ fn compare_gte_rhs_const() {
         .set_sense(id, wyrd_core::from_count(2))
         .unwrap();
     rt.loom();
-    assert!(!out_truthy(&rt, "ok"));
+    assert!(!signal_out_truthy(&rt, "ok"));
 
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer()
         .set_sense(id, wyrd_core::from_count(3))
         .unwrap();
     rt.loom();
-    assert!(out_truthy(&rt, "ok"));
+    assert!(signal_out_truthy(&rt, "ok"));
 }
 
 #[test]
@@ -71,15 +64,7 @@ fn calc_add_and_div0() {
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom();
-    let pid = rt.path_id("q").unwrap();
-    let v = rt
-        .outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap();
-    assert_eq!(v, ZERO);
+    assert_eq!(signal_out_value(&rt, "q"), ZERO);
 }
 
 #[test]
@@ -101,10 +86,10 @@ fn rising_from_zero_one_tick() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(id, ONE).unwrap();
     rt.loom();
-    assert!(out_truthy(&rt, "pulse"));
+    assert!(signal_out_truthy(&rt, "pulse"));
 
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer().set_sense(id, ONE).unwrap();
     rt.loom();
-    assert!(!out_truthy(&rt, "pulse"));
+    assert!(!signal_out_truthy(&rt, "pulse"));
 }

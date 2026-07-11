@@ -2,7 +2,7 @@
 
 use wyrd_core::{HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
+use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 #[test]
 fn hello_not() {
@@ -48,7 +48,6 @@ fn and_door_dense_sense() {
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let id_a = rt.sense_id("plate_a").unwrap();
     let id_b = rt.sense_id("plate_b").unwrap();
-    let path = rt.path_id("door.open").unwrap();
 
     rt.begin_frame(HostTime { tick: 1 });
     {
@@ -57,13 +56,7 @@ fn and_door_dense_sense() {
         w.set_sense(id_b, ZERO).unwrap();
     }
     rt.loom();
-    let v = rt
-        .outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == path)
-        .map(|s| s.value)
-        .unwrap_or(ZERO);
+    let v = signal_out_value(&rt, "door.open");
     assert!(!wyrd_core::is_truthy(v));
 
     rt.begin_frame(HostTime { tick: 2 });
@@ -73,12 +66,6 @@ fn and_door_dense_sense() {
         w.set_sense(id_b, ONE).unwrap();
     }
     rt.loom();
-    let v = rt
-        .outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == path)
-        .map(|s| s.value)
-        .unwrap_or(ZERO);
+    let v = signal_out_value(&rt, "door.open");
     assert!(wyrd_core::is_truthy(v));
 }

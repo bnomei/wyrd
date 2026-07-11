@@ -1,24 +1,11 @@
 //! Drive every remaining loom eval arm via real builder → bind → loom → outbox.
 
-use wyrd_core::{
-    from_count, is_truthy, CalcOp, CompareOp, FlagPriority, HostTime, KnotKind, ONE, ZERO,
-};
+use wyrd_core::{from_count, CalcOp, CompareOp, FlagPriority, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO)
-}
-
-fn truthy(rt: &Runtime, path: &str) -> bool {
-    is_truthy(out_v(rt, path))
-}
+use wyrd_runtime::{
+    cookbook::helpers::{signal_out_truthy, signal_out_value},
+    BindOpts, Runtime,
+};
 
 #[test]
 fn or_and_onstart() {
@@ -53,8 +40,8 @@ fn or_and_onstart() {
         w.set_sense(b_id, ZERO).unwrap();
     }
     rt.loom();
-    assert!(truthy(&rt, "s"));
-    assert!(!truthy(&rt, "y"));
+    assert!(signal_out_truthy(&rt, "s"));
+    assert!(!signal_out_truthy(&rt, "y"));
 
     rt.begin_frame(HostTime { tick: 1 });
     {
@@ -63,8 +50,8 @@ fn or_and_onstart() {
         w.set_sense(b_id, ZERO).unwrap();
     }
     rt.loom();
-    assert!(!truthy(&rt, "s"));
-    assert!(truthy(&rt, "y"));
+    assert!(!signal_out_truthy(&rt, "s"));
+    assert!(signal_out_truthy(&rt, "y"));
 }
 
 #[test]
@@ -146,16 +133,16 @@ fn map_abs_neg_calc_all() {
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom();
-    assert_eq!(out_v(&rt, "abs"), from_count(4));
-    assert_eq!(out_v(&rt, "neg"), from_count(4)); // -(-4) under f32; under i32 saturating_neg of -4 = 4
-    assert_eq!(out_v(&rt, "map"), from_count(40)); // 4 maps to 40
-    assert_eq!(out_v(&rt, "add"), from_count(5));
-    assert_eq!(out_v(&rt, "sub"), from_count(1));
+    assert_eq!(signal_out_value(&rt, "abs"), from_count(4));
+    assert_eq!(signal_out_value(&rt, "neg"), from_count(4)); // -(-4) under f32; under i32 saturating_neg of -4 = 4
+    assert_eq!(signal_out_value(&rt, "map"), from_count(40)); // 4 maps to 40
+    assert_eq!(signal_out_value(&rt, "add"), from_count(5));
+    assert_eq!(signal_out_value(&rt, "sub"), from_count(1));
     #[cfg(feature = "signal-f32")]
-    assert_eq!(out_v(&rt, "mul"), from_count(6));
+    assert_eq!(signal_out_value(&rt, "mul"), from_count(6));
     #[cfg(feature = "signal-i32")]
     {
-        assert_eq!(out_v(&rt, "mul"), from_count(0));
+        assert_eq!(signal_out_value(&rt, "mul"), from_count(0));
     }
 }
 
@@ -206,7 +193,7 @@ fn flag_setwins_and_counter_dec() {
         w.set_sense(dec, ZERO).unwrap();
     }
     rt.loom();
-    assert!(truthy(&rt, "flag"));
+    assert!(signal_out_truthy(&rt, "flag"));
 
     rt.begin_frame(HostTime { tick: 1 });
     {
@@ -217,7 +204,7 @@ fn flag_setwins_and_counter_dec() {
         w.set_sense(dec, ZERO).unwrap();
     }
     rt.loom();
-    assert_eq!(out_v(&rt, "count"), from_count(1));
+    assert_eq!(signal_out_value(&rt, "count"), from_count(1));
 
     rt.begin_frame(HostTime { tick: 2 });
     {
@@ -233,7 +220,7 @@ fn flag_setwins_and_counter_dec() {
         w.set_sense(dec, ONE).unwrap();
     }
     rt.loom();
-    assert_eq!(out_v(&rt, "count"), from_count(0));
+    assert_eq!(signal_out_value(&rt, "count"), from_count(0));
 }
 
 #[test]
@@ -265,7 +252,7 @@ fn compare_all_ops_wired_rhs() {
         let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
         rt.begin_frame(HostTime { tick: 0 });
         rt.loom();
-        assert_eq!(truthy(&rt, "y"), expect, "{op:?}");
+        assert_eq!(signal_out_truthy(&rt, "y"), expect, "{op:?}");
     }
 }
 
@@ -305,7 +292,7 @@ fn flag_setwins_reset_and_toggle_and_resetwins_set() {
         w.set_sense(tog, ZERO).unwrap();
     }
     rt.loom();
-    assert!(truthy(&rt, "y"));
+    assert!(signal_out_truthy(&rt, "y"));
 
     rt.begin_frame(HostTime { tick: 1 });
     {
@@ -315,7 +302,7 @@ fn flag_setwins_reset_and_toggle_and_resetwins_set() {
         w.set_sense(tog, ZERO).unwrap();
     }
     rt.loom();
-    assert!(!truthy(&rt, "y"));
+    assert!(!signal_out_truthy(&rt, "y"));
 
     rt.begin_frame(HostTime { tick: 2 });
     {
@@ -333,7 +320,7 @@ fn flag_setwins_reset_and_toggle_and_resetwins_set() {
         w.set_sense(tog, ONE).unwrap();
     }
     rt.loom();
-    assert!(truthy(&rt, "y"));
+    assert!(signal_out_truthy(&rt, "y"));
 
     let mut b = Weave::builder("rw").unwrap();
     let k_set = b.knot("set", KnotKind::signal_in()).unwrap();
@@ -362,7 +349,7 @@ fn flag_setwins_reset_and_toggle_and_resetwins_set() {
         w.set_sense(rst, ZERO).unwrap();
     }
     rt.loom();
-    assert!(truthy(&rt, "y"));
+    assert!(signal_out_truthy(&rt, "y"));
 }
 
 #[test]
@@ -399,11 +386,11 @@ fn map_zero_span_and_delay_one() {
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), from_count(7));
-    assert_eq!(out_v(&rt, "d"), ZERO); // delay 1
+    assert_eq!(signal_out_value(&rt, "y"), from_count(7));
+    assert_eq!(signal_out_value(&rt, "d"), ZERO); // delay 1
     rt.begin_frame(HostTime { tick: 1 });
     rt.loom();
-    assert_eq!(out_v(&rt, "d"), from_count(1));
+    assert_eq!(signal_out_value(&rt, "d"), from_count(1));
 }
 
 #[test]
@@ -435,5 +422,5 @@ fn digitize_four_steps_mid_bin() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(id, from_count(2)).unwrap();
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), from_count(20));
+    assert_eq!(signal_out_value(&rt, "y"), from_count(20));
 }

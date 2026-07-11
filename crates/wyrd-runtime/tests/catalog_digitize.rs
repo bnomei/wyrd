@@ -2,17 +2,7 @@
 
 use wyrd_core::{from_count, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::{ValidationError, Weave};
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO)
-}
+use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 #[test]
 fn digitize_two_steps_endpoints() {
@@ -33,12 +23,12 @@ fn digitize_two_steps_endpoints() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(id, ZERO).unwrap();
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), ZERO);
+    assert_eq!(signal_out_value(&rt, "y"), ZERO);
 
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer().set_sense(id, ONE).unwrap();
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), ONE);
+    assert_eq!(signal_out_value(&rt, "y"), ONE);
 }
 
 #[test]
@@ -57,7 +47,7 @@ fn digitize_one_step_is_out_min() {
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), ZERO);
+    assert_eq!(signal_out_value(&rt, "y"), ZERO);
 }
 
 #[test]
@@ -87,7 +77,7 @@ fn digitize_zero_span_is_out_min() {
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), from_count(5));
+    assert_eq!(signal_out_value(&rt, "y"), from_count(5));
 }
 
 #[test]
@@ -127,7 +117,7 @@ fn digitize_mid_bins_custom_out_range() {
         rt.begin_frame(HostTime { tick: 0 });
         rt.port_writer().set_sense(id, input).unwrap();
         rt.loom();
-        assert_eq!(out_v(&rt, "y"), expect, "input bin mapping");
+        assert_eq!(signal_out_value(&rt, "y"), expect, "input bin mapping");
     }
 }
 

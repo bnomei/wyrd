@@ -2,19 +2,15 @@
 
 use wyrd_core::{FlagPriority, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
+use wyrd_runtime::{
+    cookbook::helpers::{signal_out_truthy, signal_out_value},
+    BindOpts, Runtime,
+};
 
 /// Whole-unit count from SignalOut (works for f32 and i32 Q paths via from_count).
 fn count_out(rt: &Runtime) -> i32 {
     use wyrd_core::from_count;
-    let pid = rt.path_id("count").unwrap();
-    let v = rt
-        .outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO);
+    let v = signal_out_value(rt, "count");
     // Compare against from_count ladder so dual-path stays honest.
     for n in 0..64 {
         if v == from_count(n) {
@@ -29,16 +25,6 @@ fn count_out(rt: &Runtime) -> i32 {
     {
         v
     }
-}
-
-fn signal_truthy(rt: &Runtime, path: &str) -> bool {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| wyrd_core::is_truthy(s.value))
-        .unwrap_or(false)
 }
 
 #[test]
@@ -154,7 +140,7 @@ fn flag_toggle_rising_and_reset() {
         w.set_sense(rst, ZERO).unwrap();
     }
     rt.loom();
-    assert!(signal_truthy(&rt, "lamp"));
+    assert!(signal_out_truthy(&rt, "lamp"));
 
     rt.begin_frame(HostTime { tick: 1 });
     {
@@ -163,7 +149,7 @@ fn flag_toggle_rising_and_reset() {
         w.set_sense(rst, ZERO).unwrap();
     }
     rt.loom();
-    assert!(signal_truthy(&rt, "lamp"));
+    assert!(signal_out_truthy(&rt, "lamp"));
 
     rt.begin_frame(HostTime { tick: 2 });
     {
@@ -172,7 +158,7 @@ fn flag_toggle_rising_and_reset() {
         w.set_sense(rst, ONE).unwrap();
     }
     rt.loom();
-    assert!(!signal_truthy(&rt, "lamp"));
+    assert!(!signal_out_truthy(&rt, "lamp"));
 }
 
 #[test]

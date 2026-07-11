@@ -2,17 +2,7 @@
 
 use wyrd_core::{is_truthy, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO)
-}
+use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 #[test]
 fn xor_truth_table() {
@@ -48,6 +38,6 @@ fn xor_truth_table() {
             w.set_sense(b_id, bv).unwrap();
         }
         rt.loom();
-        assert_eq!(is_truthy(out_v(&rt, "y")), expect);
+        assert_eq!(is_truthy(signal_out_value(&rt, "y")), expect);
     }
 }

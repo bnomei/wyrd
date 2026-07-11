@@ -2,17 +2,7 @@
 
 use wyrd_core::{from_count, is_truthy, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::{ValidationError, Weave};
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO)
-}
+use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 fn wire_threshold(kind: KnotKind) -> (Weave, Runtime) {
     let mut b = Weave::builder("t").unwrap();
@@ -50,20 +40,20 @@ fn threshold_simple_no_hysteresis() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(id, from_count(4)).unwrap();
     rt.loom();
-    assert!(!is_truthy(out_v(&rt, "gate")));
+    assert!(!is_truthy(signal_out_value(&rt, "gate")));
 
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer().set_sense(id, from_count(5)).unwrap();
     rt.loom();
-    assert!(is_truthy(out_v(&rt, "gate")));
-    assert!(is_truthy(out_v(&rt, "up")));
-    assert!(!is_truthy(out_v(&rt, "dn")));
+    assert!(is_truthy(signal_out_value(&rt, "gate")));
+    assert!(is_truthy(signal_out_value(&rt, "up")));
+    assert!(!is_truthy(signal_out_value(&rt, "dn")));
 
     rt.begin_frame(HostTime { tick: 2 });
     rt.port_writer().set_sense(id, from_count(4)).unwrap();
     rt.loom();
-    assert!(!is_truthy(out_v(&rt, "gate")));
-    assert!(is_truthy(out_v(&rt, "dn")));
+    assert!(!is_truthy(signal_out_value(&rt, "gate")));
+    assert!(is_truthy(signal_out_value(&rt, "dn")));
 }
 
 #[test]
@@ -74,7 +64,7 @@ fn threshold_hysteresis_band() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(id, ONE).unwrap();
     rt.loom();
-    assert!(is_truthy(out_v(&rt, "gate")));
+    assert!(is_truthy(signal_out_value(&rt, "gate")));
 
     #[cfg(feature = "signal-f32")]
     let mid = 0.45;
@@ -83,14 +73,14 @@ fn threshold_hysteresis_band() {
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer().set_sense(id, mid).unwrap();
     rt.loom();
-    assert!(is_truthy(out_v(&rt, "gate")));
-    assert!(!is_truthy(out_v(&rt, "dn")));
+    assert!(is_truthy(signal_out_value(&rt, "gate")));
+    assert!(!is_truthy(signal_out_value(&rt, "dn")));
 
     rt.begin_frame(HostTime { tick: 2 });
     rt.port_writer().set_sense(id, ZERO).unwrap();
     rt.loom();
-    assert!(!is_truthy(out_v(&rt, "gate")));
-    assert!(is_truthy(out_v(&rt, "dn")));
+    assert!(!is_truthy(signal_out_value(&rt, "gate")));
+    assert!(is_truthy(signal_out_value(&rt, "dn")));
 }
 
 #[test]

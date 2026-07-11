@@ -3,33 +3,49 @@
 use crate::host::{tick_once, ScriptedHost};
 use crate::BindOpts;
 use crate::{BindError, HandleError, Runtime};
-use wyrd_core::{is_truthy, HostTime, Signal, ZERO};
+use wyrd_core::{is_truthy, HostTime, Signal};
 use wyrd_graph::Weave;
 
 use crate::SenseId;
 
-/// True if SignalOut path is present and truthy this frame.
+/// Returns whether a bound `SignalOut` emitted a truthy value this frame.
+///
+/// A legitimate falsey sample is returned as `false`; it is not confused with
+/// a missing sample.
+///
+/// # Panics
+///
+/// Panics if `path` is not bound to a `SignalOut`, or if the current frame has
+/// no sample for that path (for example, because [`Runtime::loom`] has not run).
+#[track_caller]
 pub fn signal_out_truthy(rt: &Runtime, path: &str) -> bool {
-    let Some(pid) = rt.path_id(path) else {
-        return false;
-    };
-    rt.outbox()
-        .signals()
-        .iter()
-        .any(|s| s.path == pid && is_truthy(s.value))
+    is_truthy(signal_out_value(rt, path))
 }
 
-/// Signal value on path, or ZERO if missing.
+/// Returns the sample emitted by a bound `SignalOut` this frame.
+///
+/// A legitimate zero sample is returned as-is; it is not confused with a
+/// missing sample.
+///
+/// # Panics
+///
+/// Panics if `path` is not bound to a `SignalOut`, or if the current frame has
+/// no sample for that path (for example, because [`Runtime::loom`] has not run).
+#[track_caller]
 pub fn signal_out_value(rt: &Runtime, path: &str) -> Signal {
-    let Some(pid) = rt.path_id(path) else {
-        return ZERO;
-    };
+    let pid = rt
+        .path_id(path)
+        .unwrap_or_else(|| panic!("SignalOut path `{path}` is not bound"));
     rt.outbox()
         .signals()
         .iter()
         .find(|s| s.path == pid)
         .map(|s| s.value)
-        .unwrap_or(ZERO)
+        .unwrap_or_else(|| {
+            panic!(
+                "SignalOut path `{path}` has no sample in the current frame; call Runtime::loom first"
+            )
+        })
 }
 
 /// Emit count for command name this frame.
@@ -71,4 +87,50 @@ pub fn tick_senses(
 ) -> Result<(), HandleError> {
     host.push_frame(senses.iter().copied());
     tick_once(host, rt)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wyrd_core::{KnotKind, ZERO};
+
+    fn runtime_with_zero_output() -> Runtime {
+        let mut builder = Weave::builder("strict-signal-out").unwrap();
+        let constant = builder.knot("zero", KnotKind::constant(ZERO)).unwrap();
+        let output = builder
+            .knot("output", KnotKind::signal_out("known.output"))
+            .unwrap();
+        let from = builder.output(&constant, "out").unwrap();
+        let to = builder.input(&output, "in").unwrap();
+        builder.connect(from, to).unwrap();
+        bind_default(&builder.build().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn emitted_zero_remains_a_present_falsey_sample() {
+        let mut rt = runtime_with_zero_output();
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.loom();
+
+        assert_eq!(signal_out_value(&rt, "known.output"), ZERO);
+        assert!(!signal_out_truthy(&rt, "known.output"));
+    }
+
+    #[test]
+    #[should_panic(expected = "SignalOut path `unknown.output` is not bound")]
+    fn unknown_signal_out_path_panics() {
+        let rt = runtime_with_zero_output();
+        let _ = signal_out_value(&rt, "unknown.output");
+    }
+
+    #[test]
+    #[should_panic(expected = "SignalOut path `known.output` has no sample in the current frame")]
+    fn missing_current_frame_sample_panics() {
+        let mut rt = runtime_with_zero_output();
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.loom();
+        rt.begin_frame(HostTime { tick: 1 });
+
+        let _ = signal_out_value(&rt, "known.output");
+    }
 }

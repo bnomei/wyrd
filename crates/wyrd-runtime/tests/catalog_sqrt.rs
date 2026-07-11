@@ -2,17 +2,7 @@
 
 use wyrd_core::{from_count, HostTime, KnotKind, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO)
-}
+use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 #[test]
 fn sqrt_perfect_and_negative() {
@@ -33,10 +23,10 @@ fn sqrt_perfect_and_negative() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(id, from_count(9)).unwrap();
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), from_count(3));
+    assert_eq!(signal_out_value(&rt, "y"), from_count(3));
 
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer().set_sense(id, from_count(-4)).unwrap();
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), ZERO);
+    assert_eq!(signal_out_value(&rt, "y"), ZERO);
 }

@@ -2,17 +2,7 @@
 
 use wyrd_core::{HostTime, KnotKind, Seed, ONE, ZERO};
 use wyrd_graph::{ValidationError, Weave};
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn out_v(rt: &Runtime, path: &str) -> wyrd_core::Signal {
-    let pid = rt.path_id(path).unwrap();
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| s.value)
-        .unwrap_or(ZERO)
-}
+use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 fn random_weave(require_gate: bool) -> Weave {
     let mut b = Weave::builder("r").unwrap();
@@ -42,10 +32,10 @@ fn same_seed_same_stream() {
     for t in 0..5u64 {
         a.begin_frame(HostTime { tick: t });
         a.loom();
-        vals_a.push(out_v(&a, "y"));
+        vals_a.push(signal_out_value(&a, "y"));
         b.begin_frame(HostTime { tick: t });
         b.loom();
-        vals_b.push(out_v(&b, "y"));
+        vals_b.push(signal_out_value(&b, "y"));
     }
     assert_eq!(vals_a, vals_b);
 }
@@ -66,13 +56,13 @@ fn gate_rising_samples_once() {
     rt.begin_frame(HostTime { tick: 0 });
     rt.port_writer().set_sense(g, ZERO).unwrap();
     rt.loom();
-    let held0 = out_v(&rt, "y"); // first sample false → hold 0
+    let held0 = signal_out_value(&rt, "y"); // first sample false → hold 0
     assert_eq!(held0, ZERO);
 
     rt.begin_frame(HostTime { tick: 1 });
     rt.port_writer().set_sense(g, ONE).unwrap();
     rt.loom();
-    let v1 = out_v(&rt, "y");
+    let v1 = signal_out_value(&rt, "y");
     #[cfg(feature = "signal-f32")]
     {
         assert!((0.0..=1.0).contains(&v1));
@@ -85,17 +75,17 @@ fn gate_rising_samples_once() {
     rt.begin_frame(HostTime { tick: 2 });
     rt.port_writer().set_sense(g, ONE).unwrap(); // held — no new sample
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), v1);
+    assert_eq!(signal_out_value(&rt, "y"), v1);
 
     rt.begin_frame(HostTime { tick: 3 });
     rt.port_writer().set_sense(g, ZERO).unwrap();
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), v1); // still hold last
+    assert_eq!(signal_out_value(&rt, "y"), v1); // still hold last
 
     rt.begin_frame(HostTime { tick: 4 });
     rt.port_writer().set_sense(g, ONE).unwrap();
     rt.loom();
-    let v2 = out_v(&rt, "y");
+    let v2 = signal_out_value(&rt, "y");
     assert_ne!(v1, v2);
 }
 
@@ -126,7 +116,7 @@ fn random_with_min_max_ports() {
     .unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom();
-    let v = out_v(&rt, "y");
+    let v = signal_out_value(&rt, "y");
     #[cfg(feature = "signal-f32")]
     {
         assert!((0.0..=1.0).contains(&v));
@@ -164,7 +154,7 @@ fn random_min_eq_max_is_constant() {
     .unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom();
-    assert_eq!(out_v(&rt, "y"), ONE);
+    assert_eq!(signal_out_value(&rt, "y"), ONE);
 }
 
 #[test]
@@ -177,23 +167,23 @@ fn reseed_matches_fresh_bind() {
     let mut rt = Runtime::bind(weave.clone(), opts.clone()).unwrap();
     rt.begin_frame(HostTime { tick: 0 });
     rt.loom();
-    let first = out_v(&rt, "y");
+    let first = signal_out_value(&rt, "y");
     rt.begin_frame(HostTime { tick: 1 });
     rt.loom();
-    let second = out_v(&rt, "y");
+    let second = signal_out_value(&rt, "y");
     assert_ne!(first, second);
 
     // Room retry: reseed to the same BindOpts seed restores the bind stream.
     rt.reseed(Seed(1));
     rt.begin_frame(HostTime { tick: 2 });
     rt.loom();
-    let after = out_v(&rt, "y");
+    let after = signal_out_value(&rt, "y");
     assert_eq!(after, first);
 
     let mut fresh = Runtime::bind(weave.clone(), opts).unwrap();
     fresh.begin_frame(HostTime { tick: 0 });
     fresh.loom();
-    assert_eq!(out_v(&fresh, "y"), after);
+    assert_eq!(signal_out_value(&fresh, "y"), after);
 }
 
 #[test]

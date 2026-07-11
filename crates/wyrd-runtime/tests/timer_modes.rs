@@ -2,19 +2,7 @@
 
 use wyrd_core::{HostTime, KnotKind, TimerMode, ONE, ZERO};
 use wyrd_graph::Weave;
-use wyrd_runtime::{BindOpts, Runtime};
-
-fn signal_out_truthy(rt: &Runtime, path: &str) -> bool {
-    let Some(pid) = rt.path_id(path) else {
-        return false;
-    };
-    rt.outbox()
-        .signals()
-        .iter()
-        .find(|s| s.path == pid)
-        .map(|s| wyrd_core::is_truthy(s.value))
-        .unwrap_or(false)
-}
+use wyrd_runtime::{cookbook::helpers::signal_out_truthy, BindOpts, Runtime};
 
 fn loom_tick(rt: &mut Runtime, tick: u64, sense: &str, val: wyrd_core::Signal) {
     rt.begin_frame(HostTime { tick });
