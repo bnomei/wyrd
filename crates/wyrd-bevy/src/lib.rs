@@ -1,4 +1,4 @@
-//! Thin Bevy 0.18 bridge for Wyrd — no graph topology on Entities.
+//! Thin Bevy 0.19 bridge for Wyrd — no graph topology on Entities.
 //!
 //! Host tick order: [`WyrdSet::Sample`] → [`WyrdSet::Loom`] → [`WyrdSet::Apply`].
 //! The plugin only drives loom; games own sample/apply systems. Bevy
