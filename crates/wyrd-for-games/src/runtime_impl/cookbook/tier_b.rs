@@ -6,13 +6,13 @@
 
 use super::helpers::{bind_default, signal_out_truthy, tick_senses};
 use super::Result;
-use crate::runtime_impl::host::ScriptedHost;
-use crate::foundation::{
-    from_count, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
-};
 use crate::authoring::{
     KnotDef, Pattern, PatternDef, PatternExportDef, PortRefDef, ThreadDef, Weave, WeaveDef,
 };
+use crate::foundation::{
+    from_count, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
+};
+use crate::runtime_impl::host::ScriptedHost;
 
 /// B01: Monostable Pattern — RisingFromZero → PulseHold (expand-at-load).
 ///

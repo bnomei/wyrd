@@ -7,10 +7,10 @@ use wyrd::SignalDomain;
 use wyrd::{
     from_count, CalcOp, CompareOp, FlagPriority, KnotKind, Seed, Signal, TimerMode, ONE, ZERO,
 };
+use wyrd::{BindOpts, Runtime};
 use wyrd::{
     Budget, KnotDef, Pattern, PatternDef, PatternExportDef, PortRefDef, ThreadDef, Weave, WeaveDef,
 };
-use wyrd::{BindOpts, Runtime};
 
 /// Raised budgets for deep Not-chains (default hard depth is 16).
 pub fn deep_budget() -> Budget {

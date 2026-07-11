@@ -7,8 +7,6 @@
 //! Optional features: `serde` on defs, `serde-ron` / `serde-json` for load/save
 //! with validate-on-decode.
 
-extern crate no_std_compat as std;
-
 pub(crate) mod builder;
 pub(crate) mod error;
 mod macros;
@@ -33,8 +31,3 @@ pub use serde_ron::{from_ron, to_ron, RonCodecError};
 
 #[cfg(feature = "serde-json")]
 pub use serde_json_codec::{from_json, to_json, JsonCodecError};
-
-pub use crate::foundation::{
-    from_count, from_level, is_truthy, CalcOp, CompareOp, FlagPriority, KnotId, KnotKind,
-    NumericPath, PortSlot, Signal, SignalDomain, TimerMode, ONE, ZERO,
-};

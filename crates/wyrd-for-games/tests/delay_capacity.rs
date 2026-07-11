@@ -1,7 +1,7 @@
 use wyrd::SignalDomain;
-use wyrd::{KnotKind, ONE};
 use wyrd::Weave;
 use wyrd::{BindError, BindOpts, Budget, Runtime};
+use wyrd::{KnotKind, ONE};
 
 #[test]
 fn aggregate_delay_buffer_overflow_is_rejected_before_offset_truncation() {

@@ -2,11 +2,11 @@
 
 #![allow(clippy::result_large_err)] // CookbookError intentionally preserves context.
 
+use crate::authoring::Weave;
+use crate::foundation::{is_truthy, HostTime, Signal};
 use crate::runtime_impl::host::{tick_once, ScriptedHost};
 use crate::BindOpts;
 use crate::{BindError, HandleError, Runtime};
-use crate::foundation::{is_truthy, HostTime, Signal};
-use crate::authoring::Weave;
 
 use crate::SenseId;
 

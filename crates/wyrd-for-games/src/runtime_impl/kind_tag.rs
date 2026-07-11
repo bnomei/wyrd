@@ -4,7 +4,9 @@
 //! enable, Random min/max ports, Calc Div-by-Constant). Map/Digitize precompute
 //! spans so settle does not re-derive scales every tick.
 
-use crate::foundation::{CalcOp, CompareOp, FlagPriority, KnotKind, Signal, SignalDomain, TimerMode};
+use crate::foundation::{
+    CalcOp, CompareOp, FlagPriority, KnotKind, Signal, SignalDomain, TimerMode,
+};
 
 /// Exact i32 affine-map execution plan built once at bind.
 ///
@@ -459,7 +461,7 @@ impl KindTag {
         #[cfg(feature = "signal-f32")]
         {
             let span_in = in_max - in_min;
-            let degenerate = span_in.abs() < f32::EPSILON;
+            let degenerate = libm::fabsf(span_in) < f32::EPSILON;
             KindTag::Map {
                 domain,
                 degenerate,
@@ -491,7 +493,7 @@ impl KindTag {
         #[cfg(feature = "signal-f32")]
         {
             let span_in = in_max - in_min;
-            let degenerate = steps <= 1 || span_in.abs() < f32::EPSILON;
+            let degenerate = steps <= 1 || libm::fabsf(span_in) < f32::EPSILON;
             let bin_scale = if degenerate {
                 0.0
             } else {

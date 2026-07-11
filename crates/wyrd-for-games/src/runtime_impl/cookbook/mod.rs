@@ -3,7 +3,7 @@
 //! Ordered recipes from foundations through puzzle-machine and chamber composition.
 //! Each `run_*` has a full Weave under **Examples** in rustdoc (`cargo doc --open`).
 //!
-//! Integration tests: `cargo test -p wyrd-runtime --test tutorial_ladder`.
+//! Integration tests: `cargo test -p wyrd-for-games --test tutorial_ladder`.
 //!
 //! | Tier | Focus |
 //! | --- | --- |

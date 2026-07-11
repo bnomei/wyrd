@@ -34,7 +34,6 @@ jobs:
           RUSTDOCFLAGS: -Dwarnings
         run: cargo doc --workspace --no-deps
       - name: Dry-run publish wyrd-for-games
-        if: ${{ inputs.action == 'publish' }}
         run: cargo publish -p wyrd-for-games --locked --dry-run
 
   publish:

@@ -29,6 +29,12 @@
 
 The 0.1 Rust API and serialized graph schema are not compatibility targets.
 
+### Packaging
+
+- Publish the engine-neutral API as `wyrd-for-games` (library target `wyrd`) and the Bevy adapter
+  as `wyrd-for-games-bevy` (library target `wyrd_bevy`). The former internal crate split is not
+  published and has no compatibility packages.
+
 ### Pedagogy
 
 - **Tutorial ladder** (`wyrd::cookbook`): Tier A (5) → B (5) → C (10) runnable recipes;

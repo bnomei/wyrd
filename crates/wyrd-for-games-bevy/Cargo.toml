@@ -3,7 +3,6 @@ name = "wyrd-for-games-bevy"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-license-file.workspace = true
 repository.workspace = true
 rust-version = "1.95"
 description = "Thin Bevy adapter for Wyrd Weaves (sample → loom → apply). signal-f32 only."

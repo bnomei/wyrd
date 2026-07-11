@@ -1,7 +1,7 @@
 use wyrd::SignalDomain;
-use wyrd::{HostTime, KnotKind, PortSlot, ONE};
 use wyrd::Weave;
 use wyrd::{BindOpts, HandleError, Runtime};
+use wyrd::{HostTime, KnotKind, PortSlot, ONE};
 
 fn bound_runtime(id: &str) -> Runtime {
     let mut builder = Weave::builder(id).unwrap();

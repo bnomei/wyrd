@@ -1,9 +1,9 @@
 //! EmitCommand enable port: unconnected = enabled; wired falsey suppresses.
 
 use wyrd::SignalDomain;
-use wyrd::{HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{BindOpts, Runtime};
+use wyrd::{HostTime, KnotKind, ONE, ZERO};
 
 #[test]
 fn unconnected_enable_allows_rising_emit() {

@@ -13,7 +13,6 @@ default-members = [
 version = "0.2.0"
 edition = "2021"
 license = "MIT"
-license-file = "LICENSE"
 repository = "https://github.com/bnomei/wyrd"
 rust-version = "1.75"
 

@@ -1,12 +1,12 @@
 //! Drive every remaining loom eval arm via real builder → bind → loom → outbox.
 
 use wyrd::SignalDomain;
-use wyrd::{from_count, CalcOp, CompareOp, FlagPriority, HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{
     cookbook::helpers::{signal_out_truthy, signal_out_value},
     BindOpts, Runtime,
 };
+use wyrd::{from_count, CalcOp, CompareOp, FlagPriority, HostTime, KnotKind, ONE, ZERO};
 
 #[test]
 fn or_and_onstart() {

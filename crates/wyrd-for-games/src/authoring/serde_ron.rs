@@ -55,8 +55,8 @@ impl From<ValidationError> for RonCodecError {
 /// Parse RON text as a [`WeaveDef`] and validate into a [`Weave`].
 pub fn from_ron(text: &str) -> Result<Weave, RonCodecError> {
     let def: WeaveDef = ron::from_str(text).map_err(|source: ron::error::SpannedError| {
-        let line = source.position.line;
-        let column = source.position.col;
+        let line = source.span.start.line;
+        let column = source.span.start.col;
         RonCodecError::Parse {
             source,
             line,

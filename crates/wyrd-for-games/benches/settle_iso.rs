@@ -1,7 +1,7 @@
 //! Isolation sub-benches: separate clear/gather/eval assumptions at scaled N.
 //!
 //! Use longer Divan weight for decisions:
-//!   cargo bench -p wyrd-runtime --bench settle_iso -- --sample-count 300 --min-time 1
+//!   cargo bench -p wyrd-for-games --bench settle_iso -- --sample-count 300 --min-time 1
 
 #[path = "common.rs"]
 mod common;

@@ -25,3 +25,40 @@ let weave = weave! {
 Use `wyrd::core`, `wyrd::graph`, and `wyrd::runtime` when you want an explicit
 layer namespace. The crate supports `no_std` plus `alloc`, `signal-f32`
 (default) or `signal-i32`, and optional `serde` codecs.
+
+## Host loop
+
+```text
+let mut runtime = Runtime::bind(weave, BindOpts::default())?;
+// Once: resolve SenseId / HostPathId for the hot path.
+
+// Each frame:
+runtime.begin_frame(HostTime { tick });
+{
+    let mut ports = runtime.port_writer();
+    ports.set_sense(plate_id, value)?; // SenseId — never a string on the hot path.
+}
+runtime.loom();
+for signal in runtime.outbox().signals() {
+    // signal.path: HostPathId → runtime.path_name(signal.path) when needed.
+}
+for command in runtime.outbox().emits() {
+    // command.cmd: CmdId
+}
+```
+
+Steady-state loom does not allocate topology: inbound edges and slots are
+precomputed during bind. Keep active Weaves scoped to a room or puzzle island
+and bind them on load, not once per frame.
+
+## Tutorial ladder
+
+The `wyrd::cookbook` module provides Tier A foundations, Tier B first Weaves,
+Tier C game-logic patterns, and Tier D chamber composition. Tier D combines
+host-owned observations into a latched gate, continuous mover target, and
+edge-triggered room-transition request.
+
+```bash
+cargo test -p wyrd-for-games --test tutorial_ladder
+cargo test -p wyrd-for-games --doc
+```

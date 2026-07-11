@@ -1,12 +1,12 @@
 //! Compare rhs_const, Calc, RisingFromZero (step 1.4).
 
 use wyrd::SignalDomain;
-use wyrd::{CalcOp, CompareOp, HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{
     cookbook::helpers::{signal_out_truthy, signal_out_value},
     BindOpts, Runtime,
 };
+use wyrd::{CalcOp, CompareOp, HostTime, KnotKind, ONE, ZERO};
 
 #[test]
 fn compare_gte_rhs_const() {
@@ -38,16 +38,12 @@ fn compare_gte_rhs_const() {
     let id = rt.sense_id("n").unwrap();
 
     rt.begin_frame(HostTime { tick: 0 });
-    rt.port_writer()
-        .set_sense(id, wyrd::from_count(2))
-        .unwrap();
+    rt.port_writer().set_sense(id, wyrd::from_count(2)).unwrap();
     rt.loom();
     assert!(!signal_out_truthy(&rt, "ok"));
 
     rt.begin_frame(HostTime { tick: 1 });
-    rt.port_writer()
-        .set_sense(id, wyrd::from_count(3))
-        .unwrap();
+    rt.port_writer().set_sense(id, wyrd::from_count(3)).unwrap();
     rt.loom();
     assert!(signal_out_truthy(&rt, "ok"));
 }

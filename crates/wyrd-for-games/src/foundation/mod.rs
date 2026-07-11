@@ -5,8 +5,6 @@
 //! or `signal-i32` feature for the wire numeric path; enable exactly one.
 //! Author graphs with open string host paths; bind later interns them.
 
-extern crate no_std_compat as std;
-
 pub(crate) mod ids;
 pub(crate) mod kind;
 pub(crate) mod ports;

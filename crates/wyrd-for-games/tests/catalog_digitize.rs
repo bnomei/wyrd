@@ -1,9 +1,9 @@
 //! Digitize: quantize into steps over a range.
 
 use wyrd::SignalDomain;
+use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 use wyrd::{from_count, HostTime, KnotKind, ONE, ZERO};
 use wyrd::{ValidationError, Weave};
-use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 #[test]
 fn digitize_two_steps_endpoints() {

@@ -1,9 +1,9 @@
 //! Integration: hello invert + and_door host loop (v2 dense ids).
 
 use wyrd::SignalDomain;
-use wyrd::{HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
+use wyrd::{HostTime, KnotKind, ONE, ZERO};
 
 #[test]
 fn hello_not() {

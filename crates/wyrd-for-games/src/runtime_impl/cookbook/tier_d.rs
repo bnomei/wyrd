@@ -7,9 +7,9 @@
 
 use super::helpers::{bind_default, emit_count, signal_out_truthy, signal_out_value, tick_senses};
 use super::Result;
-use crate::runtime_impl::host::ScriptedHost;
-use crate::foundation::{from_level, FlagPriority, KnotKind, SignalDomain, ONE, ZERO};
 use crate::authoring::Weave;
+use crate::foundation::{from_level, FlagPriority, KnotKind, SignalDomain, ONE, ZERO};
+use crate::runtime_impl::host::ScriptedHost;
 
 /// D01: Shrine chamber — multi-object latch, mover target, and edge-only transition request.
 ///

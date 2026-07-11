@@ -5,7 +5,7 @@ error: no rules expected `[`
    |                   ^ no rules expected this token in macro call
    |
 note: while trying to match `.`
-  --> src/macros.rs
+  --> src/authoring/macros.rs
    |
    |         $from:ident . out($from_export:expr) ->
    |                     ^

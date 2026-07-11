@@ -1,9 +1,9 @@
 //! Catalog: Clamp.
 
 use wyrd::SignalDomain;
+use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 use wyrd::{from_count, HostTime, KnotKind};
 use wyrd::{ValidationError, Weave};
-use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 #[test]
 fn clamp_range() {

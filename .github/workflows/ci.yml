@@ -26,7 +26,7 @@ jobs:
         run: cargo test --workspace
 
   dual-signal:
-    name: engine dual-signal, MSRV (${{ matrix.signal }})
+    name: engine dual-signal (${{ matrix.signal }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -38,7 +38,7 @@ jobs:
             features: "std,signal-i32"
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.75
+      - uses: dtolnay/rust-toolchain@stable
       - name: Test wyrd-for-games (${{ matrix.signal }})
         run: |
           cargo test -p wyrd-for-games \
@@ -71,8 +71,8 @@ jobs:
       - name: Build and_door example
         run: cargo build -p wyrd-for-games-bevy --example and_door
 
-  no-std:
-    name: no_std runtime ${{ matrix.signal }}
+  msrv-no-std:
+    name: engine Rust 1.75 no_std (${{ matrix.signal }})
     runs-on: ubuntu-latest
     strategy:
       matrix:

@@ -1,9 +1,9 @@
 //! Select: falsey sel → a, truthy sel → b.
 
 use wyrd::SignalDomain;
-use wyrd::{from_count, HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
+use wyrd::{from_count, HostTime, KnotKind, ONE, ZERO};
 
 #[test]
 fn select_a_when_sel_false() {

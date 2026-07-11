@@ -1,9 +1,9 @@
 //! Catalog: Sqrt.
 
 use wyrd::SignalDomain;
-use wyrd::{from_count, HostTime, KnotKind, ZERO};
 use wyrd::Weave;
 use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
+use wyrd::{from_count, HostTime, KnotKind, ZERO};
 
 #[test]
 fn sqrt_perfect_and_negative() {

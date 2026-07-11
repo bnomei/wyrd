@@ -1,9 +1,9 @@
 //! Seeded Random knot.
 
 use wyrd::SignalDomain;
+use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 use wyrd::{HostTime, KnotKind, Seed, ONE, ZERO};
 use wyrd::{ValidationError, Weave};
-use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 fn random_weave(require_gate: bool) -> Weave {
     let mut b = Weave::builder("r").unwrap();

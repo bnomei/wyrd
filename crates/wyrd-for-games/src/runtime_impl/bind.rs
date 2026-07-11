@@ -13,10 +13,10 @@ use std::vec::Vec;
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::authoring::{validate, Budget, Weave};
 use crate::foundation::{
     port_slot, ports_of, CalcOp, HostTime, KnotId, KnotKind, PortDir, PortSlot, Seed, Signal, ZERO,
 };
-use crate::authoring::{validate, Budget, Weave};
 
 use crate::runtime_impl::error::{BindError, HandleError};
 use crate::runtime_impl::handles::{CmdId, HostPathId, KnotHandle, SenseId};
@@ -312,7 +312,8 @@ impl Runtime {
                     let enable_wired = inbound_lists[ki]
                         .iter()
                         .any(|&(_, _, ts)| ts == PortSlot::new(1));
-                    kind_tags[ki] = crate::runtime_impl::kind_tag::KindTag::EmitCommand { enable_wired };
+                    kind_tags[ki] =
+                        crate::runtime_impl::kind_tag::KindTag::EmitCommand { enable_wired };
                 }
                 KnotKind::Random { .. } => {
                     let mut min_wired = false;
@@ -335,8 +336,9 @@ impl Runtime {
                         .find(|&&(_, _, ts)| ts == PortSlot::new(1))
                     {
                         if let KnotKind::Constant { value, .. } = knots[usize::from(from)].kind {
-                            kind_tags[ki] =
-                                crate::runtime_impl::kind_tag::KindTag::calc_div_const(*domain, value);
+                            kind_tags[ki] = crate::runtime_impl::kind_tag::KindTag::calc_div_const(
+                                *domain, value,
+                            );
                         }
                     }
                 }
@@ -695,8 +697,8 @@ fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::{FlagPriority, KnotKind, SignalDomain, ONE};
     use crate::authoring::Weave;
+    use crate::foundation::{FlagPriority, KnotKind, SignalDomain, ONE};
 
     #[test]
     fn sense_seeds_lists_only_sense_knots() {

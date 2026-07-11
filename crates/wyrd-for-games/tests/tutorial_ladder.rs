@@ -1,7 +1,7 @@
 //! Ordered tutorial ladder: Tier A → B → C.
 //!
 //! ```bash
-//! cargo test -p wyrd-runtime --test tutorial_ladder
+//! cargo test -p wyrd-for-games --test tutorial_ladder
 //! ```
 
 use wyrd::cookbook::{tier_a, tier_b, tier_c, tier_d};

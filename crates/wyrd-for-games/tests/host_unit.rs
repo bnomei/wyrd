@@ -1,12 +1,12 @@
 //! Host unit coverage (kept out of host.rs to avoid match residual line noise).
 
 use wyrd::SignalDomain;
-use wyrd::{is_truthy, HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{
     append_commands, outbox_to_commands, tick_once, BindOpts, HandleError, Host, HostCommand,
     Outbox, PortWriter, Runtime, ScriptedHost, SenseId,
 };
+use wyrd::{is_truthy, HostTime, KnotKind, ONE, ZERO};
 
 struct RecordHost {
     tick: u64,
@@ -17,10 +17,7 @@ impl Host for RecordHost {
     fn time(&self) -> HostTime {
         HostTime { tick: self.tick }
     }
-    fn sample_into(
-        &mut self,
-        _ports: &mut wyrd::PortWriter<'_>,
-    ) -> Result<(), wyrd::HandleError> {
+    fn sample_into(&mut self, _ports: &mut wyrd::PortWriter<'_>) -> Result<(), wyrd::HandleError> {
         Ok(())
     }
     fn apply(&mut self, outbox: Outbox<'_>) {

@@ -3,9 +3,9 @@
 //! After warmup, repeated loom does not grow outbox capacity or delay_buf length.
 
 use wyrd::SignalDomain;
-use wyrd::{HostTime, KnotKind, ONE};
 use wyrd::Weave;
 use wyrd::{BindOpts, Runtime};
+use wyrd::{HostTime, KnotKind, ONE};
 
 #[test]
 fn loom_steady_state_outbox_capacity_stable() {

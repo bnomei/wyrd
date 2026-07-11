@@ -1,9 +1,9 @@
 //! Catalog: Change.
 
 use wyrd::SignalDomain;
-use wyrd::{is_truthy, HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
+use wyrd::{is_truthy, HostTime, KnotKind, ONE, ZERO};
 
 #[test]
 fn change_either_edge() {

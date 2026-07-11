@@ -1,9 +1,9 @@
 //! Emit-per-tick hard cap (BindOpts::max_emits_per_tick).
 
 use wyrd::SignalDomain;
-use wyrd::{HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{BindOpts, Runtime};
+use wyrd::{HostTime, KnotKind, ONE, ZERO};
 
 #[test]
 fn many_emits_same_tick_capped() {

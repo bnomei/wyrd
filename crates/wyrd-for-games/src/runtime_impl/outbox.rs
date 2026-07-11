@@ -118,8 +118,8 @@ fn domain_value_is_valid(domain: SignalDomain, value: Signal) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::{KnotKind, ONE};
     use crate::authoring::Weave;
+    use crate::foundation::{KnotKind, ONE};
 
     use crate::runtime_impl::bind::{BindOpts, Runtime};
 

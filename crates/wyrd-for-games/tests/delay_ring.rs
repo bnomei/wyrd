@@ -1,9 +1,9 @@
 //! Delay N-tick ring (step 1.2).
 
 use wyrd::SignalDomain;
-use wyrd::{HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
+use wyrd::{HostTime, KnotKind, ONE, ZERO};
 
 fn tick(rt: &mut Runtime, t: u64, v: wyrd::Signal) {
     rt.begin_frame(HostTime { tick: t });

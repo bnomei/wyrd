@@ -1,12 +1,12 @@
 //! Counter rising-edge, Flag toggle/reset, Emit rising-edge (step 1.3).
 
 use wyrd::SignalDomain;
-use wyrd::{FlagPriority, HostTime, KnotKind, ONE, ZERO};
 use wyrd::Weave;
 use wyrd::{
     cookbook::helpers::{signal_out_truthy, signal_out_value},
     BindOpts, Runtime,
 };
+use wyrd::{FlagPriority, HostTime, KnotKind, ONE, ZERO};
 
 /// Whole-unit count from SignalOut (works for f32 and i32 Q paths via from_count).
 fn count_out(rt: &Runtime) -> i32 {

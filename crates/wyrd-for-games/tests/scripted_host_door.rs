@@ -1,8 +1,8 @@
 //! ScriptedHost: deterministic two-plate door without Bevy.
 
 use wyrd::SignalDomain;
-use wyrd::{is_truthy, KnotKind, ONE, ZERO};
 use wyrd::Weave;
+use wyrd::{is_truthy, KnotKind, ONE, ZERO};
 use wyrd::{tick_once, BindOpts, HostCommand, Runtime, ScriptedHost};
 
 #[test]

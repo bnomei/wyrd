@@ -7,9 +7,9 @@
 
 use super::helpers::{bind_default, sample_loom, signal_out_truthy, tick_senses};
 use super::Result;
-use crate::runtime_impl::host::ScriptedHost;
-use crate::foundation::{from_count, HostTime, KnotKind, SignalDomain, ONE, ZERO};
 use crate::authoring::{ValidationError, Weave};
+use crate::foundation::{from_count, HostTime, KnotKind, SignalDomain, ONE, ZERO};
+use crate::runtime_impl::host::ScriptedHost;
 
 /// A01: Constant(ONE) → Not → SignalOut (falsey).
 ///

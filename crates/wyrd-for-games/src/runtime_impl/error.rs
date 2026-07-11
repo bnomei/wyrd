@@ -2,9 +2,9 @@
 
 use core::fmt;
 
-use std::string::String;
-use crate::foundation::{PortSlot, SignalDomain};
 use crate::authoring::{BuildError, ValidationError};
+use crate::foundation::{PortSlot, SignalDomain};
+use std::string::String;
 
 use crate::runtime_impl::handles::{CmdId, HostPathId, KnotHandle, SenseId};
 

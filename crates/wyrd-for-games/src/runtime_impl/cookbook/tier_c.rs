@@ -6,11 +6,11 @@
 
 use super::helpers::{bind_default, emit_count, signal_out_truthy, signal_out_value, tick_senses};
 use super::Result;
-use crate::runtime_impl::host::ScriptedHost;
+use crate::authoring::Weave;
 use crate::foundation::{
     from_count, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
 };
-use crate::authoring::Weave;
+use crate::runtime_impl::host::ScriptedHost;
 
 /// C01: MultiSwitchLatch — both plates once together → Flag until reset.
 ///

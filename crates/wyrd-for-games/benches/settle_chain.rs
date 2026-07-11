@@ -6,8 +6,8 @@ mod common;
 use common::{and_door, chain_not};
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
-use wyrd::{HostTime, ONE};
 use wyrd::{tick_once, NullHost};
+use wyrd::{HostTime, ONE};
 
 /// `n` = Not knots (total knots ≈ n + 2).
 #[divan::bench(args = [16, 64, 128])]

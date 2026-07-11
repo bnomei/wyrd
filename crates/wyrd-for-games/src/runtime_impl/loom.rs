@@ -275,7 +275,11 @@ impl Runtime {
             KindTag::CalcMulLevel => {
                 let a = self.get_port_hot(kid, PortSlot::new(0));
                 let b = self.get_port_hot(kid, PortSlot::new(1));
-                self.set_port_hot(kid, PortSlot::new(2), crate::foundation::signal_ops::mul(a, b));
+                self.set_port_hot(
+                    kid,
+                    PortSlot::new(2),
+                    crate::foundation::signal_ops::mul(a, b),
+                );
             }
             KindTag::CalcMulCount => {
                 let a = self.get_port_hot(kid, PortSlot::new(0));
@@ -285,7 +289,11 @@ impl Runtime {
             KindTag::CalcDivLevel => {
                 let a = self.get_port_hot(kid, PortSlot::new(0));
                 let b = self.get_port_hot(kid, PortSlot::new(1));
-                self.set_port_hot(kid, PortSlot::new(2), crate::foundation::signal_ops::div(a, b));
+                self.set_port_hot(
+                    kid,
+                    PortSlot::new(2),
+                    crate::foundation::signal_ops::div(a, b),
+                );
             }
             KindTag::CalcDivCount => {
                 let a = self.get_port_hot(kid, PortSlot::new(0));
@@ -601,7 +609,7 @@ fn normalize_count(value: Signal) -> Signal {
     if value.is_nan() {
         ZERO
     } else {
-        value.trunc().clamp(i32::MIN as f32, MAX_COUNT)
+        libm::truncf(value).clamp(i32::MIN as f32, MAX_COUNT)
     }
 }
 
@@ -691,7 +699,7 @@ fn level_to_count(value: Signal) -> Signal {
 fn count_abs(value: Signal) -> Signal {
     #[cfg(feature = "signal-f32")]
     {
-        normalize_count(value.abs())
+        normalize_count(libm::fabsf(value))
     }
     #[cfg(feature = "signal-i32")]
     {
@@ -715,7 +723,7 @@ fn count_neg(value: Signal) -> Signal {
 fn level_abs(value: Signal) -> Signal {
     #[cfg(feature = "signal-f32")]
     {
-        value.abs()
+        libm::fabsf(value)
     }
     #[cfg(feature = "signal-i32")]
     {
