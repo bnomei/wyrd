@@ -23,7 +23,8 @@ no-std-compat = { workspace = true, features = ["alloc"] }
 libm = { workspace = true, optional = true }
 
 [dev-dependencies]
-divan = "0.1"
+# Drop-in Divan compatibility layer that lets CodSpeed instrument this suite.
+divan = { version = "4.7.0", package = "codspeed-divan-compat" }
 
 # Split bench binaries so the suite can grow without one mega-file.
 # Shared builders: benches/common.rs (#[path] include per binary).

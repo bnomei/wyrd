@@ -15,14 +15,15 @@ bevy_log = ["bevy/bevy_log"]
 
 [dependencies]
 # Match engine-neutral hosts: pin Bevy, no default renderer stack.
-bevy = { version = "0.18", default-features = false }
+bevy = { version = "0.19", default-features = false }
 # Bevy path is float-native — dual-check i32 on core/runtime CI, not here.
 wyrd-core = { workspace = true, default-features = false, features = ["std", "signal-f32"] }
 wyrd-graph = { workspace = true, default-features = false, features = ["std", "signal-f32"] }
 wyrd-runtime = { workspace = true, default-features = false, features = ["std", "signal-f32"] }
 
 [dev-dependencies]
-divan = "0.1"
+# Drop-in Divan compatibility layer that lets CodSpeed instrument this suite.
+divan = { version = "4.7.0", package = "codspeed-divan-compat" }
 
 [[example]]
 name = "and_door"

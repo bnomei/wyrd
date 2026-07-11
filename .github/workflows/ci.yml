@@ -10,6 +10,21 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  quality:
+    name: format, clippy, and workspace tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Lint workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test workspace
+        run: cargo test --workspace
+
   dual-signal:
     name: dual-signal (${{ matrix.signal }})
     runs-on: ubuntu-latest

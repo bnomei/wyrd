@@ -25,4 +25,4 @@ ron = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
-trybuild = "=1.0.89"
+trybuild = "=1.0.117"

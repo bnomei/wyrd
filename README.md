@@ -6,6 +6,8 @@ its outputs back to your game.
 
 **Engine-neutral** · **`no_std` + `alloc`** · **`f32` or Q16 `i32` signals** · **Bevy 0.18 adapter**
 
+[![CodSpeed](https://img.shields.io/github/actions/workflow/status/bnomei/wyrd/codspeed.yml?branch=main&label=CodSpeed)](https://github.com/bnomei/wyrd/actions/workflows/codspeed.yml)
+
 Wyrd 0.2 is pre-1.0 and contains a breaking API redesign. If you used 0.1, start with the
 [0.2 migration guide](MIGRATION-0.2.md).
 
@@ -248,6 +250,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ./scripts/dual-check.sh
 ```
+
+Run the full local performance suite:
+
+```bash
+cargo bench --workspace
+```
+
+CodSpeed runs the same runtime and Bevy benchmark targets on pushes to `main` and pull requests.
 
 For local line-coverage reports:
 
