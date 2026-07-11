@@ -8,7 +8,7 @@ Wyrd is a Rust library for composing game behavior as validated signal graphs. Y
 `Weave`, bind it once into dense runtime state, sample host inputs, settle the graph, and apply
 its outputs back to your game.
 
-**Engine-neutral** · **`no_std` + `alloc`** · **`f32` or Q16 `i32` signals** · **Bevy 0.18 adapter**
+**Engine-neutral** · **`no_std` + `alloc`** · **`f32` or Q16 `i32` signals** · **Bevy 0.19 adapter**
 
 ## When Wyrd fits
 
@@ -23,6 +23,35 @@ Use Wyrd when you want game logic that is:
 
 Wyrd does not own doors, cameras, entities, or other game state. Your host samples that state
 into the runtime and applies the resulting signal levels and commands.
+
+## From a knot to a puzzle world
+
+Wyrd is for more than a single switch. Its small unit is a typed knot and its useful unit is a
+readable piece of game behaviour: a latched gate, a timed bridge, a multi-object puzzle, or a
+one-shot transition request. Compose those machines into rooms; let the host compose rooms into a
+game.
+
+```text
+Host queries world state
+        │
+        ▼
+active room Weave(s) ── SignalOut / EmitCommand ──► host moves, opens, persists, or transitions
+        ▲                                                        │
+        └──────────── host samples saved / next-room state ─────┘
+```
+
+This division is deliberate. Wyrd has no `Door`, `Room`, `Warp`, `Entity`, or physics knot.
+Instead, a host turns "crate is on the sun pad" into a `SignalIn`, and interprets
+`"shrine.gate.open"`, `"bridge.target"`, or `"world.request_transition"` as its own effects.
+That keeps a puzzle rule portable between engines and makes world ownership explicit.
+
+- Start with a single signal path in the [quickstart](#quickstart).
+- Learn the intended scope, multi-room handoff, and the Zelda-/Game Builder Garage-inspired
+  composition model in the [vision and scope guide](docs/concepts/vision-and-scope.md).
+- Choose a tested puzzle shape—including the chamber-scale capstone—in the
+  [executable examples index](docs/examples/README.md).
+- Read the [performance model](docs/concepts/performance-model.md) before tuning a per-frame
+  integration.
 
 ## Quickstart
 
@@ -132,7 +161,7 @@ the Bevy adapter.
 | [`wyrd-core`](crates/wyrd-core) | `Signal`, numeric helpers, `KnotKind`, and the closed port catalog |
 | [`wyrd-graph`](crates/wyrd-graph) | Immutable `Weave`/`Pattern` values, definitions, typed builder, validation, codecs, and `weave!` |
 | [`wyrd-runtime`](crates/wyrd-runtime) | Binding, host handles, sample/loom/outbox execution, and headless hosts |
-| [`wyrd-bevy`](crates/wyrd-bevy) | Bevy 0.18 scheduling and host-integration helpers for the `f32` path |
+| [`wyrd-bevy`](crates/wyrd-bevy) | Bevy 0.19 scheduling and host-integration helpers for the `f32` path |
 
 The dependency direction stays one-way:
 
@@ -180,7 +209,7 @@ host-owned `Door` component, and emits confirmations when the component changes.
 
 ## Learn through executable recipes
 
-[`wyrd_runtime::cookbook`](crates/wyrd-runtime/src/cookbook/) provides 20 recipes used by both
+[`wyrd_runtime::cookbook`](crates/wyrd-runtime/src/cookbook/) provides 21 recipes used by both
 rustdoc and integration tests.
 
 | Tier | Focus | Recipes |
@@ -188,6 +217,7 @@ rustdoc and integration tests.
 | **A** | Foundations | Not, two-input And, bind/sample/loom, `tick_once`, validation failure |
 | **B** | Reusable Weaves | Monostable Pattern, two-plate door, Flag, Counter threshold, Delay |
 | **C** | Game-logic patterns | Latches, timers, cooldowns, Threshold, Map, Digitize, OnStart, Emit, Or |
+| **D** | Chamber-scale composition | Multi-object latch, moving-host target, and one-shot room-transition request |
 
 Run the complete ladder:
 
@@ -195,6 +225,11 @@ Run the complete ladder:
 cargo test -p wyrd-runtime --test tutorial_ladder
 cargo test -p wyrd-runtime --doc
 ```
+
+For a narrative index rather than a flat recipe list, see [choose a puzzle
+shape](docs/examples/README.md). The Tier D capstone is deliberately engine-neutral: it proves
+the rule circuit while leaving spatial queries, movement, persistence, and room loading to the
+host.
 
 ## Features and numeric paths
 
@@ -261,6 +296,9 @@ and line-coverage gates.
 - [Graph authoring and `weave!`](crates/wyrd-graph/README.md)
 - [Runtime host loop and cookbook](crates/wyrd-runtime/README.md)
 - [Bevy integration boundary](crates/wyrd-bevy/README.md)
+- [Vision, scope, and game-scale composition](docs/concepts/vision-and-scope.md)
+- [Executable puzzle-shape index](docs/examples/README.md)
+- [Performance model and measurement guidance](docs/concepts/performance-model.md)
 - [Closed knot port tables](crates/wyrd-core/src/ports.rs)
 - [Runtime error contracts](crates/wyrd-runtime/src/error.rs)
 - [Changelog](CHANGELOG.md)

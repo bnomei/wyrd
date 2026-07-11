@@ -1,5 +1,11 @@
-# Local vision / notes (not tracked)
-docs/
+# Local vision / notes (not tracked). Keep the curated public pages below.
+docs/*
+!docs/README.md
+!docs/concepts/
+!docs/concepts/vision-and-scope.md
+!docs/concepts/performance-model.md
+!docs/examples/
+!docs/examples/README.md
 
 # Rust
 /target/

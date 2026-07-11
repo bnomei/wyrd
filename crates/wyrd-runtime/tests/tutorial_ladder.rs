@@ -4,7 +4,7 @@
 //! cargo test -p wyrd-runtime --test tutorial_ladder
 //! ```
 
-use wyrd_runtime::cookbook::{tier_a, tier_b, tier_c};
+use wyrd_runtime::cookbook::{tier_a, tier_b, tier_c, tier_d};
 
 #[test]
 fn a01_hello_invert() {
@@ -87,4 +87,9 @@ fn c09_emit_once() {
 #[test]
 fn c10_or_any_of_keys() {
     tier_c::run_c10_or_any_of_keys().unwrap();
+}
+
+#[test]
+fn d01_shrine_chamber() {
+    tier_d::run_d01_shrine_chamber().unwrap();
 }

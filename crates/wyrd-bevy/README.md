@@ -18,6 +18,12 @@ WyrdSet::Loom    → begin_frame + loom (plugin)
 WyrdSet::Apply   → read outbox → mutate Components → optional Messages
 ```
 
+`WyrdWorld` can hold several independently bound `WyrdInstance`s. The plugin looms every active
+instance, so the host chooses whether to keep a runtime per currently simulated chamber or remove
+and stash inactive rooms. Instances do not share Threads; persist cross-room progress in the host
+and sample it into the next room's senses. See [vision and scope](../../docs/concepts/vision-and-scope.md)
+for the room/world boundary.
+
 **Messages ≠ Threads.** `WyrdSignalConfirm` is a host confirmation after apply
 (VFX/UI). Topology lives only in the Weave.
 
