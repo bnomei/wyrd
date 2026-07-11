@@ -38,11 +38,11 @@ gate-open + player-at-exit → edge → request transition ─► host saves / l
 Run it directly:
 
 ```bash
-cargo test -p wyrd-runtime --test tutorial_ladder d01_shrine_chamber
-cargo test -p wyrd-runtime --doc
+cargo test -p wyrd-for-games --test tutorial_ladder d01_shrine_chamber
+cargo test -p wyrd-for-games --doc
 ```
 
-Read the full source at [`tier_d.rs`](../../crates/wyrd-runtime/src/cookbook/tier_d.rs). The test
+Read the full source in the [`wyrd-for-games` cookbook](../../crates/wyrd-for-games/README.md). The test
 proves three important properties: the gate remains open after the initial arrangement changes,
 the bridge target is a continuous host contract, and the exit command fires only on entry rather
 than every frame inside the trigger.

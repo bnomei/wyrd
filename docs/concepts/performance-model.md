@@ -55,13 +55,13 @@ any other game work. On the hottest path, iterate the runtime outbox directly; t
 
 ## Numeric paths and constrained hosts
 
-The core, graph, and runtime support either `signal-f32` or Q16 `signal-i32`. The latter is useful
-when the host wants predictable fixed-point signals; binding prepares specialized map plans and the
-runtime uses bounded integer implementations where appropriate. This is not a universal performance
-ranking: profile the actual knot mix on the actual device. `wyrd-bevy` is f32-only because Bevy
-types are float-native.
+`wyrd-for-games` supports either `signal-f32` or Q16 `signal-i32`. The latter is useful when the
+host wants predictable fixed-point signals; binding prepares specialized map plans and the runtime
+uses bounded integer implementations where appropriate. This is not a universal performance
+ranking: profile the actual knot mix on the actual device. `wyrd-for-games-bevy` is f32-only
+because Bevy types are float-native.
 
-For a Playdate-class host, use `wyrd-runtime` directly, bind on room load, resolve handles once,
+For a Playdate-class host, use `wyrd-for-games` directly, bind on room load, resolve handles once,
 and profile a representative graph on physical hardware.
 
 ## Measure the right thing
@@ -69,22 +69,22 @@ and profile a representative graph on physical hardware.
 Run the checked behaviour first:
 
 ```bash
-cargo test -p wyrd-runtime --test zero_alloc_loom
-cargo test -p wyrd-runtime --test tutorial_ladder d01_shrine_chamber
+cargo test -p wyrd-for-games --test zero_alloc_loom
+cargo test -p wyrd-for-games --test tutorial_ladder d01_shrine_chamber
 ```
 
 Then run the benchmark families that match the question:
 
 ```bash
 # Runtime chains, catalog operations, stateful knots, bind, and isolated evaluation paths
-cargo bench -p wyrd-runtime
+cargo bench -p wyrd-for-games
 
 # One family while iterating
-cargo bench -p wyrd-runtime --bench settle_chain
-cargo bench -p wyrd-runtime --bench bind
+cargo bench -p wyrd-for-games --bench settle_chain
+cargo bench -p wyrd-for-games --bench bind
 
 # Q16 behaviour on the target toolchain
-cargo bench -p wyrd-runtime --no-default-features --features "std,signal-i32"
+cargo bench -p wyrd-for-games --no-default-features --features "std,signal-i32"
 ```
 
 The repository includes runtime chain, catalog, stateful, bind, and isolated evaluation benchmarks,
@@ -97,8 +97,5 @@ while a spatial query, animation update, or command allocation dominates the act
 
 ## Source anchors
 
-- Bind-time layout and handle interning: [`crates/wyrd-runtime/src/bind.rs`](../../crates/wyrd-runtime/src/bind.rs)
-- Single-pass settle: [`crates/wyrd-runtime/src/loom.rs`](../../crates/wyrd-runtime/src/loom.rs)
-- Budget and warnings: [`crates/wyrd-graph/src/validate.rs`](../../crates/wyrd-graph/src/validate.rs)
-- Buffer-stability test: [`crates/wyrd-runtime/tests/zero_alloc_loom.rs`](../../crates/wyrd-runtime/tests/zero_alloc_loom.rs)
-- Benchmark targets: [`crates/wyrd-runtime/benches`](../../crates/wyrd-runtime/benches) and [`crates/wyrd-bevy/benches/host_tick.rs`](../../crates/wyrd-bevy/benches/host_tick.rs)
+- Main package source, tests, and benchmarks: [`wyrd-for-games`](../../crates/wyrd-for-games)
+- Bevy package source and benchmark: [`wyrd-for-games-bevy`](../../crates/wyrd-for-games-bevy)

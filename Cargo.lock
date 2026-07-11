@@ -2094,45 +2094,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "wyrd-bevy"
-version = "0.2.0"
-dependencies = [
- "bevy",
- "codspeed-divan-compat",
- "wyrd-core",
- "wyrd-graph",
- "wyrd-runtime",
-]
-
-[[package]]
-name = "wyrd-core"
-version = "0.2.0"
-dependencies = [
- "no-std-compat",
- "serde",
-]
-
-[[package]]
-name = "wyrd-graph"
-version = "0.2.0"
-dependencies = [
- "no-std-compat",
- "ron",
- "serde",
- "serde_json",
- "trybuild",
- "wyrd-core",
-]
-
-[[package]]
-name = "wyrd-runtime"
+name = "wyrd-for-games"
 version = "0.2.0"
 dependencies = [
  "codspeed-divan-compat",
  "libm",
  "no-std-compat",
- "wyrd-core",
- "wyrd-graph",
+ "ron",
+ "serde",
+ "serde_json",
+ "trybuild",
+]
+
+[[package]]
+name = "wyrd-for-games-bevy"
+version = "0.2.0"
+dependencies = [
+ "bevy",
+ "codspeed-divan-compat",
+ "wyrd-for-games",
 ]
 
 [[package]]

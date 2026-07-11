@@ -1,0 +1,41 @@
+[package]
+name = "wyrd-for-games-bevy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version = "1.95"
+description = "Thin Bevy adapter for Wyrd Weaves (sample → loom → apply). signal-f32 only."
+readme = "README.md"
+documentation = "https://docs.rs/wyrd-for-games-bevy"
+keywords = ["bevy", "game-development", "signal-graph", "ecs", "game-logic"]
+categories = ["game-development"]
+autobenches = false
+
+[lib]
+name = "wyrd_bevy"
+
+[features]
+default = []
+# Enable for loom error logs via bevy::log
+bevy_log = ["bevy/bevy_log"]
+
+[dependencies]
+# Match engine-neutral hosts: pin Bevy, no default renderer stack.
+bevy = { version = "0.19", default-features = false }
+# Bevy path is float-native — dual-check i32 on the engine CI, not here.
+wyrd = { package = "wyrd-for-games", path = "../wyrd-for-games", version = "0.2.0", default-features = false, features = ["std", "signal-f32"] }
+
+[dev-dependencies]
+# Drop-in Divan compatibility layer that lets CodSpeed instrument this suite.
+divan = { version = "4.7.0", package = "codspeed-divan-compat" }
+
+[[example]]
+name = "and_door"
+path = "examples/and_door.rs"
+
+[[bench]]
+name = "host_tick"
+path = "benches/host_tick.rs"
+harness = false

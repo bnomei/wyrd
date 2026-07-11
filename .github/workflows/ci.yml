@@ -26,7 +26,7 @@ jobs:
         run: cargo test --workspace
 
   dual-signal:
-    name: dual-signal (${{ matrix.signal }})
+    name: engine dual-signal, MSRV (${{ matrix.signal }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -38,25 +38,25 @@ jobs:
             features: "std,signal-i32"
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Test core/graph/runtime (${{ matrix.signal }})
+      - uses: dtolnay/rust-toolchain@1.75
+      - name: Test wyrd-for-games (${{ matrix.signal }})
         run: |
-          cargo test -p wyrd-core -p wyrd-graph -p wyrd-runtime \
+          cargo test -p wyrd-for-games \
             --no-default-features \
             --features "${{ matrix.features }}"
-      - name: Test graph serde-ron (${{ matrix.signal }})
+      - name: Test serde-ron (${{ matrix.signal }})
         run: |
-          cargo test -p wyrd-graph \
+          cargo test -p wyrd-for-games \
             --no-default-features \
             --features "${{ matrix.features }},serde-ron"
-      - name: Test graph serde-json (${{ matrix.signal }})
+      - name: Test serde-json (${{ matrix.signal }})
         run: |
-          cargo test -p wyrd-graph \
+          cargo test -p wyrd-for-games \
             --no-default-features \
             --features "${{ matrix.features }},serde-json"
-      - name: Test graph serde-ron + serde-json cross-codec (${{ matrix.signal }})
+      - name: Test serde cross-codec (${{ matrix.signal }})
         run: |
-          cargo test -p wyrd-graph \
+          cargo test -p wyrd-for-games \
             --no-default-features \
             --features "${{ matrix.features }},serde-ron,serde-json"
 
@@ -65,11 +65,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Test wyrd-bevy
-        run: cargo test -p wyrd-bevy
+      - uses: dtolnay/rust-toolchain@1.95
+      - name: Test wyrd-for-games-bevy
+        run: cargo test -p wyrd-for-games-bevy
       - name: Build and_door example
-        run: cargo build -p wyrd-bevy --example and_door
+        run: cargo build -p wyrd-for-games-bevy --example and_door
 
   no-std:
     name: no_std runtime ${{ matrix.signal }}
@@ -79,10 +79,10 @@ jobs:
         signal: [signal-f32, signal-i32]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Check wyrd-runtime no_std
+      - uses: dtolnay/rust-toolchain@1.75
+      - name: Check wyrd-for-games no_std
         run: |
-          cargo check -p wyrd-runtime \
+          cargo check -p wyrd-for-games \
             --no-default-features \
             --features "alloc,${{ matrix.signal }}"
 
@@ -98,32 +98,32 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Coverage f32 core suite (fail-under 100)
         run: |
-          cargo llvm-cov --workspace --exclude wyrd-bevy \
+          cargo llvm-cov --workspace --exclude wyrd-for-games-bevy \
             --lcov --output-path lcov-f32.info \
             --fail-under-lines 100
       - name: Coverage i32 core suite (fail-under 100)
         run: |
           cargo llvm-cov clean --workspace
-          cargo llvm-cov -p wyrd-core -p wyrd-graph -p wyrd-runtime \
+          cargo llvm-cov -p wyrd-for-games \
             --no-default-features --features "std,signal-i32" \
             --lcov --output-path lcov-i32.info \
             --fail-under-lines 100
       - name: Coverage serde-ron f32 (fail-under 100)
         run: |
           cargo llvm-cov clean --workspace
-          cargo llvm-cov -p wyrd-graph \
+          cargo llvm-cov -p wyrd-for-games \
             --no-default-features --features "std,signal-f32,serde-ron" \
             --fail-under-lines 100 --summary-only
       - name: Coverage serde-json f32 (fail-under 100)
         run: |
           cargo llvm-cov clean --workspace
-          cargo llvm-cov -p wyrd-graph \
+          cargo llvm-cov -p wyrd-for-games \
             --no-default-features --features "std,signal-f32,serde-json" \
             --fail-under-lines 100 --summary-only
       - name: Coverage bevy f32 (fail-under 100)
         run: |
           cargo llvm-cov clean --workspace
-          cargo llvm-cov -p wyrd-bevy \
+          cargo llvm-cov -p wyrd-for-games-bevy \
             --lcov --output-path lcov-bevy.info \
             --fail-under-lines 100
       - name: Upload lcov
@@ -134,3 +134,18 @@ jobs:
             lcov-f32.info
             lcov-i32.info
             lcov-bevy.info
+
+  publish-readiness:
+    name: package and rustdoc readiness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95
+      - name: Inspect published wyrd-for-games files
+        run: cargo package -p wyrd-for-games --locked --list
+      - name: Inspect published wyrd-for-games-bevy files
+        run: cargo package -p wyrd-for-games-bevy --locked --list
+      - name: Build public rustdoc without warnings
+        env:
+          RUSTDOCFLAGS: -Dwarnings
+        run: cargo doc --workspace --no-deps

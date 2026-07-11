@@ -20,10 +20,8 @@ The tracked pages in this directory describe the released 0.2 code. Local `docs/
 planning material remains intentionally ignored: it may contain candidate APIs, raw investigation,
 or historical measurements. Do not treat it as a public or current contract.
 
-For exact catalog ports, runtime errors, and public signatures, start from the crate READMEs and
+For exact catalog ports, runtime errors, and public signatures, start from the package READMEs and
 their linked source:
 
-- [`wyrd-core`](../crates/wyrd-core/README.md)
-- [`wyrd-graph`](../crates/wyrd-graph/README.md)
-- [`wyrd-runtime`](../crates/wyrd-runtime/README.md)
-- [`wyrd-bevy`](../crates/wyrd-bevy/README.md)
+- [`wyrd-for-games` (`wyrd`)](../crates/wyrd-for-games/README.md)
+- [`wyrd-for-games-bevy` (`wyrd_bevy`)](../crates/wyrd-for-games-bevy/README.md)

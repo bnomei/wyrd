@@ -1,28 +1,24 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/wyrd-core",
-    "crates/wyrd-graph",
-    "crates/wyrd-runtime",
-    "crates/wyrd-bevy",
+    "crates/wyrd-for-games",
+    "crates/wyrd-for-games-bevy",
 ]
 default-members = [
-    "crates/wyrd-core",
-    "crates/wyrd-graph",
-    "crates/wyrd-runtime",
+    "crates/wyrd-for-games",
+    "crates/wyrd-for-games-bevy",
 ]
 
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
 license = "MIT"
+license-file = "LICENSE"
 repository = "https://github.com/bnomei/wyrd"
 rust-version = "1.75"
 
 [workspace.dependencies]
-wyrd-core = { path = "crates/wyrd-core", version = "0.2.0", default-features = false }
-wyrd-graph = { path = "crates/wyrd-graph", version = "0.2.0", default-features = false }
-wyrd-runtime = { path = "crates/wyrd-runtime", version = "0.2.0", default-features = false }
+wyrd-for-games = { path = "crates/wyrd-for-games", version = "0.2.0", default-features = false }
 no-std-compat = { version = "0.4", default-features = false }
 libm = { version = "0.2.16", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }

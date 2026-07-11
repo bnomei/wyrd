@@ -27,7 +27,7 @@ relic placed ─┘                                  │
                                                                             "world.request_transition"
 ```
 
-The [Tier D chamber recipe](../../crates/wyrd-runtime/src/cookbook/tier_d.rs) implements that
+The [Tier D chamber recipe](../../crates/wyrd-for-games/README.md) implements that
 shape end to end. It also emits a continuous `"shrine.bridge.target"` level. The graph selects a
 target; the host performs the actual movement, collision, and animation.
 
@@ -73,7 +73,7 @@ An engine-neutral integration can bind one `Runtime` for the active room, rebind
 room's authored asset when loading, and pass saved facts back in as senses. If your engine keeps
 several chambers simulated at once, it can keep several independent runtimes instead.
 
-`wyrd-bevy` exposes this latter shape as `WyrdWorld`: it stores independently bound
+`wyrd-for-games-bevy` exposes this latter shape as `WyrdWorld`: it stores independently bound
 `WyrdInstance`s and looms every active instance during `WyrdSet::Loom`. Remove or stash an inactive
 instance if it should stop ticking. There are no cross-instance Threads and runtime handles reject
 another runtime, by design. Persist a fact such as `shrine_gate_open` in the host, then sample it

@@ -1,7 +1,7 @@
 # Wyrd
 
-[![Crates.io Version](https://img.shields.io/crates/v/wyrd-runtime)](https://crates.io/crates/wyrd-runtime)
-[![Crates.io Downloads](https://img.shields.io/crates/d/wyrd-runtime)](https://crates.io/crates/wyrd-runtime)
+[![Crates.io Version](https://img.shields.io/crates/v/wyrd-for-games)](https://crates.io/crates/wyrd-for-games)
+[![Crates.io Downloads](https://img.shields.io/crates/d/wyrd-for-games)](https://crates.io/crates/wyrd-for-games)
 [![CI](https://img.shields.io/github/actions/workflow/status/bnomei/wyrd/ci.yml?branch=main&label=CI)](https://github.com/bnomei/wyrd/actions/workflows/ci.yml)
 [![CodSpeed](https://img.shields.io/github/actions/workflow/status/bnomei/wyrd/codspeed.yml?branch=main&label=CodSpeed)](https://github.com/bnomei/wyrd/actions/workflows/codspeed.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -62,22 +62,25 @@ That keeps a puzzle rule portable between engines and makes world ownership expl
 ### Prerequisites
 
 - Rust 1.75 or later
-- A checkout of this repository
+- Rust 1.95 or later when using the Bevy adapter
 
-The commands in this README use the repository workspace; they do not assume that the 0.2 crates
-have been published to crates.io.
-
-Clone the repository:
+Add the engine-neutral package under the `wyrd` crate name:
 
 ```bash
-git clone https://github.com/bnomei/wyrd.git
-cd wyrd
+cargo add wyrd-for-games --rename wyrd
 ```
 
-Verify the workspace with a small end-to-end test:
+This writes the following dependency entry:
+
+```toml
+[dependencies]
+wyrd = { package = "wyrd-for-games", version = "0.2.0" }
+```
+
+To verify a checkout with a small end-to-end test:
 
 ```bash
-cargo test -p wyrd-runtime --test hello_and_door
+cargo test -p wyrd-for-games --test hello_and_door
 ```
 
 Expected result excerpt:
@@ -94,9 +97,7 @@ application, the core API looks like this:
 ```rust
 use std::error::Error;
 
-use wyrd_core::{is_truthy, HostTime, KnotKind, ONE};
-use wyrd_graph::weave;
-use wyrd_runtime::{BindOpts, Runtime};
+use wyrd::{is_truthy, weave, BindOpts, HostTime, KnotKind, Runtime, ONE};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let weave = weave! {
@@ -154,23 +155,21 @@ Host applies effects to its own world
 Resolve `SenseId`, `HostPathId`, and `CmdId` once during setup. These handles are owned by the
 runtime that created them; using one with another runtime returns `HandleError::ForeignRuntime`.
 
-You can implement [`Host`](crates/wyrd-runtime/src/host.rs) and call `tick_once`, use
+You can implement `Host` and call `tick_once`, use
 `NullHost` or `ScriptedHost` for headless execution, or schedule sample and apply systems around
 the Bevy adapter.
 
-## Choose a crate
+## Choose a package
 
-| Crate | Use it for |
+| Package | Use it for |
 | --- | --- |
-| [`wyrd-core`](crates/wyrd-core) | `Signal`, numeric helpers, `KnotKind`, and the closed port catalog |
-| [`wyrd-graph`](crates/wyrd-graph) | Immutable `Weave`/`Pattern` values, definitions, typed builder, validation, codecs, and `weave!` |
-| [`wyrd-runtime`](crates/wyrd-runtime) | Binding, host handles, sample/loom/outbox execution, and headless hosts |
-| [`wyrd-bevy`](crates/wyrd-bevy) | Bevy 0.19 scheduling and host-integration helpers for the `f32` path |
+| [`wyrd-for-games`](https://crates.io/crates/wyrd-for-games) | The engine-neutral `wyrd` crate: signals, authoring, validation, binding, runtime, and headless hosts |
+| [`wyrd-for-games-bevy`](https://crates.io/crates/wyrd-for-games-bevy) | The `wyrd_bevy` crate: Bevy 0.19 scheduling and host-integration helpers for the `f32` path |
 
 The dependency direction stays one-way:
 
 ```text
-wyrd-core → wyrd-graph → wyrd-runtime → wyrd-bevy
+wyrd-for-games → wyrd-for-games-bevy
 ```
 
 ## Author graphs
@@ -186,16 +185,25 @@ Use `WeaveDef` and `PatternDef` for editable or serialized data. Converting a de
 immutable `Weave` or `Pattern` performs structural validation. The optional RON and JSON codecs
 also validate while loading.
 
-See the [`wyrd-graph` guide](crates/wyrd-graph/README.md) and the executable
-[`weave!` tests](crates/wyrd-graph/tests/weave_macro.rs) for complete authoring examples.
+See the [`wyrd` guide](crates/wyrd-for-games/README.md) for complete authoring examples.
 
 ## Integrate with Bevy
 
-`wyrd-bevy` configures three ordered system sets:
+`wyrd-for-games-bevy` configures three ordered system sets:
 
 ```text
 WyrdSet::Sample → WyrdSet::Loom → WyrdSet::Apply
 ```
+
+Add both published packages under their library target names:
+
+```toml
+[dependencies]
+wyrd = { package = "wyrd-for-games", version = "0.2.0" }
+wyrd_bevy = { package = "wyrd-for-games-bevy", version = "0.2.0" }
+```
+
+Use the adapter through `wyrd_bevy` alongside the engine-neutral `wyrd` API.
 
 The plugin owns only the loom step. Your systems read components during `Sample` and mutate
 components during `Apply`. Bevy messages such as `WyrdSignalConfirm` confirm applied host effects;
@@ -204,16 +212,16 @@ they are not graph threads.
 Run the headless two-plate door example:
 
 ```bash
-cargo run -p wyrd-bevy --example and_door
+cargo run -p wyrd-for-games-bevy --example and_door
 ```
 
 The example samples two plate states, settles an `And` knot, applies `SignalOut("door.open")` to a
 host-owned `Door` component, and emits confirmations when the component changes. See the
-[`wyrd-bevy` guide](crates/wyrd-bevy/README.md) for the exact ownership boundary.
+[`wyrd_bevy` guide](crates/wyrd-for-games-bevy/README.md) for the exact ownership boundary.
 
 ## Learn through executable recipes
 
-[`wyrd_runtime::cookbook`](crates/wyrd-runtime/src/cookbook/) provides 21 recipes used by both
+[`wyrd::cookbook`](crates/wyrd-for-games/README.md) provides 21 recipes used by both
 rustdoc and integration tests.
 
 | Tier | Focus | Recipes |
@@ -226,8 +234,8 @@ rustdoc and integration tests.
 Run the complete ladder:
 
 ```bash
-cargo test -p wyrd-runtime --test tutorial_ladder
-cargo test -p wyrd-runtime --doc
+cargo test -p wyrd-for-games --test tutorial_ladder
+cargo test -p wyrd-for-games --doc
 ```
 
 For a narrative index rather than a flat recipe list, see [choose a puzzle
@@ -241,27 +249,28 @@ Enable exactly one of `signal-f32` and `signal-i32`.
 
 | Feature | Crates | Behavior |
 | --- | --- | --- |
-| `std` (default) | core, graph, runtime | Desktop/test support through `no-std-compat` |
-| `alloc` | core, graph, runtime | Heap-backed graph/runtime storage without `std` |
-| `signal-f32` (default) | core, graph, runtime | Floating-point signal path; uses `libm` for `no_std` square root |
-| `signal-i32` | core, graph, runtime | Q16 integer signal path for constrained hosts |
-| `serde` | core, graph | Serde derives for author definitions |
-| `serde-ron` | graph | RON load/save with validation on load |
-| `serde-json` | graph | JSON load/save with validation on load |
-| `bevy_log` | bevy | Forwards Bevy's `bevy_log` feature |
+| `std` (default) | `wyrd-for-games` | Desktop/test support through `no-std-compat` |
+| `alloc` | `wyrd-for-games` | Heap-backed graph/runtime storage without `std` |
+| `signal-f32` (default) | `wyrd-for-games` | Floating-point signal path; uses `libm` for `no_std` square root |
+| `signal-i32` | `wyrd-for-games` | Q16 integer signal path for constrained hosts |
+| `serde` | `wyrd-for-games` | Serde derives for author definitions |
+| `serde-ron` | `wyrd-for-games` | RON load/save with validation on load |
+| `serde-json` | `wyrd-for-games` | JSON load/save with validation on load |
+| `bevy_log` | `wyrd-for-games-bevy` | Forwards Bevy's `bevy_log` feature |
 
-`wyrd-bevy` always uses `signal-f32`. Use `wyrd-runtime` directly for `signal-i32` hosts.
+`wyrd-for-games-bevy` always uses `signal-f32`. Use `wyrd-for-games` directly for `signal-i32`
+hosts.
 
 CI verifies both numeric paths, codecs, runtime `no_std` builds, and Bevy.
 
 ## Playdate / constrained hosts
 
-Use the runtime directly rather than `wyrd-bevy`, selecting the integer signal
+Use `wyrd-for-games` directly rather than the Bevy adapter, selecting the integer signal
 path and the allocator supplied by the host application:
 
 ```toml
 [dependencies]
-wyrd-runtime = { version = "0.2.0", default-features = false, features = ["alloc", "signal-i32"] }
+wyrd = { package = "wyrd-for-games", version = "0.2.0", default-features = false, features = ["alloc", "signal-i32"] }
 ```
 
 Bind a Weave when loading a room or scene, resolve its dense sense/path handles
@@ -297,14 +306,13 @@ and line-coverage gates.
 
 ## Reference and next steps
 
-- [Graph authoring and `weave!`](crates/wyrd-graph/README.md)
-- [Runtime host loop and cookbook](crates/wyrd-runtime/README.md)
-- [Bevy integration boundary](crates/wyrd-bevy/README.md)
+- [`wyrd` authoring, runtime, and cookbook](crates/wyrd-for-games/README.md)
+- [`wyrd_bevy` integration boundary](crates/wyrd-for-games-bevy/README.md)
 - [Vision, scope, and game-scale composition](docs/concepts/vision-and-scope.md)
 - [Executable puzzle-shape index](docs/examples/README.md)
 - [Performance model and measurement guidance](docs/concepts/performance-model.md)
-- [Closed knot port tables](crates/wyrd-core/src/ports.rs)
-- [Runtime error contracts](crates/wyrd-runtime/src/error.rs)
+- [`wyrd` API reference](https://docs.rs/wyrd-for-games)
+- [`wyrd_bevy` API reference](https://docs.rs/wyrd-for-games-bevy)
 - [Changelog](CHANGELOG.md)
 
 ## License

@@ -31,7 +31,7 @@ The 0.1 Rust API and serialized graph schema are not compatibility targets.
 
 ### Pedagogy
 
-- **Tutorial ladder** (`wyrd_runtime::cookbook`): Tier A (5) → B (5) → C (10) runnable recipes;
+- **Tutorial ladder** (`wyrd::cookbook`): Tier A (5) → B (5) → C (10) runnable recipes;
   `tests/tutorial_ladder.rs`; `patterns_cookbook` thin-wraps Tier B; short rustdoc doctests
 
 ### Catalog (high + medium impact)
@@ -45,7 +45,7 @@ The 0.1 Rust API and serialized graph schema are not compatibility targets.
 - **FallingToZero** / **Change** — edge pulses
 - **Clamp** — `[min, max]`; `min > max` → `InvalidParam`
 
-### Host abstraction (`wyrd-runtime`)
+### Host abstraction (`wyrd-for-games`)
 
 - `Host` trait: `time`, `sample_into(PortWriter)`, `apply(Outbox)`
 - `tick_once` — begin_frame → sample → loom → apply
@@ -53,7 +53,7 @@ The 0.1 Rust API and serialized graph schema are not compatibility targets.
 - `append_commands` / `outbox_to_commands`
 - `NullHost`, `ScriptedHost` for headless / scripted replay
 
-### Validate / budgets (`wyrd-graph`)
+### Validate / budgets (`wyrd-for-games`)
 
 - Soft + hard budget fields (knots, threads, chain depth, fan-out, delay path sum)
 - Hard enforcement of chain depth, fan-out, delay path sum
@@ -66,7 +66,7 @@ The 0.1 Rust API and serialized graph schema are not compatibility targets.
 - EmitCommand **enable** port (unconnected = enabled)
 - Emit-per-tick hard cap (silent drop)
 
-### Bevy (`wyrd-bevy`)
+### Bevy (`wyrd-for-games-bevy`)
 
 - `Door` host component + `apply_signal_bool`
 - `WyrdSignalConfirm` Message (confirmation only, not topology)

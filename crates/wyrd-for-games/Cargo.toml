@@ -1,0 +1,67 @@
+[package]
+name = "wyrd-for-games"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+license-file.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Engine-neutral signal-graph game logic for Wyrd"
+readme = "README.md"
+documentation = "https://docs.rs/wyrd-for-games"
+keywords = ["game-development", "game-logic", "signal-graph", "dataflow", "no-std"]
+categories = ["game-development", "no-std"]
+autobenches = false
+
+[lib]
+name = "wyrd"
+
+[features]
+default = ["std", "signal-f32"]
+std = ["no-std-compat/std"]
+# Exactly one signal path should be enabled for a given build.
+signal-f32 = ["dep:libm"]
+signal-i32 = []
+alloc = ["no-std-compat/alloc"]
+serde = ["dep:serde"]
+serde-ron = ["serde", "dep:ron", "std"]
+serde-json = ["serde", "dep:serde_json", "std"]
+
+[dependencies]
+no-std-compat = { workspace = true, features = ["alloc"] }
+libm = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+ron = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+trybuild = "=1.0.117"
+# Drop-in Divan compatibility layer that lets CodSpeed instrument this suite.
+divan = { version = "4.7.0", package = "codspeed-divan-compat" }
+
+# Split bench binaries so the suite can grow without one mega-file.
+# Shared builders: benches/common.rs (#[path] include per binary).
+[[bench]]
+name = "settle_chain"
+path = "benches/settle_chain.rs"
+harness = false
+
+[[bench]]
+name = "settle_catalog"
+path = "benches/settle_catalog.rs"
+harness = false
+
+[[bench]]
+name = "settle_stateful"
+path = "benches/settle_stateful.rs"
+harness = false
+
+[[bench]]
+name = "bind"
+path = "benches/bind.rs"
+harness = false
+
+[[bench]]
+name = "settle_iso"
+path = "benches/settle_iso.rs"
+harness = false
