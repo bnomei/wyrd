@@ -1,8 +1,12 @@
 # Wyrd
 
+[![Crates.io Version](https://img.shields.io/crates/v/wyrd-runtime)](https://crates.io/crates/wyrd-runtime)
+[![Crates.io Downloads](https://img.shields.io/crates/d/wyrd-runtime)](https://crates.io/crates/wyrd-runtime)
 [![CI](https://img.shields.io/github/actions/workflow/status/bnomei/wyrd/ci.yml?branch=main&label=CI)](https://github.com/bnomei/wyrd/actions/workflows/ci.yml)
 [![CodSpeed](https://img.shields.io/github/actions/workflow/status/bnomei/wyrd/codspeed.yml?branch=main&label=CodSpeed)](https://github.com/bnomei/wyrd/actions/workflows/codspeed.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Discord](https://flat.badgen.net/badge/discord/bnomei?color=7289da&icon=discord&label)](https://discordapp.com/users/bnomei)
+[![Buymecoffee](https://flat.badgen.net/badge/icon/donate?icon=buymeacoffee&color=FF813F&label)](https://www.buymeacoffee.com/bnomei)
 
 Wyrd is a Rust library for composing game behavior as validated signal graphs. You author a
 `Weave`, bind it once into dense runtime state, sample host inputs, settle the graph, and apply
