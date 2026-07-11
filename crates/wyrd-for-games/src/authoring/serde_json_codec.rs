@@ -83,7 +83,7 @@ mod tests {
 
     impl io::Write for FailingWriter {
         fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::Other, "writer unavailable"))
+            Err(io::Error::other("writer unavailable"))
         }
 
         fn flush(&mut self) -> io::Result<()> {
