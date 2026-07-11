@@ -176,8 +176,8 @@ Each area: isolation baseline → change → after×2 (f32) + i32 check when dua
 | --- | --- | ---: |
 | **1 Digitize** | Bind precompute: scales / i32 `den`+`out_span` | **~1.093 µs → ~854 ns** |
 | **1b Digitize** | f32 `bin_scale=steps/span` + `last_f` clamp + `mul_add` (integer bins) | **~854 ns → ~646–693 ns** |
-| **2 Sqrt** | f32: core `f32::sqrt` (drop `libm`); i32: Newton `isqrt` | **~1.08 µs → ~395–437 ns** (i32 ~562 → ~310 ns) |
-| **3 Map** | Bind precompute: reciprocal × + i32 `den`/`out_span_i64` | **~651 ns → ~505–515 ns** |
+| **2 Sqrt** | f32: core `f32::sqrt` (drop `libm`); i32: restoring bitwise `isqrt` (no division) | Historical capture shown; remeasure after restoring-isqrt change |
+| **3 Map** | Bind plan: reduced `u64` magnitude with unit/scale/shift/divide variants | Historical capture shown; remeasure after Map-plan change |
 | **4 Residual** | Sense seed list; Calc tags split by op; Compare `rhs` as `Signal`; Emit/Random wire flags at bind | Not 64 **~307–310 → ~268 ns** (r1/r2 agree) |
 
 **Area 4 residual evidence (long Divan `iso_struct_not_chain`):**

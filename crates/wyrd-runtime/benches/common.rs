@@ -5,7 +5,7 @@
 
 use wyrd_core::SignalDomain;
 use wyrd_core::{
-    from_count, CalcOp, CompareOp, FlagPriority, KnotKind, Seed, TimerMode, ONE, ZERO,
+    from_count, CalcOp, CompareOp, FlagPriority, KnotKind, Seed, Signal, TimerMode, ONE, ZERO,
 };
 use wyrd_graph::{
     Budget, KnotDef, Pattern, PatternDef, PatternExportDef, PortRefDef, ThreadDef, Weave, WeaveDef,
@@ -313,21 +313,31 @@ fn bind_scaled(weave: &Weave, extra: impl FnOnce(&mut Budget)) -> Runtime {
 
 /// SignalIn → Map × n → SignalOut (identity-ish linear map).
 pub fn chain_map(n: usize) -> (Weave, Runtime) {
+    chain_map_ranges(n, SignalDomain::Level, ZERO, ONE, ZERO, ONE)
+}
+
+/// SignalIn → Map × n → SignalOut with one bind-time map plan shape.
+pub fn chain_map_ranges(
+    n: usize,
+    domain: SignalDomain,
+    in_min: Signal,
+    in_max: Signal,
+    out_min: Signal,
+    out_max: Signal,
+) -> (Weave, Runtime) {
     let mut b = Weave::builder("cmap").unwrap();
-    let mut prev = b
-        .knot("in", KnotKind::signal_in(SignalDomain::Level))
-        .unwrap();
+    let mut prev = b.knot("in", KnotKind::signal_in(domain)).unwrap();
     for i in 0..n {
         let id = format!("m{i}");
         let next = b
             .knot(
                 &id,
                 KnotKind::Map {
-                    domain: SignalDomain::Level,
-                    in_min: ZERO,
-                    in_max: ONE,
-                    out_min: ZERO,
-                    out_max: ONE,
+                    domain,
+                    in_min,
+                    in_max,
+                    out_min,
+                    out_max,
                 },
             )
             .unwrap();
@@ -336,9 +346,7 @@ pub fn chain_map(n: usize) -> (Weave, Runtime) {
         b.connect(from, to).unwrap();
         prev = next;
     }
-    let k_out = b
-        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
-        .unwrap();
+    let k_out = b.knot("out", KnotKind::signal_out("y", domain)).unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();

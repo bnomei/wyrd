@@ -6,12 +6,16 @@
 #[path = "common.rs"]
 mod common;
 
+#[cfg(feature = "signal-i32")]
+use common::chain_map_ranges;
 use common::{
     chain_calc_div, chain_clamp_neg, chain_compare, chain_delays, chain_digitize, chain_map,
     chain_not, chain_sqrt, fanout_nots,
 };
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
+#[cfg(feature = "signal-i32")]
+use wyrd_core::{from_count, SignalDomain, ZERO};
 use wyrd_core::{HostTime, ONE};
 
 /// Structural baseline: deep Not chain (gather + Not eval + clear).
@@ -75,6 +79,43 @@ fn iso_eval_map_chain(bencher: Bencher, n: usize) {
     bencher.counter(ItemsCount::new(knots)).bench_local(|| {
         rt.begin_frame(HostTime { tick: 0 });
         rt.port_writer().set_sense(id, ONE).unwrap();
+        rt.loom();
+        black_box(rt.outbox().signals().len());
+    });
+}
+
+/// i32-only power-of-two reduced denominator: shift instead of division.
+#[cfg(feature = "signal-i32")]
+#[divan::bench(args = [64])]
+fn iso_eval_map_shift_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_map_ranges(n, SignalDomain::Level, -ONE, ONE, ZERO, ONE);
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots().len() as u64;
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(id, ONE).unwrap();
+        rt.loom();
+        black_box(rt.outbox().signals().len());
+    });
+}
+
+/// i32-only non-power-of-two reduced denominator: exact general division.
+#[cfg(feature = "signal-i32")]
+#[divan::bench(args = [64])]
+fn iso_eval_map_general_chain(bencher: Bencher, n: usize) {
+    let (weave, mut rt) = chain_map_ranges(
+        n,
+        SignalDomain::Count,
+        from_count(0),
+        from_count(10),
+        from_count(-37),
+        from_count(997),
+    );
+    let id = rt.sense_id("in").unwrap();
+    let knots = weave.knots().len() as u64;
+    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+        rt.begin_frame(HostTime { tick: 0 });
+        rt.port_writer().set_sense(id, from_count(5)).unwrap();
         rt.loom();
         black_box(rt.outbox().signals().len());
     });

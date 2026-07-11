@@ -218,6 +218,26 @@ Verify both numeric paths, codecs, runtime `no_std` builds, and Bevy:
 ./scripts/dual-check.sh
 ```
 
+## Playdate / constrained hosts
+
+Use the runtime directly rather than `wyrd-bevy`, selecting the integer signal
+path and the allocator supplied by the host application:
+
+```toml
+[dependencies]
+wyrd-runtime = { version = "0.2.0", default-features = false, features = ["alloc", "signal-i32"] }
+```
+
+Bind a Weave when loading a room or scene, resolve its dense sense/path handles
+once, then call `begin_frame` → write senses → `loom` once per host tick. Keep
+buttons and counts as integers; quantize continuous host input at the boundary.
+
+Use the Playdate Rust toolchain's device build (for example,
+[`cargo-playdate`](https://github.com/boozook/playdate)'s `cargo playdate run --device`)
+to validate a consuming game. The simulator is useful for iteration, but profile
+representative Map/Sqrt-heavy Weaves on physical hardware before making a frame-time
+claim.
+
 ## Validate changes
 
 Run the same primary checks used during development:

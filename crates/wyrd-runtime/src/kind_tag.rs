@@ -6,6 +6,179 @@
 
 use wyrd_core::{CalcOp, CompareOp, FlagPriority, KnotKind, Signal, SignalDomain, TimerMode};
 
+/// Exact i32 affine-map execution plan built once at bind.
+///
+/// The input and output spans are reduced by their greatest common divisor before
+/// settle. Both remaining factors fit in `u32`, so their per-tick product fits
+/// in `u64` even for full-domain maps. That avoids `i128` helpers on 32-bit
+/// constrained targets while retaining truncation-toward-zero for descending
+/// output ranges.
+#[cfg(feature = "signal-i32")]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum I32MapPlan {
+    Constant {
+        out_min: Signal,
+    },
+    Unit {
+        in_min: Signal,
+        out_min: Signal,
+        den: u64,
+        descending: bool,
+    },
+    Scale {
+        in_min: Signal,
+        out_min: Signal,
+        den: u64,
+        multiplier: u64,
+        descending: bool,
+    },
+    Shift {
+        in_min: Signal,
+        out_min: Signal,
+        den: u64,
+        multiplier: u64,
+        shift: u32,
+        descending: bool,
+    },
+    Divide {
+        in_min: Signal,
+        out_min: Signal,
+        den: u64,
+        multiplier: u64,
+        divisor: u64,
+        descending: bool,
+    },
+}
+
+#[cfg(feature = "signal-i32")]
+impl I32MapPlan {
+    fn from_ranges(in_min: Signal, in_max: Signal, out_min: Signal, out_max: Signal) -> Self {
+        let den = ((in_max as i64) - (in_min as i64)) as u64;
+        let span = (out_max as i64) - (out_min as i64);
+        if den == 0 || span == 0 {
+            return Self::Constant { out_min };
+        }
+
+        let descending = span < 0;
+        let gcd = gcd_u64(den, span.unsigned_abs());
+        let multiplier = span.unsigned_abs() / gcd;
+        let divisor = den / gcd;
+
+        if divisor == 1 {
+            if multiplier == 1 {
+                Self::Unit {
+                    in_min,
+                    out_min,
+                    den,
+                    descending,
+                }
+            } else {
+                Self::Scale {
+                    in_min,
+                    out_min,
+                    den,
+                    multiplier,
+                    descending,
+                }
+            }
+        } else if divisor.is_power_of_two() {
+            Self::Shift {
+                in_min,
+                out_min,
+                den,
+                multiplier,
+                shift: divisor.trailing_zeros(),
+                descending,
+            }
+        } else {
+            Self::Divide {
+                in_min,
+                out_min,
+                den,
+                multiplier,
+                divisor,
+                descending,
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn map(self, input: Signal) -> Signal {
+        match self {
+            Self::Constant { out_min } => out_min,
+            Self::Unit {
+                in_min,
+                out_min,
+                den,
+                descending,
+            } => finish_i32_map(out_min, map_offset(input, in_min, den), descending),
+            Self::Scale {
+                in_min,
+                out_min,
+                den,
+                multiplier,
+                descending,
+            } => finish_i32_map(
+                out_min,
+                map_offset(input, in_min, den) * multiplier,
+                descending,
+            ),
+            Self::Shift {
+                in_min,
+                out_min,
+                den,
+                multiplier,
+                shift,
+                descending,
+            } => finish_i32_map(
+                out_min,
+                (map_offset(input, in_min, den) * multiplier) >> shift,
+                descending,
+            ),
+            Self::Divide {
+                in_min,
+                out_min,
+                den,
+                multiplier,
+                divisor,
+                descending,
+            } => finish_i32_map(
+                out_min,
+                map_offset(input, in_min, den) * multiplier / divisor,
+                descending,
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "signal-i32")]
+#[inline]
+fn map_offset(input: Signal, in_min: Signal, den: u64) -> u64 {
+    ((input as i64) - (in_min as i64)).clamp(0, den as i64) as u64
+}
+
+#[cfg(feature = "signal-i32")]
+#[inline]
+fn finish_i32_map(out_min: Signal, magnitude: u64, descending: bool) -> Signal {
+    let mapped = if descending {
+        (out_min as i64) - (magnitude as i64)
+    } else {
+        (out_min as i64) + (magnitude as i64)
+    };
+    debug_assert!((i32::MIN as i64..=i32::MAX as i64).contains(&mapped));
+    mapped as i32
+}
+
+#[cfg(feature = "signal-i32")]
+fn gcd_u64(mut lhs: u64, mut rhs: u64) -> u64 {
+    while rhs != 0 {
+        let remainder = lhs % rhs;
+        lhs = rhs;
+        rhs = remainder;
+    }
+    lhs
+}
+
 /// Copyable dispatch tag — built once at bind.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum KindTag {
@@ -61,20 +234,23 @@ pub(crate) enum KindTag {
     Neg {
         domain: SignalDomain,
     },
-    /// Linear map with bind-time inv/scale.
+    /// Linear map with bind-time arithmetic plan.
     Map {
         domain: SignalDomain,
+        #[cfg(feature = "signal-f32")]
         degenerate: bool,
+        #[cfg(feature = "signal-f32")]
         in_min: Signal,
+        #[cfg(feature = "signal-f32")]
         out_min: Signal,
-        /// f32: `1/(in_max-in_min)`; i32: unused.
+        #[cfg(feature = "signal-f32")]
+        /// `1/(in_max-in_min)` for the float path.
         inv_in_span: Signal,
-        /// f32: `out_max-out_min`; i32: unused (use `out_span_i64`).
+        #[cfg(feature = "signal-f32")]
+        /// `out_max-out_min` for the float path.
         out_span: Signal,
         #[cfg(feature = "signal-i32")]
-        den: i64,
-        #[cfg(feature = "signal-i32")]
-        out_span_i64: i64,
+        plan: I32MapPlan,
     },
     Select,
     /// Precomputed at bind so loom does not re-derive spans/scales each tick.
@@ -295,16 +471,9 @@ impl KindTag {
         }
         #[cfg(feature = "signal-i32")]
         {
-            let den = (in_max as i64) - (in_min as i64);
             KindTag::Map {
                 domain,
-                degenerate: den == 0,
-                in_min,
-                out_min,
-                inv_in_span: 0,
-                out_span: 0,
-                den,
-                out_span_i64: (out_max as i64) - (out_min as i64),
+                plan: I32MapPlan::from_ranges(in_min, in_max, out_min, out_max),
             }
         }
     }

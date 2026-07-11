@@ -322,17 +322,21 @@ impl Runtime {
             }
             KindTag::Map {
                 domain,
+                #[cfg(feature = "signal-f32")]
                 degenerate,
+                #[cfg(feature = "signal-f32")]
                 in_min,
+                #[cfg(feature = "signal-f32")]
                 out_min,
+                #[cfg(feature = "signal-f32")]
                 inv_in_span,
+                #[cfg(feature = "signal-f32")]
                 out_span,
                 #[cfg(feature = "signal-i32")]
-                den,
-                #[cfg(feature = "signal-i32")]
-                out_span_i64,
+                plan,
             } => {
                 let i = self.get_port_hot(kid, PortSlot::new(0));
+                #[cfg(feature = "signal-f32")]
                 let o = map_linear_fast(
                     i,
                     domain,
@@ -341,11 +345,12 @@ impl Runtime {
                     out_min,
                     inv_in_span,
                     out_span,
-                    #[cfg(feature = "signal-i32")]
-                    den,
-                    #[cfg(feature = "signal-i32")]
-                    out_span_i64,
                 );
+                #[cfg(feature = "signal-i32")]
+                let o = {
+                    let _ = domain;
+                    plan.map(i)
+                };
                 self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Select => {
@@ -742,6 +747,7 @@ fn count_to_level(value: Signal) -> Signal {
     }
 }
 
+#[cfg(feature = "signal-f32")]
 #[inline]
 fn map_linear_fast(
     i: Signal,
@@ -751,28 +757,16 @@ fn map_linear_fast(
     out_min: Signal,
     inv_in_span: Signal,
     out_span: Signal,
-    #[cfg(feature = "signal-i32")] den: i64,
-    #[cfg(feature = "signal-i32")] out_span_i64: i64,
 ) -> Signal {
     if degenerate {
         return out_min;
     }
-    #[cfg(feature = "signal-f32")]
-    {
-        let t = ((i - in_min) * inv_in_span).clamp(0.0, 1.0);
-        let mapped = out_min + t * out_span;
-        if domain == SignalDomain::Count {
-            normalize_count(mapped)
-        } else {
-            mapped
-        }
-    }
-    #[cfg(feature = "signal-i32")]
-    {
-        let _ = (domain, inv_in_span, out_span);
-        let t = ((i as i64) - (in_min as i64)).clamp(0, den);
-        let mapped = (out_min as i128) + (t as i128) * (out_span_i64 as i128) / (den as i128);
-        mapped as i32
+    let t = ((i - in_min) * inv_in_span).clamp(0.0, 1.0);
+    let mapped = out_min + t * out_span;
+    if domain == SignalDomain::Count {
+        normalize_count(mapped)
+    } else {
+        mapped
     }
 }
 
@@ -799,28 +793,37 @@ pub(crate) fn map_linear_for_domain_test(
     match KindTag::map_precomputed(domain, in_min, in_max, out_min, out_max) {
         KindTag::Map {
             domain,
+            #[cfg(feature = "signal-f32")]
             degenerate,
+            #[cfg(feature = "signal-f32")]
             in_min,
+            #[cfg(feature = "signal-f32")]
             out_min,
+            #[cfg(feature = "signal-f32")]
             inv_in_span,
+            #[cfg(feature = "signal-f32")]
             out_span,
             #[cfg(feature = "signal-i32")]
-            den,
+            plan,
+        } => {
+            #[cfg(feature = "signal-f32")]
+            {
+                map_linear_fast(
+                    i,
+                    domain,
+                    degenerate,
+                    in_min,
+                    out_min,
+                    inv_in_span,
+                    out_span,
+                )
+            }
             #[cfg(feature = "signal-i32")]
-            out_span_i64,
-        } => map_linear_fast(
-            i,
-            domain,
-            degenerate,
-            in_min,
-            out_min,
-            inv_in_span,
-            out_span,
-            #[cfg(feature = "signal-i32")]
-            den,
-            #[cfg(feature = "signal-i32")]
-            out_span_i64,
-        ),
+            {
+                let _ = domain;
+                plan.map(i)
+            }
+        }
         _ => out_min,
     }
 }
@@ -957,7 +960,7 @@ fn random_level_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
         if span <= 0 {
             return lo as i32;
         }
-        let offset = ((u as u128) * (span as u128)) / (u32::MAX as u128);
+        let offset = ((u as u64) * (span as u64)) / (u32::MAX as u64);
         (lo + offset as i64) as i32
     }
 }
@@ -971,7 +974,7 @@ fn random_count_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
     if span <= 0 {
         return wyrd_core::from_count(lo as i32);
     }
-    let offset = ((u as u128) * (span as u128)) / (u32::MAX as u128);
+    let offset = ((u as u64) * (span as u64)) / (u32::MAX as u64);
     wyrd_core::from_count((lo + offset as i64) as i32)
 }
 
@@ -1060,26 +1063,43 @@ mod sqrt_f32_tests {
     }
 }
 
-/// Floor integer square root via Newton iteration.
+/// Floor integer square root via restoring binary arithmetic.
+///
+/// This has a fixed, bounded shift/subtract loop and avoids the repeated wide
+/// divisions Newton iteration would emit on 32-bit constrained targets.
 #[cfg(feature = "signal-i32")]
 #[inline]
-fn isqrt_u64(n: u64) -> u64 {
-    if n < 2 {
-        return n;
+fn isqrt_u64(mut n: u64) -> u64 {
+    let mut result = 0u64;
+    let mut bit = 1u64 << 62;
+
+    while bit > n {
+        bit >>= 2;
     }
-    let mut x = 1u64 << ((64 - n.leading_zeros() + 1) / 2);
-    loop {
-        let y = (x + n / x) / 2;
-        if y >= x {
-            return x;
+    while bit != 0 {
+        let trial = result + bit;
+        if n >= trial {
+            n -= trial;
+            result = (result >> 1) + bit;
+        } else {
+            result >>= 1;
         }
-        x = y;
+        bit >>= 2;
     }
+    result
 }
 
 #[cfg(all(test, feature = "signal-i32"))]
 #[test]
-fn isqrt_matches_perfect_squares() {
+fn isqrt_matches_dense_range_and_boundaries() {
+    for n in 0u64..=65_536 {
+        let root = isqrt_u64(n);
+        assert!(root * root <= n, "isqrt({n}) overshot with {root}");
+        assert!(
+            (root + 1) * (root + 1) > n,
+            "isqrt({n}) undershot with {root}"
+        );
+    }
     for k in 0i32..200 {
         let n = k * k;
         assert_eq!(isqrt_u64(n as u64), k as u64, "isqrt({n})");
@@ -1088,6 +1108,22 @@ fn isqrt_matches_perfect_squares() {
         }
     }
     assert_eq!(isqrt_u64(0), 0);
+    assert_eq!(isqrt_u64(u64::MAX), u32::MAX as u64);
+}
+
+#[cfg(all(test, feature = "signal-i32"))]
+mod random_i32_range_tests {
+    use super::{random_count_in_range, random_level_in_range};
+
+    #[test]
+    fn full_i32_ranges_preserve_both_endpoints() {
+        for range in [(i32::MIN, i32::MAX), (i32::MAX, i32::MIN)] {
+            assert_eq!(random_level_in_range(0, range.0, range.1), i32::MIN);
+            assert_eq!(random_level_in_range(u32::MAX, range.0, range.1), i32::MAX);
+            assert_eq!(random_count_in_range(0, range.0, range.1), i32::MIN);
+            assert_eq!(random_count_in_range(u32::MAX, range.0, range.1), i32::MAX);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1201,6 +1237,9 @@ mod map_tests {
     use super::{map_linear_for_domain_test, map_linear_for_test};
     use wyrd_core::{from_count, SignalDomain, ONE, ZERO};
 
+    #[cfg(feature = "signal-i32")]
+    use crate::kind_tag::{I32MapPlan, KindTag};
+
     #[test]
     fn map_precompute_endpoints_mid_and_degenerate() {
         let i0 = from_count(0);
@@ -1295,5 +1334,99 @@ mod map_tests {
             map_linear_for_test(i32::MAX, -1, 1, i32::MIN, i32::MAX),
             i32::MAX
         );
+    }
+
+    #[cfg(feature = "signal-i32")]
+    fn reference_i32_map(input: i32, in_min: i32, in_max: i32, out_min: i32, out_max: i32) -> i32 {
+        let den = (in_max as i128) - (in_min as i128);
+        if den == 0 {
+            return out_min;
+        }
+        let t = ((input as i128) - (in_min as i128)).clamp(0, den);
+        ((out_min as i128) + t * ((out_max as i128) - (out_min as i128)) / den) as i32
+    }
+
+    #[cfg(feature = "signal-i32")]
+    #[test]
+    fn map_i32_uses_specialized_bind_plans() {
+        let plan = |in_min, in_max, out_min, out_max| match KindTag::map_precomputed(
+            SignalDomain::Count,
+            in_min,
+            in_max,
+            out_min,
+            out_max,
+        ) {
+            KindTag::Map { plan, .. } => plan,
+            _ => unreachable!("map precompute must return a Map tag"),
+        };
+
+        assert!(matches!(plan(3, 3, 7, 9), I32MapPlan::Constant { .. }));
+        assert!(matches!(plan(-8, 8, 5, 21), I32MapPlan::Unit { .. }));
+        assert!(matches!(plan(0, 8, 0, 16), I32MapPlan::Scale { .. }));
+        assert!(matches!(plan(0, 8, 0, 4), I32MapPlan::Shift { .. }));
+        assert!(matches!(plan(0, 10, 0, 3), I32MapPlan::Divide { .. }));
+    }
+
+    #[cfg(feature = "signal-i32")]
+    #[test]
+    fn map_i32_matches_wide_reference_across_edge_and_seeded_ranges() {
+        let cases = [
+            (i32::MIN, i32::MAX, i32::MIN, i32::MAX),
+            (i32::MIN, i32::MAX, i32::MAX, i32::MIN),
+            (-65_536, 65_536, 0, 65_536),
+            (0, 8, 0, 16),
+            (0, 8, 0, 4),
+            (0, 10, -37, 997),
+            (3, 3, -5, 42),
+        ];
+        for (in_min, in_max, out_min, out_max) in cases {
+            for input in [
+                i32::MIN,
+                in_min.saturating_sub(1),
+                in_min,
+                0,
+                in_max,
+                in_max.saturating_add(1),
+                i32::MAX,
+            ] {
+                assert_eq!(
+                    map_linear_for_domain_test(
+                        SignalDomain::Count,
+                        input,
+                        in_min,
+                        in_max,
+                        out_min,
+                        out_max,
+                    ),
+                    reference_i32_map(input, in_min, in_max, out_min, out_max),
+                    "input={input}, in={in_min}..{in_max}, out={out_min}..{out_max}"
+                );
+            }
+        }
+
+        let mut state = 0x9E37_79B9u32;
+        for _ in 0..512 {
+            let next = |state: &mut u32| {
+                *state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                *state as i32
+            };
+            let a = next(&mut state);
+            let b = next(&mut state);
+            let (in_min, in_max) = if a <= b { (a, b) } else { (b, a) };
+            let out_min = next(&mut state);
+            let out_max = next(&mut state);
+            let input = next(&mut state);
+            assert_eq!(
+                map_linear_for_domain_test(
+                    SignalDomain::Count,
+                    input,
+                    in_min,
+                    in_max,
+                    out_min,
+                    out_max,
+                ),
+                reference_i32_map(input, in_min, in_max, out_min, out_max),
+            );
+        }
     }
 }
