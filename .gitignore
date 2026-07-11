@@ -13,6 +13,7 @@ docs/*
 # Generated coverage HTML/LCOV
 /coverage/
 /lcov.info
+/*.info
 
 .orchid
 .frigg
