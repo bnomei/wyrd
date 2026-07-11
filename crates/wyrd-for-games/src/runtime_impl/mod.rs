@@ -17,11 +17,18 @@ pub(crate) mod host;
 pub(crate) mod kind_tag;
 pub(crate) mod loom;
 pub(crate) mod outbox;
+pub(crate) mod recipe;
 
 pub use bind::{BindOpts, Runtime};
-pub use error::{BindError, CookbookError, HandleError};
+pub use error::{
+    BindError, CookbookError, HandleError, RecipeEndpoint, RecipeError, RecipeResolveError,
+};
 pub use handles::{CmdId, HostPathId, KnotHandle, SenseId};
 pub use host::{
     append_commands, outbox_to_commands, tick_once, Host, HostCommand, NullHost, ScriptedHost,
 };
 pub use outbox::{Emit, Outbox, PortWriter, SignalOutSample};
+pub use recipe::{
+    EmitCommandManifest, Recipe, RecipeInstance, RecipeManifest, SignalInManifest,
+    SignalOutManifest,
+};

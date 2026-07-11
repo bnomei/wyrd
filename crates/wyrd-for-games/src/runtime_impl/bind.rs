@@ -18,7 +18,7 @@ use crate::foundation::{
     port_slot, ports_of, CalcOp, HostTime, KnotId, KnotKind, PortDir, PortSlot, Seed, Signal, ZERO,
 };
 
-use crate::runtime_impl::error::{BindError, HandleError};
+use crate::runtime_impl::error::{BindError, HandleError, RecipeEndpoint, RecipeResolveError};
 use crate::runtime_impl::handles::{CmdId, HostPathId, KnotHandle, SenseId};
 use crate::runtime_impl::outbox::{Emit, Outbox, PortWriter, SignalOutSample};
 
@@ -524,11 +524,43 @@ impl Runtime {
         Some(SenseId::new(self.owner, knot.get()))
     }
 
+    /// Resolve a required `SignalIn` knot for a typed recipe port.
+    pub fn required_sense(&self, name: &str) -> Result<SenseId, RecipeResolveError> {
+        let Some(knot) = self.name_to_id.get(name).copied() else {
+            return Err(RecipeResolveError::Missing {
+                endpoint: RecipeEndpoint::SignalIn,
+                name: String::from(name),
+            });
+        };
+        if !matches!(
+            self.knots
+                .get(usize::from(knot))
+                .map(|resolved| &resolved.kind),
+            Some(KnotKind::SignalIn { .. })
+        ) {
+            return Err(RecipeResolveError::Invalid {
+                endpoint: RecipeEndpoint::SignalIn,
+                name: String::from(name),
+                reason: "the knot is not a SignalIn",
+            });
+        }
+        Ok(SenseId::new(self.owner, knot.get()))
+    }
+
     /// Resolve an author knot name for checked tooling access.
     pub fn knot_id(&self, name: &str) -> Option<KnotHandle> {
         self.name_to_id
             .get(name)
             .map(|knot| KnotHandle::new(self.owner, knot.get()))
+    }
+
+    /// Resolve a required author knot for a typed recipe port.
+    pub fn required_knot(&self, name: &str) -> Result<KnotHandle, RecipeResolveError> {
+        self.knot_id(name)
+            .ok_or_else(|| RecipeResolveError::Missing {
+                endpoint: RecipeEndpoint::Knot,
+                name: String::from(name),
+            })
     }
 
     /// Resolve a `SignalOut` path string interned at bind.
@@ -540,6 +572,15 @@ impl Runtime {
             .map(|index| HostPathId::new(self.owner, index))
     }
 
+    /// Resolve a required `SignalOut` path for a typed recipe port.
+    pub fn required_path(&self, path: &str) -> Result<HostPathId, RecipeResolveError> {
+        self.path_id(path)
+            .ok_or_else(|| RecipeResolveError::Missing {
+                endpoint: RecipeEndpoint::SignalOut,
+                name: String::from(path),
+            })
+    }
+
     /// Resolve an `EmitCommand` name interned at bind.
     pub fn cmd_id(&self, name: &str) -> Option<CmdId> {
         self.cmd_names
@@ -547,6 +588,15 @@ impl Runtime {
             .position(|candidate| candidate == name)
             .and_then(|i| u16::try_from(i).ok())
             .map(|index| CmdId::new(self.owner, index))
+    }
+
+    /// Resolve a required `EmitCommand` name for a typed recipe port.
+    pub fn required_command(&self, name: &str) -> Result<CmdId, RecipeResolveError> {
+        self.cmd_id(name)
+            .ok_or_else(|| RecipeResolveError::Missing {
+                endpoint: RecipeEndpoint::EmitCommand,
+                name: String::from(name),
+            })
     }
 
     /// Interned path string for a dense host path id.

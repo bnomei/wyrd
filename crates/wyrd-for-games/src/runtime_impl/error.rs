@@ -168,6 +168,127 @@ impl fmt::Display for HandleError {
 #[cfg(feature = "std")]
 impl std::error::Error for HandleError {}
 
+/// The kind of named endpoint a [`crate::Recipe`] requires from a bound runtime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecipeEndpoint {
+    /// A host-writable [`crate::SenseId`] backed by a `SignalIn` knot.
+    SignalIn,
+    /// An interned [`crate::HostPathId`] backed by a `SignalOut` knot.
+    SignalOut,
+    /// An interned [`crate::CmdId`] backed by an `EmitCommand` knot.
+    EmitCommand,
+    /// A named knot used for checked tooling access.
+    Knot,
+    /// A catalog port on a named knot.
+    Port,
+}
+
+impl fmt::Display for RecipeEndpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SignalIn => f.write_str("SignalIn"),
+            Self::SignalOut => f.write_str("SignalOut"),
+            Self::EmitCommand => f.write_str("EmitCommand"),
+            Self::Knot => f.write_str("knot"),
+            Self::Port => f.write_str("port"),
+        }
+    }
+}
+
+/// Failure while resolving one of a recipe's required named endpoints.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RecipeResolveError {
+    /// The required endpoint was absent from the bound runtime.
+    Missing {
+        /// Required endpoint category.
+        endpoint: RecipeEndpoint,
+        /// Author knot id, host path, command name, or `knot.port` reference.
+        name: String,
+    },
+    /// A named endpoint exists but does not satisfy the requested contract.
+    Invalid {
+        /// Required endpoint category.
+        endpoint: RecipeEndpoint,
+        /// Author knot id, host path, command name, or `knot.port` reference.
+        name: String,
+        /// Stable explanation of the incompatible endpoint.
+        reason: &'static str,
+    },
+}
+
+impl fmt::Display for RecipeResolveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Missing { endpoint, name } => {
+                write!(f, "required {endpoint} endpoint '{name}' is missing")
+            }
+            Self::Invalid {
+                endpoint,
+                name,
+                reason,
+            } => write!(
+                f,
+                "required {endpoint} endpoint '{name}' is invalid: {reason}"
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RecipeResolveError {}
+
+/// Failure while constructing, binding, or resolving a [`crate::Recipe`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RecipeError {
+    /// The recipe could not construct its validated weave.
+    Build(BuildError),
+    /// The recipe's weave could not bind into a runtime.
+    Bind(BindError),
+    /// A required typed endpoint could not be resolved from the bound runtime.
+    Resolve(RecipeResolveError),
+}
+
+impl From<BuildError> for RecipeError {
+    fn from(value: BuildError) -> Self {
+        Self::Build(value)
+    }
+}
+
+impl From<BindError> for RecipeError {
+    fn from(value: BindError) -> Self {
+        Self::Bind(value)
+    }
+}
+
+impl From<RecipeResolveError> for RecipeError {
+    fn from(value: RecipeResolveError) -> Self {
+        Self::Resolve(value)
+    }
+}
+
+impl fmt::Display for RecipeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Build(source) => write!(f, "cannot build recipe: {source}"),
+            Self::Bind(source) => write!(f, "cannot bind recipe: {source}"),
+            Self::Resolve(source) => write!(f, "cannot resolve recipe ports: {source}"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RecipeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Build(source) => Some(source),
+            Self::Bind(source) => Some(source),
+            Self::Resolve(source) => Some(source),
+        }
+    }
+}
+
 /// Error returned by executable cookbook recipes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]

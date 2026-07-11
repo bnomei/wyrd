@@ -35,6 +35,9 @@ pub mod graph {
         KnotHandle, OutputPort, Pattern, PatternDef, PatternExportDef, PatternInstance, PortRefDef,
         ThreadDef, ValidateReport, ValidationError, Weave, WeaveBuilder, WeaveDef,
     };
+    pub use crate::runtime_impl::{
+        EmitCommandManifest, RecipeManifest, SignalInManifest, SignalOutManifest,
+    };
 }
 
 /// Runtime binding, host integration, output collection, and cookbook recipes.
@@ -43,7 +46,8 @@ pub mod runtime {
     pub use crate::runtime_impl::{
         append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, CookbookError,
         Emit, HandleError, Host, HostCommand, HostPathId, KnotHandle, NullHost, Outbox, PortWriter,
-        Runtime, ScriptedHost, SenseId, SignalOutSample,
+        Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeResolveError, Runtime,
+        ScriptedHost, SenseId, SignalOutSample,
     };
 }
 
@@ -69,6 +73,8 @@ pub use authoring::{from_json, to_json, JsonCodecError};
 pub use runtime_impl::cookbook;
 pub use runtime_impl::{
     append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, CookbookError,
-    Emit, HandleError, Host, HostCommand, HostPathId, NullHost, Outbox, PortWriter, Runtime,
-    ScriptedHost, SenseId, SignalOutSample,
+    Emit, EmitCommandManifest, HandleError, Host, HostCommand, HostPathId, NullHost, Outbox,
+    PortWriter, Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeManifest,
+    RecipeResolveError, Runtime, ScriptedHost, SenseId, SignalInManifest, SignalOutManifest,
+    SignalOutSample,
 };
