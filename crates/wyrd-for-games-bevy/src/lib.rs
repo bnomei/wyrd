@@ -52,14 +52,17 @@ impl WyrdInstance {
         self.tick
     }
 
+    /// Borrow the bound dense runtime for resolve/sample/apply helpers.
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
     }
 
+    /// Mutably borrow the runtime for port writes before loom.
     pub fn runtime_mut(&mut self) -> &mut Runtime {
         &mut self.runtime
     }
 
+    /// Outbox view for the current frame (valid until the next `begin_frame`).
     pub fn outbox(&self) -> Outbox<'_> {
         self.runtime.outbox()
     }
@@ -253,15 +256,20 @@ impl WyrdWorld {
 /// Resolve your own `SenseId` / `HostPathId` fields at setup for production games.
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct AndDoorBinding {
+    /// Dense sense for the first pressure plate `SignalIn`.
     pub plate_a: SenseId,
+    /// Dense sense for the second pressure plate `SignalIn`.
     pub plate_b: SenseId,
+    /// Dense host path for the `door.open` `SignalOut`.
     pub door_path: HostPathId,
+    /// Generational handle to the bound door weave instance.
     pub instance: WyrdInstanceId,
 }
 
 /// Host-owned door state on an Entity (not a Wyrd Knot).
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Door {
+    /// Host-owned door state mirrored from the weave outbox.
     pub open: bool,
 }
 
@@ -270,11 +278,13 @@ pub struct Door {
 /// **Not** a Thread. Topology lives only in the Weave.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WyrdSignalConfirm {
+    /// Host path whose applied level changed this frame.
     pub path: HostPathId,
+    /// Truthy interpretation of the applied signal (`is_truthy`).
     pub truthy: bool,
 }
 
-/// Registers [`WyrdWorld`], confirmation messages, ordered sets, and `loom_all`.
+/// Registers [`WyrdWorld`], confirmation messages, ordered sets, and [`loom_all`].
 pub struct WyrdPlugin;
 
 impl Plugin for WyrdPlugin {

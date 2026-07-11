@@ -20,11 +20,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PatternExportDef {
+    /// Export name exposed to the parent weave (`in(export)` / `out(export)`).
     pub name: String,
+    /// Inner knot port this export aliases.
     pub port: PortRefDef,
 }
 
 impl PatternExportDef {
+    /// Build an export from a parent-visible name and inner knot port.
     pub fn new(name: impl Into<String>, knot: impl Into<String>, port: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -37,9 +40,13 @@ impl PatternExportDef {
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PatternDef {
+    /// Pattern catalog id (non-empty, no `/`).
     pub id: String,
+    /// Inner weave expanded under `instance_id/` on include.
     pub inner: WeaveDef,
+    /// Required input ports the parent must wire after include.
     pub inputs: Vec<PatternExportDef>,
+    /// Output ports available as parent thread sources.
     pub outputs: Vec<PatternExportDef>,
 }
 

@@ -22,14 +22,23 @@ use crate::{ValidationError, Weave, WeaveDef};
 /// Hard and soft resource limits applied after structural validation.
 #[derive(Clone, Debug)]
 pub struct Budget {
+    /// Hard cap on knot count (bind rejects above this).
     pub max_knots: u16,
+    /// Hard cap on thread count.
     pub max_threads: u16,
+    /// Soft knot count; exceeded yields [`BudgetWarning::SoftKnots`].
     pub soft_knots: u16,
+    /// Soft thread count; exceeded yields [`BudgetWarning::SoftThreads`].
     pub soft_threads: u16,
+    /// Hard cap on longest topo chain depth.
     pub max_chain_depth: u16,
+    /// Soft chain depth; exceeded yields [`BudgetWarning::SoftChainDepth`].
     pub soft_chain_depth: u16,
+    /// Hard cap on outbound threads from any single knot.
     pub max_fan_out: u16,
+    /// Soft fan-out; exceeded yields [`BudgetWarning::SoftFanOut`].
     pub soft_fan_out: u16,
+    /// Hard cap on summed `Delay` ticks along any topo path.
     pub max_delay_path_sum: u16,
 }
 
@@ -53,22 +62,36 @@ impl Default for Budget {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BudgetWarning {
+    /// Knot count exceeded the soft budget but remains under the hard cap.
     SoftKnots {
+        /// Observed knot count.
         count: u16,
+        /// Configured soft limit from [`Budget::soft_knots`].
         soft: u16,
     },
+    /// Thread count exceeded the soft budget but remains under the hard cap.
     SoftThreads {
+        /// Observed thread count.
         count: u16,
+        /// Configured soft limit from [`Budget::soft_threads`].
         soft: u16,
     },
+    /// Longest topo chain depth exceeded the soft budget.
     SoftChainDepth {
+        /// Observed chain depth at [`Self::SoftChainDepth::at_knot`].
         depth: u16,
+        /// Configured soft limit from [`Budget::soft_chain_depth`].
         soft: u16,
+        /// Knot id where the soft depth threshold was crossed.
         at_knot: String,
     },
+    /// Outbound thread count from one knot exceeded the soft fan-out budget.
     SoftFanOut {
+        /// Observed fan-out from [`Self::SoftFanOut::at_knot`].
         fan_out: u16,
+        /// Configured soft limit from [`Budget::soft_fan_out`].
         soft: u16,
+        /// Knot id whose outbound threads triggered the warning.
         at_knot: String,
     },
 }
@@ -105,6 +128,7 @@ impl fmt::Display for BudgetWarning {
 /// Soft budget warnings from a successful hard-limit pass.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ValidateReport {
+    /// Soft-limit warnings collected during a successful hard-limit pass.
     pub warnings: Vec<BudgetWarning>,
 }
 impl ValidateReport {

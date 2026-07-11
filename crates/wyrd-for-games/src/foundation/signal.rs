@@ -10,15 +10,19 @@ compile_error!("enable exactly one of: feature \"signal-f32\", feature \"signal-
 #[cfg(not(any(feature = "signal-f32", feature = "signal-i32")))]
 compile_error!("enable one of: feature \"signal-f32\", feature \"signal-i32\"");
 
+/// Wire value type for the `signal-f32` compile-time path.
 #[cfg(feature = "signal-f32")]
 pub type Signal = f32;
 
+/// Wire value type for the `signal-i32` Q16.16 compile-time path.
 #[cfg(feature = "signal-i32")]
 pub type Signal = i32;
 
+/// Canonical false / off level for the active signal path.
 #[cfg(feature = "signal-f32")]
 pub const ZERO: Signal = 0.0;
 
+/// Canonical true / on level for the active signal path.
 #[cfg(feature = "signal-f32")]
 pub const ONE: Signal = 1.0;
 

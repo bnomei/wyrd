@@ -1,3 +1,8 @@
+//! Authoring macros: [`weave!`](crate::weave) and hidden expand helpers.
+//!
+//! The public surface is [`weave!`](crate::weave); it expands into
+//! [`WeaveBuilder`](crate::WeaveBuilder) calls with compile-time binding names.
+
 /// Builds and validates a [`Weave`](crate::Weave) with the typed graph API.
 ///
 /// The declaration order is `id`, optional `numeric`, `knots`, optional

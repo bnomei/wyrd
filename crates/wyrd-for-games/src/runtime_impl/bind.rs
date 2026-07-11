@@ -33,6 +33,7 @@ pub(crate) enum SenseSeed {
 /// Bind-time options (sandbox / host policy).
 #[derive(Clone, Debug)]
 pub struct BindOpts {
+    /// Optional host PRNG seed for `Random` knots (mixed with weave id at bind).
     pub seed: Option<Seed>,
     /// Hard cap on `EmitCommand` outbox entries per frame (default 8).
     ///

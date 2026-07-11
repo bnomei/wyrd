@@ -18,11 +18,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct PortRefDef {
+    /// Author knot id (must exist in the same weave or pattern inner graph).
     pub knot: String,
+    /// Catalog port name on that knot (for example `"out"`, `"in_0"`).
     pub port: String,
 }
 
 impl PortRefDef {
+    /// Build a port reference from author knot and catalog port names.
     pub fn new(knot: impl Into<String>, port: impl Into<String>) -> Self {
         Self {
             knot: knot.into(),
@@ -35,7 +38,9 @@ impl PortRefDef {
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct KnotDef {
+    /// Unique author id within the weave (non-empty, no `/` in pattern inners).
     pub id: String,
+    /// Knot kind and parameters from the closed catalog.
     pub kind: KnotKind,
 }
 
@@ -43,7 +48,9 @@ pub struct KnotDef {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ThreadDef {
+    /// Source port (must be an output on the referenced knot).
     pub from: PortRefDef,
+    /// Destination port (must be an input on the referenced knot).
     pub to: PortRefDef,
 }
 
@@ -51,9 +58,13 @@ pub struct ThreadDef {
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct WeaveDef {
+    /// Author weave id (also mixed into `Random` PRNG seed at bind).
     pub id: String,
+    /// Declared numeric path; must match the compiled feature at validate.
     pub numeric: NumericPath,
+    /// Knot definitions in author insertion order.
     pub knots: Vec<KnotDef>,
+    /// Directed connections between catalog ports.
     pub threads: Vec<ThreadDef>,
 }
 

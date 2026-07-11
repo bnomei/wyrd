@@ -10,16 +10,22 @@ use crate::foundation::kind::{KnotKind, SignalDomain, TimerMode};
 /// Direction of a catalog port relative to its knot.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PortDir {
+    /// Incoming catalog port (thread destination).
     In,
+    /// Outgoing catalog port (thread source).
     Out,
 }
 
 /// One entry in a kind's fixed port table.
 #[derive(Copy, Clone, Debug)]
 pub struct PortInfo {
+    /// Dense port slot assigned by the kind's static table.
     pub slot: PortSlot,
+    /// Whether the port accepts threads (`In`) or emits them (`Out`).
     pub dir: PortDir,
+    /// Author/catalog port name (for example `"in"`, `"out"`).
     pub name: &'static str,
+    /// Whether validate requires an incoming thread or pattern export.
     pub required: bool,
 }
 

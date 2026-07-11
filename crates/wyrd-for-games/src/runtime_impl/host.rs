@@ -19,8 +19,20 @@ use crate::runtime_impl::outbox::{Outbox, PortWriter};
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum HostCommand {
-    SetLevel { path: HostPathId, value: Signal },
-    Emit { cmd: CmdId, payload: Signal },
+    /// Apply one `SignalOut` sample to a host-owned path.
+    SetLevel {
+        /// Dense host path id for the signal sink.
+        path: HostPathId,
+        /// Level sampled from the graph this frame.
+        value: Signal,
+    },
+    /// Fire one capped `EmitCommand` with its optional payload.
+    Emit {
+        /// Dense command id interned at bind.
+        cmd: CmdId,
+        /// Payload port value when the emit knot sampled one.
+        payload: Signal,
+    },
 }
 
 /// Append outbox contents as dense host commands (signals then emits).
@@ -56,9 +68,11 @@ pub fn outbox_to_commands(outbox: Outbox<'_>) -> Vec<HostCommand> {
 /// Implement on a concrete type; do not use `dyn Host` on the hot path.
 /// Hold dense [`SenseId`]s on the host; do not call `Runtime::sense_id` every tick.
 pub trait Host {
+    /// Discrete frame time passed to [`Runtime::begin_frame`].
     fn time(&self) -> HostTime;
     /// Write sense ports for this tick (dense `set_sense` only).
     fn sample_into(&mut self, ports: &mut PortWriter<'_>) -> Result<(), HandleError>;
+    /// Consume this frame's outbox after loom (signals, capped emits).
     fn apply(&mut self, outbox: Outbox<'_>);
 }
 
@@ -77,6 +91,7 @@ pub fn tick_once(host: &mut impl Host, rt: &mut Runtime) -> Result<(), HandleErr
 /// No-op host (benches, placeholder worlds).
 #[derive(Clone, Debug, Default)]
 pub struct NullHost {
+    /// Monotonic tick counter returned by [`Host::time`] and advanced in [`Host::apply`].
     pub tick: u64,
 }
 
@@ -104,6 +119,7 @@ impl Host for NullHost {
 /// After each tick, `commands` grows with that frame's outbox mapping.
 #[derive(Clone, Debug, Default)]
 pub struct ScriptedHost {
+    /// Current frame index for [`Host::time`] (incremented in [`Host::apply`]).
     pub tick: u64,
     /// Write list for sample when `tick == i` (before `apply` increments tick).
     pub frames: Vec<Vec<(SenseId, Signal)>>,
@@ -114,6 +130,7 @@ pub struct ScriptedHost {
 }
 
 impl ScriptedHost {
+    /// Create an empty scripted host with no frames or recorded commands.
     pub fn new() -> Self {
         Self::default()
     }

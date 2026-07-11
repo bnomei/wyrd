@@ -10,12 +10,18 @@ use crate::{ValidationError, Weave, WeaveDef};
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RonCodecError {
+    /// RON text could not be parsed into a [`WeaveDef`].
     Parse {
+        /// Underlying `ron` parse error.
         source: ron::error::SpannedError,
+        /// One-based line number for diagnostics.
         line: usize,
+        /// One-based column number for diagnostics.
         column: usize,
     },
+    /// Parsed definition failed [`Weave`] validation.
     Validation(ValidationError),
+    /// [`WeaveDef`] could not be serialized to RON.
     Serialize(ron::Error),
 }
 

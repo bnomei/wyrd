@@ -13,7 +13,9 @@ use crate::runtime_impl::handles::{CmdId, HostPathId, SenseId};
 /// One `SignalOut` level written during the last loom.
 #[derive(Copy, Clone, Debug)]
 pub struct SignalOutSample {
+    /// Dense id for the `SignalOut` host path (resolve once after bind).
     pub path: HostPathId,
+    /// Signal level written by the loom this frame.
     pub value: Signal,
 }
 
@@ -21,7 +23,9 @@ pub struct SignalOutSample {
 /// (subject to the per-frame emit cap).
 #[derive(Copy, Clone, Debug)]
 pub struct Emit {
+    /// Dense id for the interned `EmitCommand` name.
     pub cmd: CmdId,
+    /// Optional payload sampled from the emit knot's `payload` port.
     pub payload: Signal,
 }
 

@@ -23,6 +23,7 @@ pub struct Seed(pub u64);
 /// Core time: discrete tick only (`dt` stays host-side).
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 pub struct HostTime {
+    /// Discrete frame index passed to [`Runtime::begin_frame`](crate::runtime_impl::bind::Runtime::begin_frame).
     pub tick: u64,
 }
 

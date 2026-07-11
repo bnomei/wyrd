@@ -14,23 +14,34 @@ use crate::runtime_impl::handles::{CmdId, HostPathId, KnotHandle, SenseId};
 pub enum BindError {
     /// The consumed weave failed graph validation.
     InvalidWeave {
+        /// Author weave id passed to bind.
         weave_id: String,
+        /// Structural validation failure from [`ValidationError`].
         source: ValidationError,
     },
     /// A validated weave exceeded a dense runtime representation.
     CapacityExceeded {
+        /// Author weave id passed to bind.
         weave_id: String,
+        /// Dense resource that overflowed (for example `"knot"`).
         resource: &'static str,
+        /// Observed count that exceeded the runtime cap.
         count: usize,
     },
     /// Validated graph data could not be resolved during binding.
     InvalidReference {
+        /// Author weave id passed to bind.
         weave_id: String,
+        /// Knot id whose port could not be interned.
         knot: String,
+        /// Catalog port name that failed resolution.
         port: String,
     },
     /// The validated topology could not be ordered.
-    InvalidTopology { weave_id: String },
+    InvalidTopology {
+        /// Author weave id passed to bind.
+        weave_id: String,
+    },
 }
 
 impl fmt::Display for BindError {
@@ -76,28 +87,43 @@ impl std::error::Error for BindError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HandleError {
+    /// Dense handle belongs to a different [`Runtime`](crate::runtime_impl::bind::Runtime).
     ForeignRuntime {
+        /// Human-readable handle kind (`"sense"`, `"host path"`, …).
         handle: &'static str,
     },
+    /// [`SenseId`] is out of range or does not reference a `SignalIn` knot.
     InvalidSense {
+        /// Rejected dense sense handle.
         sense: SenseId,
     },
+    /// [`HostPathId`] is out of range for this runtime.
     InvalidHostPath {
+        /// Rejected dense host-path handle.
         path: HostPathId,
     },
+    /// [`CmdId`] is out of range for this runtime.
     InvalidCommand {
+        /// Rejected dense command handle.
         cmd: CmdId,
     },
+    /// [`KnotHandle`] is out of range for this runtime.
     InvalidKnot {
+        /// Rejected dense knot handle.
         knot: KnotHandle,
     },
+    /// [`PortSlot`] is invalid for the given knot in this runtime.
     InvalidPort {
+        /// Knot that owns the rejected port slot.
         knot: KnotHandle,
+        /// Rejected catalog port slot.
         port: PortSlot,
     },
     /// A host-authored sense value violates its declared signal domain.
     DomainValue {
+        /// Sense port that rejected the write.
         sense: SenseId,
+        /// Declared domain for that `SignalIn` knot.
         domain: SignalDomain,
     },
 }
@@ -146,9 +172,13 @@ impl std::error::Error for HandleError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CookbookError {
+    /// Graph build failed before validation.
     Build(BuildError),
+    /// Structural validation failed.
     Validation(ValidationError),
+    /// Bind into a dense runtime failed.
     Bind(BindError),
+    /// Dense handle misuse after bind.
     Handle(HandleError),
 }
 

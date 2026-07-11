@@ -12,12 +12,18 @@ use crate::{ValidationError, Weave, WeaveDef};
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum JsonCodecError {
+    /// JSON text could not be parsed into a [`WeaveDef`].
     Parse {
+        /// Underlying `serde_json` parse error.
         source: serde_json::Error,
+        /// One-based line number for diagnostics.
         line: usize,
+        /// One-based column number for diagnostics.
         column: usize,
     },
+    /// Parsed definition failed [`Weave`] validation.
     Validation(ValidationError),
+    /// [`WeaveDef`] could not be serialized to JSON.
     Serialize(serde_json::Error),
 }
 
