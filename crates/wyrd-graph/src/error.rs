@@ -9,7 +9,7 @@ use core::fmt;
 use std::string::String;
 use std::vec::Vec;
 
-use wyrd_core::{NumericPath, PortDir};
+use wyrd_core::{NumericPath, PortDir, SignalDomain};
 
 /// A graph definition is structurally invalid and cannot become a [`crate::Weave`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,6 +63,18 @@ pub enum ValidationError {
     NumericMismatch {
         expected: NumericPath,
         actual: NumericPath,
+    },
+    SignalDomainMismatch {
+        from_knot: String,
+        from_port: String,
+        from_domain: SignalDomain,
+        to_knot: String,
+        to_port: String,
+        to_domain: SignalDomain,
+    },
+    UnresolvedSignalDomain {
+        knot_id: String,
+        port: String,
     },
     InvalidParameter {
         knot_id: String,
@@ -150,6 +162,21 @@ impl fmt::Display for ValidationError {
                 f,
                 "numeric path mismatch: expected {expected:?}, got {actual:?}"
             ),
+            Self::SignalDomainMismatch {
+                from_knot,
+                from_port,
+                from_domain,
+                to_knot,
+                to_port,
+                to_domain,
+            } => write!(
+                f,
+                "signal domain mismatch: '{from_knot}.{from_port}' is {from_domain:?}, but '{to_knot}.{to_port}' requires {to_domain:?}"
+            ),
+            Self::UnresolvedSignalDomain { knot_id, port } => write!(
+                f,
+                "signal domain for '{knot_id}.{port}' could not be resolved"
+            ),
             Self::InvalidParameter {
                 knot_id,
                 parameter,
@@ -223,6 +250,14 @@ pub enum BuildError {
         expected: NumericPath,
         actual: NumericPath,
     },
+    SignalDomainMismatch {
+        from_knot: String,
+        from_port: String,
+        from_domain: SignalDomain,
+        to_knot: String,
+        to_port: String,
+        to_domain: SignalDomain,
+    },
     RepresentationOverflow {
         what: &'static str,
         actual: usize,
@@ -272,6 +307,17 @@ impl fmt::Display for BuildError {
             Self::NumericMismatch { expected, actual } => write!(
                 f,
                 "numeric path mismatch: expected {expected:?}, got {actual:?}"
+            ),
+            Self::SignalDomainMismatch {
+                from_knot,
+                from_port,
+                from_domain,
+                to_knot,
+                to_port,
+                to_domain,
+            } => write!(
+                f,
+                "signal domain mismatch: '{from_knot}.{from_port}' is {from_domain:?}, but '{to_knot}.{to_port}' requires {to_domain:?}"
             ),
             Self::RepresentationOverflow {
                 what,

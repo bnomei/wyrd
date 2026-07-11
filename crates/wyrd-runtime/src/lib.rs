@@ -32,7 +32,9 @@ pub use host::{
 };
 pub use outbox::{Emit, Outbox, PortWriter, SignalOutSample};
 
-pub use wyrd_core::{from_count, is_truthy, HostTime, KnotId, PortSlot, Seed, Signal, ONE, ZERO};
+pub use wyrd_core::{
+    from_count, is_truthy, HostTime, KnotId, PortSlot, Seed, Signal, SignalDomain, ONE, ZERO,
+};
 pub use wyrd_graph::{
     validate, validate_report, Budget, BudgetWarning, KnotKind, ValidateReport, Weave,
 };

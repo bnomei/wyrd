@@ -4,7 +4,7 @@
 //! enable, Random min/max ports, Calc Div-by-Constant). Map/Digitize precompute
 //! spans so settle does not re-derive scales every tick.
 
-use wyrd_core::{CalcOp, CompareOp, FlagPriority, KnotKind, Signal, TimerMode};
+use wyrd_core::{CalcOp, CompareOp, FlagPriority, KnotKind, Signal, SignalDomain, TimerMode};
 
 /// Copyable dispatch tag — built once at bind.
 #[derive(Clone, Copy, Debug)]
@@ -20,7 +20,7 @@ pub(crate) enum KindTag {
     RisingFromZero,
     Compare {
         op: CompareOp,
-        /// Bind-time `from_count` of KnotKind count const (None → wire rhs).
+        /// Domain-encoded authored fallback (`None` → wire rhs).
         rhs_const: Option<Signal>,
     },
     Flag {
@@ -38,18 +38,32 @@ pub(crate) enum KindTag {
         ticks: u16,
     },
     /// Split Calc ops into dedicated tags so hot chains monomorphize the op.
-    CalcAdd,
-    CalcSub,
-    CalcMul,
-    CalcDiv,
+    CalcAdd {
+        domain: SignalDomain,
+    },
+    CalcSub {
+        domain: SignalDomain,
+    },
+    CalcMulLevel,
+    CalcMulCount,
+    CalcDivLevel,
+    CalcDivCount,
     /// `b` is a Constant resolved at bind (common Div-by-ONE pattern).
-    CalcDivConst {
+    CalcDivLevelConst {
         divisor: Signal,
     },
-    Abs,
-    Neg,
+    CalcDivCountConst {
+        divisor: Signal,
+    },
+    Abs {
+        domain: SignalDomain,
+    },
+    Neg {
+        domain: SignalDomain,
+    },
     /// Linear map with bind-time inv/scale.
     Map {
+        domain: SignalDomain,
         degenerate: bool,
         in_min: Signal,
         out_min: Signal,
@@ -65,6 +79,7 @@ pub(crate) enum KindTag {
     Select,
     /// Precomputed at bind so loom does not re-derive spans/scales each tick.
     Digitize {
+        domain: SignalDomain,
         /// True when steps≤1 or zero in-span → always `out_min`.
         degenerate: bool,
         in_min: Signal,
@@ -87,13 +102,26 @@ pub(crate) enum KindTag {
         low: Signal,
         use_hysteresis: bool,
     },
-    Random {
+    RandomLevel {
         require_gate: bool,
         /// Bind-time: min/max ports wired (unconnected → ZERO / ONE).
         min_wired: bool,
         max_wired: bool,
     },
-    Sqrt,
+    RandomCount {
+        require_gate: bool,
+        min_wired: bool,
+        max_wired: bool,
+    },
+    SqrtLevel,
+    SqrtCount,
+    ConvertBoolToLevel,
+    ConvertBoolToCount,
+    ConvertLevelToBool,
+    ConvertLevelToCount,
+    ConvertCountToBool,
+    ConvertCountToLevel,
+    ConvertIdentity,
     Xor,
     FallingToZero,
     Change,
@@ -111,14 +139,16 @@ pub(crate) enum KindTag {
 impl KindTag {
     pub(crate) fn from_kind(k: &KnotKind) -> Self {
         match k {
-            KnotKind::Constant { .. } | KnotKind::SignalIn | KnotKind::OnStart => KindTag::Sense,
+            KnotKind::Constant { .. } | KnotKind::SignalIn { .. } | KnotKind::OnStart => {
+                KindTag::Sense
+            }
             KnotKind::Not => KindTag::Not,
             KnotKind::And { arity } => KindTag::And { arity: *arity },
             KnotKind::Or { arity } => KindTag::Or { arity: *arity },
             KnotKind::RisingFromZero => KindTag::RisingFromZero,
-            KnotKind::Compare { op, rhs_const } => KindTag::Compare {
+            KnotKind::Compare { op, rhs_const, .. } => KindTag::Compare {
                 op: *op,
-                rhs_const: rhs_const.map(wyrd_core::from_count),
+                rhs_const: *rhs_const,
             },
             KnotKind::Flag {
                 priority,
@@ -133,54 +163,108 @@ impl KindTag {
                 TimerMode::FedCountdown => KindTag::TimerFedCountdown { ticks: *ticks },
             },
             KnotKind::Delay { ticks } => KindTag::Delay { ticks: *ticks },
-            KnotKind::Calc { op } => match op {
-                CalcOp::Add => KindTag::CalcAdd,
-                CalcOp::Sub => KindTag::CalcSub,
-                CalcOp::Mul => KindTag::CalcMul,
-                CalcOp::Div => KindTag::CalcDiv,
+            KnotKind::Calc { domain, op } => match (op, domain) {
+                (CalcOp::Add, domain) => KindTag::CalcAdd { domain: *domain },
+                (CalcOp::Sub, domain) => KindTag::CalcSub { domain: *domain },
+                (CalcOp::Mul, SignalDomain::Count) => KindTag::CalcMulCount,
+                (CalcOp::Mul, _) => KindTag::CalcMulLevel,
+                (CalcOp::Div, SignalDomain::Count) => KindTag::CalcDivCount,
+                (CalcOp::Div, _) => KindTag::CalcDivLevel,
             },
-            KnotKind::Abs => KindTag::Abs,
-            KnotKind::Neg => KindTag::Neg,
+            KnotKind::Abs { domain } => KindTag::Abs { domain: *domain },
+            KnotKind::Neg { domain } => KindTag::Neg { domain: *domain },
             KnotKind::Map {
+                domain,
                 in_min,
                 in_max,
                 out_min,
                 out_max,
-            } => KindTag::map_precomputed(*in_min, *in_max, *out_min, *out_max),
+                ..
+            } => KindTag::map_precomputed(*domain, *in_min, *in_max, *out_min, *out_max),
             KnotKind::Select => KindTag::Select,
             KnotKind::Digitize {
+                domain,
                 steps,
                 in_min,
                 in_max,
                 out_min,
                 out_max,
-            } => KindTag::digitize_precomputed(*steps, *in_min, *in_max, *out_min, *out_max),
+                ..
+            } => {
+                KindTag::digitize_precomputed(*domain, *steps, *in_min, *in_max, *out_min, *out_max)
+            }
             KnotKind::Threshold {
                 high,
                 low,
                 use_hysteresis,
+                ..
             } => KindTag::Threshold {
                 high: *high,
                 low: *low,
                 use_hysteresis: *use_hysteresis,
             },
-            KnotKind::Random { require_gate } => KindTag::Random {
-                require_gate: *require_gate,
-                min_wired: false,
-                max_wired: false,
+            KnotKind::Random {
+                domain,
+                require_gate,
+            } => match domain {
+                SignalDomain::Count => KindTag::RandomCount {
+                    require_gate: *require_gate,
+                    min_wired: false,
+                    max_wired: false,
+                },
+                _ => KindTag::RandomLevel {
+                    require_gate: *require_gate,
+                    min_wired: false,
+                    max_wired: false,
+                },
             },
-            KnotKind::Sqrt => KindTag::Sqrt,
+            KnotKind::Sqrt { domain } => match domain {
+                SignalDomain::Count => KindTag::SqrtCount,
+                _ => KindTag::SqrtLevel,
+            },
             KnotKind::Xor => KindTag::Xor,
             KnotKind::FallingToZero => KindTag::FallingToZero,
             KnotKind::Change => KindTag::Change,
-            KnotKind::Clamp { min, max } => KindTag::Clamp {
+            KnotKind::Clamp { min, max, .. } => KindTag::Clamp {
                 min: *min,
                 max: *max,
+            },
+            KnotKind::Convert { from, to } => match (from, to) {
+                (SignalDomain::Bool, SignalDomain::Level) => KindTag::ConvertBoolToLevel,
+                (SignalDomain::Bool, SignalDomain::Count) => KindTag::ConvertBoolToCount,
+                (SignalDomain::Level, SignalDomain::Bool) => KindTag::ConvertLevelToBool,
+                (SignalDomain::Level, SignalDomain::Count) => KindTag::ConvertLevelToCount,
+                (SignalDomain::Count, SignalDomain::Bool) => KindTag::ConvertCountToBool,
+                (SignalDomain::Count, SignalDomain::Level) => KindTag::ConvertCountToLevel,
+                _ => KindTag::ConvertIdentity,
             },
             KnotKind::SignalOut { .. } => KindTag::SignalOut,
             KnotKind::EmitCommand { .. } => KindTag::EmitCommand {
                 enable_wired: false,
             },
+        }
+    }
+
+    pub(crate) fn with_random_wiring(self, min_wired: bool, max_wired: bool) -> Self {
+        match self {
+            KindTag::RandomLevel { require_gate, .. } => KindTag::RandomLevel {
+                require_gate,
+                min_wired,
+                max_wired,
+            },
+            KindTag::RandomCount { require_gate, .. } => KindTag::RandomCount {
+                require_gate,
+                min_wired,
+                max_wired,
+            },
+            other => other,
+        }
+    }
+
+    pub(crate) fn calc_div_const(domain: SignalDomain, divisor: Signal) -> Self {
+        match domain {
+            SignalDomain::Count => KindTag::CalcDivCountConst { divisor },
+            _ => KindTag::CalcDivLevelConst { divisor },
         }
     }
 
@@ -190,6 +274,7 @@ impl KindTag {
     }
 
     pub(crate) fn map_precomputed(
+        domain: SignalDomain,
         in_min: Signal,
         in_max: Signal,
         out_min: Signal,
@@ -200,6 +285,7 @@ impl KindTag {
             let span_in = in_max - in_min;
             let degenerate = span_in.abs() < f32::EPSILON;
             KindTag::Map {
+                domain,
                 degenerate,
                 in_min,
                 out_min,
@@ -211,6 +297,7 @@ impl KindTag {
         {
             let den = (in_max as i64) - (in_min as i64);
             KindTag::Map {
+                domain,
                 degenerate: den == 0,
                 in_min,
                 out_min,
@@ -223,6 +310,7 @@ impl KindTag {
     }
 
     pub(crate) fn digitize_precomputed(
+        domain: SignalDomain,
         steps: u16,
         in_min: Signal,
         in_max: Signal,
@@ -246,6 +334,7 @@ impl KindTag {
                 (out_max - out_min) / (last as f32)
             };
             KindTag::Digitize {
+                domain,
                 degenerate,
                 in_min,
                 out_min,
@@ -262,6 +351,7 @@ impl KindTag {
             let out_span = (out_max as i64) - (out_min as i64);
             let degenerate = steps <= 1 || den == 0;
             KindTag::Digitize {
+                domain,
                 degenerate,
                 in_min,
                 out_min,

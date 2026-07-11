@@ -16,8 +16,8 @@ pub mod ports;
 pub mod signal;
 
 pub use ids::{HostTime, KnotId, PortSlot, Seed, ThreadId};
-pub use kind::{CalcOp, CompareOp, FlagPriority, KnotKind, NumericPath, TimerMode};
-pub use ports::{port_slot, ports_of, PortDir, PortInfo};
+pub use kind::{CalcOp, CompareOp, FlagPriority, KnotKind, NumericPath, SignalDomain, TimerMode};
+pub use ports::{port_domain, port_slot, ports_of, PortDir, PortDomain, PortInfo};
 pub use signal::{from_count, from_level, is_truthy, Signal, ONE, ZERO};
 
 /// Path-local arithmetic on [`Signal`] (prefer `Calc` knots inside Weaves).

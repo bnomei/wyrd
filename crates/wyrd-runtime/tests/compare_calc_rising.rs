@@ -1,5 +1,6 @@
 //! Compare rhs_const, Calc, RisingFromZero (step 1.4).
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{CalcOp, CompareOp, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{
@@ -10,11 +11,22 @@ use wyrd_runtime::{
 #[test]
 fn compare_gte_rhs_const() {
     let mut b = Weave::builder("cmp").unwrap();
-    let k_n = b.knot("n", KnotKind::signal_in()).unwrap();
-    let k_cmp = b
-        .knot("cmp", KnotKind::compare(CompareOp::Gte, Some(3)))
+    let k_n = b
+        .knot("n", KnotKind::signal_in(SignalDomain::Count))
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("ok")).unwrap();
+    let k_cmp = b
+        .knot(
+            "cmp",
+            KnotKind::compare(
+                CompareOp::Gte,
+                Some(wyrd_core::from_count(3)),
+                SignalDomain::Count,
+            ),
+        )
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("ok", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_n, "out").unwrap();
     let to = b.input(&k_cmp, "lhs").unwrap();
     b.connect(from, to).unwrap();
@@ -44,13 +56,29 @@ fn compare_gte_rhs_const() {
 fn calc_add_and_div0() {
     let mut b = Weave::builder("calc").unwrap();
     let k_a = b
-        .knot("a", KnotKind::constant(wyrd_core::from_count(6)))
+        .knot(
+            "a",
+            KnotKind::constant(wyrd_core::from_count(6), SignalDomain::Count),
+        )
         .unwrap();
     let k_b = b
-        .knot("b", KnotKind::constant(wyrd_core::from_count(0)))
+        .knot(
+            "b",
+            KnotKind::constant(wyrd_core::from_count(0), SignalDomain::Count),
+        )
         .unwrap();
-    let k_div = b.knot("div", KnotKind::Calc { op: CalcOp::Div }).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("q")).unwrap();
+    let k_div = b
+        .knot(
+            "div",
+            KnotKind::Calc {
+                domain: SignalDomain::Count,
+                op: CalcOp::Div,
+            },
+        )
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("q", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_a, "out").unwrap();
     let to = b.input(&k_div, "a").unwrap();
     b.connect(from, to).unwrap();
@@ -70,9 +98,13 @@ fn calc_add_and_div0() {
 #[test]
 fn rising_from_zero_one_tick() {
     let mut b = Weave::builder("rz").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_rz = b.knot("rz", KnotKind::rising_from_zero()).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("pulse")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("pulse", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_rz, "in").unwrap();
     b.connect(from, to).unwrap();

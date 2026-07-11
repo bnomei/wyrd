@@ -1,5 +1,6 @@
 //! Emit-per-tick hard cap (BindOpts::max_emits_per_tick).
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{BindOpts, Runtime};
@@ -8,10 +9,18 @@ use wyrd_runtime::{BindOpts, Runtime};
 fn many_emits_same_tick_capped() {
     // 4 independent rising emits same loom; cap at 2.
     let mut b = Weave::builder("cap").unwrap();
-    let k_b0 = b.knot("b0", KnotKind::signal_in()).unwrap();
-    let k_b1 = b.knot("b1", KnotKind::signal_in()).unwrap();
-    let k_b2 = b.knot("b2", KnotKind::signal_in()).unwrap();
-    let k_b3 = b.knot("b3", KnotKind::signal_in()).unwrap();
+    let k_b0 = b
+        .knot("b0", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_b1 = b
+        .knot("b1", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_b2 = b
+        .knot("b2", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_b3 = b
+        .knot("b3", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_e0 = b.knot("e0", KnotKind::emit_command("a")).unwrap();
     let k_e1 = b.knot("e1", KnotKind::emit_command("b")).unwrap();
     let k_e2 = b.knot("e2", KnotKind::emit_command("c")).unwrap();
@@ -62,7 +71,9 @@ fn many_emits_same_tick_capped() {
 #[test]
 fn default_cap_allows_typical_emit() {
     let mut b = Weave::builder("e").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_em, "trigger").unwrap();
@@ -82,7 +93,9 @@ fn default_cap_allows_typical_emit() {
 #[test]
 fn zero_cap_drops_every_emit() {
     let mut b = Weave::builder("zero-cap").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_em, "trigger").unwrap();
@@ -108,7 +121,9 @@ fn zero_cap_drops_every_emit() {
 #[test]
 fn emit_cap_is_shared_by_multiple_looms_in_one_frame() {
     let mut b = Weave::builder("multi-loom-cap").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_em, "trigger").unwrap();

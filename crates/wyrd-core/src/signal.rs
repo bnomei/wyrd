@@ -43,7 +43,10 @@ pub fn is_truthy(s: Signal) -> bool {
 pub fn from_count(n: i32) -> Signal {
     #[cfg(feature = "signal-f32")]
     {
-        n as f32
+        // `i32::MAX` rounds up to 2^31 as f32, which is outside the Count
+        // domain's inclusive i32 contract. Keep the largest representable
+        // whole f32 at or below that bound instead.
+        (n as f32).min(2_147_483_520.0)
     }
     #[cfg(feature = "signal-i32")]
     {

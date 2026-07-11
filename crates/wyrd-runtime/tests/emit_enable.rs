@@ -1,5 +1,6 @@
 //! EmitCommand enable port: unconnected = enabled; wired falsey suppresses.
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{BindOpts, Runtime};
@@ -7,7 +8,9 @@ use wyrd_runtime::{BindOpts, Runtime};
 #[test]
 fn unconnected_enable_allows_rising_emit() {
     let mut b = Weave::builder("e").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_em, "trigger").unwrap();
@@ -25,8 +28,12 @@ fn unconnected_enable_allows_rising_emit() {
 #[test]
 fn enable_low_suppresses_emit() {
     let mut b = Weave::builder("e").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
-    let k_en = b.knot("en", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_en = b
+        .knot("en", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_em, "trigger").unwrap();
@@ -69,8 +76,12 @@ fn enable_low_suppresses_emit() {
 fn enable_open_while_trigger_held_does_not_emit() {
     // Rising edge consumed while disabled; enable alone must not fire.
     let mut b = Weave::builder("e").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
-    let k_en = b.knot("en", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_en = b
+        .knot("en", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_em, "trigger").unwrap();
@@ -105,8 +116,12 @@ fn enable_open_while_trigger_held_does_not_emit() {
 #[test]
 fn enable_high_allows_emit() {
     let mut b = Weave::builder("e").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
-    let k_en = b.knot("en", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_en = b
+        .knot("en", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_em, "trigger").unwrap();

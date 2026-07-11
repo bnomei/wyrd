@@ -2,10 +2,14 @@
 //!
 //! Full Weave listings under each function’s **Examples** in rustdoc.
 
+#![allow(clippy::result_large_err)] // CookbookError intentionally preserves context.
+
 use super::helpers::{bind_default, emit_count, signal_out_truthy, signal_out_value, tick_senses};
 use super::Result;
 use crate::host::ScriptedHost;
-use wyrd_core::{from_count, CompareOp, FlagPriority, KnotKind, TimerMode, ONE, ZERO};
+use wyrd_core::{
+    from_count, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
+};
 use wyrd_graph::Weave;
 
 /// C01: MultiSwitchLatch — both plates once together → Flag until reset.
@@ -17,8 +21,8 @@ use wyrd_graph::Weave;
 /// ```
 pub fn run_c01_multi_switch_latch() -> Result<()> {
     let mut b = Weave::builder("c01")?;
-    let pa = b.knot("a", KnotKind::signal_in())?;
-    let pb = b.knot("b", KnotKind::signal_in())?;
+    let pa = b.knot("a", KnotKind::signal_in(SignalDomain::Bool))?;
+    let pb = b.knot("b", KnotKind::signal_in(SignalDomain::Bool))?;
     let k_both = b.knot("both", KnotKind::and2())?;
     let from = b.output(&pa, "out")?;
     let to = b.input(&k_both, "in_0")?;
@@ -27,9 +31,9 @@ pub fn run_c01_multi_switch_latch() -> Result<()> {
     let to = b.input(&k_both, "in_1")?;
     b.connect(from, to)?;
     let k_edge = b.knot("edge", KnotKind::rising_from_zero())?;
-    let k_rst = b.knot("rst", KnotKind::signal_in())?;
+    let k_rst = b.knot("rst", KnotKind::signal_in(SignalDomain::Bool))?;
     let k_flag = b.knot("flag", KnotKind::flag(FlagPriority::ResetWins, false))?;
-    let k_out = b.knot("out", KnotKind::signal_out("door.open"))?;
+    let k_out = b.knot("out", KnotKind::signal_out("door.open", SignalDomain::Bool))?;
     let from = b.output(&k_both, "out")?;
     let to = b.input(&k_edge, "in")?;
     b.connect(from, to)?;
@@ -70,9 +74,9 @@ pub fn run_c01_multi_switch_latch() -> Result<()> {
 /// ```
 pub fn run_c02_timed_hold() -> Result<()> {
     let mut b = Weave::builder("c02")?;
-    let k_plate = b.knot("plate", KnotKind::signal_in())?;
+    let k_plate = b.knot("plate", KnotKind::signal_in(SignalDomain::Bool))?;
     let k_t = b.knot("t", KnotKind::timer(TimerMode::FedCountdown, 2))?;
-    let k_out = b.knot("out", KnotKind::signal_out("unlocked"))?;
+    let k_out = b.knot("out", KnotKind::signal_out("unlocked", SignalDomain::Bool))?;
     let from = b.output(&k_plate, "out")?;
     let to = b.input(&k_t, "feed")?;
     b.connect(from, to)?;
@@ -103,12 +107,15 @@ pub fn run_c02_timed_hold() -> Result<()> {
 /// ```
 pub fn run_c03_press_n_then_window() -> Result<()> {
     let mut b = Weave::builder("c03")?;
-    let k_inc = b.knot("inc", KnotKind::signal_in())?;
+    let k_inc = b.knot("inc", KnotKind::signal_in(SignalDomain::Bool))?;
     let k_cnt = b.knot("cnt", KnotKind::counter())?;
-    let k_cmp = b.knot("cmp", KnotKind::compare(CompareOp::Gte, Some(2)))?;
+    let k_cmp = b.knot(
+        "cmp",
+        KnotKind::compare(CompareOp::Gte, Some(from_count(2)), SignalDomain::Count),
+    )?;
     let k_rise = b.knot("rise", KnotKind::rising_from_zero())?;
     let k_hold = b.knot("hold", KnotKind::timer(TimerMode::PulseHold, 2))?;
-    let k_out = b.knot("out", KnotKind::signal_out("reward"))?;
+    let k_out = b.knot("out", KnotKind::signal_out("reward", SignalDomain::Bool))?;
     let from = b.output(&k_inc, "out")?;
     let to = b.input(&k_cnt, "inc")?;
     b.connect(from, to)?;
@@ -155,11 +162,11 @@ pub fn run_c03_press_n_then_window() -> Result<()> {
 /// ```
 pub fn run_c04_button_cooldown() -> Result<()> {
     let mut b = Weave::builder("c04")?;
-    let k_btn = b.knot("btn", KnotKind::signal_in())?;
+    let k_btn = b.knot("btn", KnotKind::signal_in(SignalDomain::Bool))?;
     let k_edge = b.knot("edge", KnotKind::rising_from_zero())?;
     let k_hold = b.knot("hold", KnotKind::timer(TimerMode::PulseHold, 2))?;
-    let k_shot = b.knot("shot", KnotKind::signal_out("shot"))?;
-    let k_cool = b.knot("cool", KnotKind::signal_out("cooling"))?;
+    let k_shot = b.knot("shot", KnotKind::signal_out("shot", SignalDomain::Bool))?;
+    let k_cool = b.knot("cool", KnotKind::signal_out("cooling", SignalDomain::Bool))?;
     let from = b.output(&k_btn, "out")?;
     let to = b.input(&k_edge, "in")?;
     b.connect(from, to)?;
@@ -199,17 +206,24 @@ pub fn run_c04_button_cooldown() -> Result<()> {
 /// ```
 pub fn run_c05_axis_digital() -> Result<()> {
     let mut b = Weave::builder("c05")?;
-    let k_axis = b.knot("axis", KnotKind::signal_in())?;
+    let k_axis = b.knot("axis", KnotKind::signal_in(SignalDomain::Level))?;
     let k_th = b.knot(
         "th",
         KnotKind::Threshold {
+            domain: SignalDomain::Level,
             high: from_count(5),
             low: from_count(0),
             use_hysteresis: false,
         },
     )?;
-    let k_pressed = b.knot("pressed", KnotKind::signal_out("pressed"))?;
-    let k_just = b.knot("just", KnotKind::signal_out("just_pressed"))?;
+    let k_pressed = b.knot(
+        "pressed",
+        KnotKind::signal_out("pressed", SignalDomain::Bool),
+    )?;
+    let k_just = b.knot(
+        "just",
+        KnotKind::signal_out("just_pressed", SignalDomain::Bool),
+    )?;
     let from = b.output(&k_axis, "out")?;
     let to = b.input(&k_th, "in")?;
     b.connect(from, to)?;
@@ -246,17 +260,18 @@ pub fn run_c05_axis_digital() -> Result<()> {
 /// ```
 pub fn run_c06_map_remap() -> Result<()> {
     let mut b = Weave::builder("c06")?;
-    let k_in = b.knot("in", KnotKind::signal_in())?;
+    let k_in = b.knot("in", KnotKind::signal_in(SignalDomain::Count))?;
     let k_map = b.knot(
         "map",
         KnotKind::Map {
+            domain: SignalDomain::Count,
             in_min: ZERO,
             in_max: ONE,
             out_min: from_count(0),
             out_max: from_count(10),
         },
     )?;
-    let k_out = b.knot("out", KnotKind::signal_out("scaled"))?;
+    let k_out = b.knot("out", KnotKind::signal_out("scaled", SignalDomain::Count))?;
     let from = b.output(&k_in, "out")?;
     let to = b.input(&k_map, "in")?;
     b.connect(from, to)?;
@@ -285,10 +300,11 @@ pub fn run_c06_map_remap() -> Result<()> {
 /// ```
 pub fn run_c07_digitize_steps() -> Result<()> {
     let mut b = Weave::builder("c07")?;
-    let k_in = b.knot("in", KnotKind::signal_in())?;
+    let k_in = b.knot("in", KnotKind::signal_in(SignalDomain::Level))?;
     let k_dig = b.knot(
         "dig",
         KnotKind::Digitize {
+            domain: SignalDomain::Level,
             steps: 2,
             in_min: ZERO,
             in_max: ONE,
@@ -296,7 +312,7 @@ pub fn run_c07_digitize_steps() -> Result<()> {
             out_max: from_count(1),
         },
     )?;
-    let k_out = b.knot("out", KnotKind::signal_out("bin"))?;
+    let k_out = b.knot("out", KnotKind::signal_out("bin", SignalDomain::Level))?;
     let from = b.output(&k_in, "out")?;
     let to = b.input(&k_dig, "in")?;
     b.connect(from, to)?;
@@ -327,7 +343,7 @@ pub fn run_c08_on_start_once() -> Result<()> {
     let mut b = Weave::builder("c08")?;
     let k_start = b.knot("start", KnotKind::OnStart)?;
     let k_flag = b.knot("flag", KnotKind::flag(FlagPriority::SetWins, false))?;
-    let k_out = b.knot("out", KnotKind::signal_out("booted"))?;
+    let k_out = b.knot("out", KnotKind::signal_out("booted", SignalDomain::Bool))?;
     let from = b.output(&k_start, "out")?;
     let to = b.input(&k_flag, "set")?;
     b.connect(from, to)?;
@@ -355,7 +371,7 @@ pub fn run_c08_on_start_once() -> Result<()> {
 /// ```
 pub fn run_c09_emit_once() -> Result<()> {
     let mut b = Weave::builder("c09")?;
-    let k_ok = b.knot("ok", KnotKind::signal_in())?;
+    let k_ok = b.knot("ok", KnotKind::signal_in(SignalDomain::Bool))?;
     let k_edge = b.knot("edge", KnotKind::rising_from_zero())?;
     let k_em = b.knot("em", KnotKind::emit_command("sfx.ping"))?;
     let from = b.output(&k_ok, "out")?;
@@ -386,10 +402,10 @@ pub fn run_c09_emit_once() -> Result<()> {
 /// ```
 pub fn run_c10_or_any_of_keys() -> Result<()> {
     let mut b = Weave::builder("c10")?;
-    let ka = b.knot("key_a", KnotKind::signal_in())?;
-    let kb = b.knot("key_b", KnotKind::signal_in())?;
+    let ka = b.knot("key_a", KnotKind::signal_in(SignalDomain::Bool))?;
+    let kb = b.knot("key_b", KnotKind::signal_in(SignalDomain::Bool))?;
     let or_id = b.knot("any", KnotKind::or2())?;
-    let k_out = b.knot("out", KnotKind::signal_out("open"))?;
+    let k_out = b.knot("out", KnotKind::signal_out("open", SignalDomain::Bool))?;
     let from = b.output(&ka, "out")?;
     let to = b.input(&or_id, "in_0")?;
     b.connect(from, to)?;

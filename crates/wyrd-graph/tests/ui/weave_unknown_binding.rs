@@ -1,10 +1,10 @@
-use wyrd_graph::{weave, KnotKind};
+use wyrd_graph::{weave, KnotKind, SignalDomain};
 
 fn main() {
     let _ = weave! {
         id: "unknown";
         knots {
-            sink = KnotKind::signal_out("out");
+            sink = KnotKind::signal_out("out", SignalDomain::Bool);
         }
         threads {
             missing.out -> sink.in;

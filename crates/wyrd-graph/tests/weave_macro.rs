@@ -1,6 +1,6 @@
 use wyrd_graph::{
     weave, BuildError, KnotDef, KnotKind, NumericPath, Pattern, PatternDef, PatternExportDef,
-    PortRefDef, Weave, WeaveBuilder, WeaveDef,
+    PortRefDef, SignalDomain, Weave, WeaveBuilder, WeaveDef,
 };
 
 fn edge_pattern() -> Pattern {
@@ -27,10 +27,10 @@ fn static_macro_matches_typed_builder() {
         id: "door";
         numeric: NumericPath::compiled();
         knots {
-            plate_a = KnotKind::signal_in();
-            plate_b = KnotKind::signal_in();
+            plate_a = KnotKind::signal_in(SignalDomain::Bool);
+            plate_b = KnotKind::signal_in(SignalDomain::Bool);
             both = KnotKind::and2();
-            door as "door.output" = KnotKind::signal_out("door.open");
+            door as "door.output" = KnotKind::signal_out("door.open", SignalDomain::Bool);
         }
         threads {
             plate_a.out -> both.in_0;
@@ -42,11 +42,18 @@ fn static_macro_matches_typed_builder() {
 
     let mut builder = WeaveBuilder::new("door").unwrap();
     builder.set_numeric(NumericPath::compiled()).unwrap();
-    let plate_a = builder.knot("plate_a", KnotKind::signal_in()).unwrap();
-    let plate_b = builder.knot("plate_b", KnotKind::signal_in()).unwrap();
+    let plate_a = builder
+        .knot("plate_a", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let plate_b = builder
+        .knot("plate_b", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let both = builder.knot("both", KnotKind::and2()).unwrap();
     let door = builder
-        .knot("door.output", KnotKind::signal_out("door.open"))
+        .knot(
+            "door.output",
+            KnotKind::signal_out("door.open", SignalDomain::Bool),
+        )
         .unwrap();
 
     let from = builder.output(&plate_a, "out").unwrap();
@@ -68,9 +75,9 @@ fn patterns_support_every_endpoint_combination() {
     let graph = weave! {
         id: "pattern-chain";
         knots {
-            source = KnotKind::signal_in();
+            source = KnotKind::signal_in(SignalDomain::Bool);
             invert = KnotKind::not();
-            sink = KnotKind::signal_out("active");
+            sink = KnotKind::signal_out("active", SignalDomain::Bool);
         }
         patterns {
             first = ("edge-1", &edge);
@@ -101,8 +108,8 @@ fn expressions_are_evaluated_once_in_source_order() -> Result<(), BuildError> {
         id: { seen.borrow_mut().push("id"); "ordered" };
         numeric: { seen.borrow_mut().push("numeric"); NumericPath::compiled() };
         knots {
-            source as "source.alias" = { seen.borrow_mut().push("source-kind"); KnotKind::signal_in() };
-            sink = { seen.borrow_mut().push("sink-kind"); KnotKind::signal_out("out") };
+            source as "source.alias" = { seen.borrow_mut().push("source-kind"); KnotKind::signal_in(SignalDomain::Bool) };
+            sink = { seen.borrow_mut().push("sink-kind"); KnotKind::signal_out("out", SignalDomain::Bool) };
         }
         patterns {
             pulse = (
@@ -139,7 +146,7 @@ fn invalid_dynamic_export_is_contextual_build_error() {
     let error = weave! {
         id: "bad-export";
         knots {
-            source = KnotKind::signal_in();
+            source = KnotKind::signal_in(SignalDomain::Bool);
         }
         patterns {
             pulse = ("pulse", &edge);
@@ -159,8 +166,8 @@ fn alias_changes_author_id() {
     let graph = weave! {
         id: "alias";
         knots {
-            source = KnotKind::signal_in();
-            sink as "path.sink" = KnotKind::signal_out("out");
+            source = KnotKind::signal_in(SignalDomain::Bool);
+            sink as "path.sink" = KnotKind::signal_out("out", SignalDomain::Bool);
         }
         threads {
             source.out -> sink.in;

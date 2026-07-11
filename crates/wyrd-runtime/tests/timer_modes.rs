@@ -1,5 +1,6 @@
 //! Timer PulseHold + FedCountdown (step 1.1).
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{HostTime, KnotKind, TimerMode, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{cookbook::helpers::signal_out_truthy, BindOpts, Runtime};
@@ -17,11 +18,15 @@ fn loom_tick(rt: &mut Runtime, tick: u64, sense: &str, val: wyrd_core::Signal) {
 #[test]
 fn pulse_hold_active_for_n_ticks_then_off() {
     let mut b = Weave::builder("ph").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_t = b
         .knot("t", KnotKind::timer(TimerMode::PulseHold, 3))
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("active")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("active", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_t, "start").unwrap();
     b.connect(from, to).unwrap();
@@ -50,11 +55,15 @@ fn pulse_hold_active_for_n_ticks_then_off() {
 #[test]
 fn fed_countdown_active_after_n_feed_ticks() {
     let mut b = Weave::builder("fc").unwrap();
-    let k_plate = b.knot("plate", KnotKind::signal_in()).unwrap();
+    let k_plate = b
+        .knot("plate", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_t = b
         .knot("t", KnotKind::timer(TimerMode::FedCountdown, 3))
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("active")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("active", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_plate, "out").unwrap();
     let to = b.input(&k_t, "feed").unwrap();
     b.connect(from, to).unwrap();
@@ -81,11 +90,15 @@ fn fed_countdown_active_after_n_feed_ticks() {
 #[test]
 fn pulse_hold_ticks_one_and_survives_release() {
     let mut b = Weave::builder("ph1").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_t = b
         .knot("t", KnotKind::timer(TimerMode::PulseHold, 2))
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("active")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("active", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_t, "start").unwrap();
     b.connect(from, to).unwrap();
@@ -106,11 +119,15 @@ fn pulse_hold_ticks_one_and_survives_release() {
 #[test]
 fn fed_countdown_drop_mid_count_resets() {
     let mut b = Weave::builder("fc_drop").unwrap();
-    let k_plate = b.knot("plate", KnotKind::signal_in()).unwrap();
+    let k_plate = b
+        .knot("plate", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_t = b
         .knot("t", KnotKind::timer(TimerMode::FedCountdown, 4))
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("active")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("active", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_plate, "out").unwrap();
     let to = b.input(&k_t, "feed").unwrap();
     b.connect(from, to).unwrap();

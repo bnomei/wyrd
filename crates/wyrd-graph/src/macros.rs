@@ -9,15 +9,15 @@
 /// [`WeaveBuilder`](crate::WeaveBuilder).
 ///
 /// ```
-/// use wyrd_graph::{weave, BuildError, KnotKind, Weave};
+/// use wyrd_graph::{weave, BuildError, KnotKind, SignalDomain, Weave};
 ///
 /// fn graph() -> Result<Weave, BuildError> {
 ///     weave! {
 ///         id: "inverter";
 ///         knots {
-///             source = KnotKind::signal_in();
+///             source = KnotKind::signal_in(SignalDomain::Bool);
 ///             invert = KnotKind::not();
-///             sink as "debug.inverted" = KnotKind::signal_out("debug.inverted");
+///             sink as "debug.inverted" = KnotKind::signal_out("debug.inverted", SignalDomain::Bool);
 ///         }
 ///         threads {
 ///             source.out -> invert.in;

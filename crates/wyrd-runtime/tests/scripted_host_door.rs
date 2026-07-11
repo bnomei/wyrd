@@ -1,5 +1,6 @@
 //! ScriptedHost: deterministic two-plate door without Bevy.
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{is_truthy, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{tick_once, BindOpts, HostCommand, Runtime, ScriptedHost};
@@ -7,8 +8,12 @@ use wyrd_runtime::{tick_once, BindOpts, HostCommand, Runtime, ScriptedHost};
 #[test]
 fn scripted_and_door_levels() {
     let mut b = Weave::builder("door").unwrap();
-    let pa = b.knot("plate_a", KnotKind::signal_in()).unwrap();
-    let pb = b.knot("plate_b", KnotKind::signal_in()).unwrap();
+    let pa = b
+        .knot("plate_a", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let pb = b
+        .knot("plate_b", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_both = b.knot("both", KnotKind::and2()).unwrap();
     let from = b.output(&pa, "out").unwrap();
     let to = b.input(&k_both, "in_0").unwrap();
@@ -16,7 +21,12 @@ fn scripted_and_door_levels() {
     let from = b.output(&pb, "out").unwrap();
     let to = b.input(&k_both, "in_1").unwrap();
     b.connect(from, to).unwrap();
-    let k_door = b.knot("door", KnotKind::signal_out("door.open")).unwrap();
+    let k_door = b
+        .knot(
+            "door",
+            KnotKind::signal_out("door.open", SignalDomain::Bool),
+        )
+        .unwrap();
     let from = b.output(&k_both, "out").unwrap();
     let to = b.input(&k_door, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -70,7 +80,9 @@ fn null_host_advances_tick() {
 
     let mut b = Weave::builder("n").unwrap();
 
-    let _k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let _k_c = b
+        .knot("c", KnotKind::constant(ONE, SignalDomain::Bool))
+        .unwrap();
     let weave = b.build().unwrap();
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let mut host = NullHost::default();

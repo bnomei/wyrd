@@ -39,5 +39,5 @@ pub use serde_json_codec::{from_json, to_json, JsonCodecError};
 
 pub use wyrd_core::{
     from_count, from_level, is_truthy, CalcOp, CompareOp, FlagPriority, KnotId, KnotKind,
-    NumericPath, PortSlot, Signal, TimerMode, ONE, ZERO,
+    NumericPath, PortSlot, Signal, SignalDomain, TimerMode, ONE, ZERO,
 };

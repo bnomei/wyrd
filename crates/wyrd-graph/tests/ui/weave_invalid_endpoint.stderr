@@ -1,11 +1,11 @@
 error: no rules expected `[`
- --> tests/ui/weave_invalid_endpoint.rs:11:19
-  |
- 11 |             source["out"] -> sink.in;
-    |                   ^ no rules expected this token in macro call
-    |
+  --> tests/ui/weave_invalid_endpoint.rs:11:19
+   |
+11 |             source["out"] -> sink.in;
+   |                   ^ no rules expected this token in macro call
+   |
 note: while trying to match `.`
-   --> src/macros.rs
-    |
-    |         $from:ident . out($from_export:expr) ->
-    |                     ^
+  --> src/macros.rs
+   |
+   |         $from:ident . out($from_export:expr) ->
+   |                     ^

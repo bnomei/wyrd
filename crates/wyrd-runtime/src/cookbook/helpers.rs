@@ -1,5 +1,7 @@
 //! Shared asserts and tick drivers for tutorial recipes.
 
+#![allow(clippy::result_large_err)] // CookbookError intentionally preserves context.
+
 use crate::host::{tick_once, ScriptedHost};
 use crate::BindOpts;
 use crate::{BindError, HandleError, Runtime};
@@ -92,13 +94,18 @@ pub fn tick_senses(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wyrd_core::{KnotKind, ZERO};
+    use wyrd_core::{KnotKind, SignalDomain, ZERO};
 
     fn runtime_with_zero_output() -> Runtime {
         let mut builder = Weave::builder("strict-signal-out").unwrap();
-        let constant = builder.knot("zero", KnotKind::constant(ZERO)).unwrap();
+        let constant = builder
+            .knot("zero", KnotKind::constant(ZERO, SignalDomain::Bool))
+            .unwrap();
         let output = builder
-            .knot("output", KnotKind::signal_out("known.output"))
+            .knot(
+                "output",
+                KnotKind::signal_out("known.output", SignalDomain::Bool),
+            )
             .unwrap();
         let from = builder.output(&constant, "out").unwrap();
         let to = builder.input(&output, "in").unwrap();

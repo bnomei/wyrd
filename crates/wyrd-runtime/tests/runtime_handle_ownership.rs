@@ -1,11 +1,16 @@
+use wyrd_core::SignalDomain;
 use wyrd_core::{HostTime, KnotKind, PortSlot, ONE};
 use wyrd_graph::Weave;
 use wyrd_runtime::{BindOpts, HandleError, Runtime};
 
 fn bound_runtime(id: &str) -> Runtime {
     let mut builder = Weave::builder(id).unwrap();
-    let sense = builder.knot("sense", KnotKind::signal_in()).unwrap();
-    let out = builder.knot("out", KnotKind::signal_out("level")).unwrap();
+    let sense = builder
+        .knot("sense", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let out = builder
+        .knot("out", KnotKind::signal_out("level", SignalDomain::Bool))
+        .unwrap();
     let emit = builder
         .knot("emit", KnotKind::emit_command("fire"))
         .unwrap();

@@ -4,7 +4,7 @@
 //! hot path. [`Outbox`] exposes dense `SignalOut` samples, capped emits, and
 //! the exact number of emits rejected by the cap for host apply after settle.
 
-use wyrd_core::Signal;
+use wyrd_core::{Signal, SignalDomain, ONE, ZERO};
 
 use crate::bind::Runtime;
 use crate::error::HandleError;
@@ -73,14 +73,45 @@ impl PortWriter<'_> {
             return Err(HandleError::ForeignRuntime { handle: "sense" });
         }
         let i = usize::from(id.index);
-        if !matches!(
-            self.rt.knots.get(i).map(|k| &k.kind),
-            Some(wyrd_core::KnotKind::SignalIn)
-        ) {
-            return Err(HandleError::InvalidSense { sense: id });
+        let domain = match self.rt.knots.get(i).map(|k| &k.kind) {
+            Some(wyrd_core::KnotKind::SignalIn { domain }) => *domain,
+            _ => return Err(HandleError::InvalidSense { sense: id }),
+        };
+        if !domain_value_is_valid(domain, value) {
+            return Err(HandleError::DomainValue { sense: id, domain });
         }
         self.rt.sense_values[i] = value;
         Ok(())
+    }
+}
+
+#[inline]
+fn domain_value_is_valid(domain: SignalDomain, value: Signal) -> bool {
+    match domain {
+        SignalDomain::Bool => value == ZERO || value == ONE,
+        SignalDomain::Level => {
+            #[cfg(feature = "signal-f32")]
+            {
+                value.is_finite()
+            }
+            #[cfg(feature = "signal-i32")]
+            {
+                true
+            }
+        }
+        SignalDomain::Count => {
+            #[cfg(feature = "signal-f32")]
+            {
+                value.is_finite()
+                    && value >= i32::MIN as f32
+                    && value < 2_147_483_648.0
+                    && value == (value as i32) as f32
+            }
+            #[cfg(feature = "signal-i32")]
+            {
+                true
+            }
+        }
     }
 }
 
@@ -93,13 +124,42 @@ mod tests {
     use crate::bind::{BindOpts, Runtime};
 
     #[test]
+    fn domain_values_are_checked_at_the_host_boundary() {
+        assert!(domain_value_is_valid(SignalDomain::Bool, ZERO));
+        assert!(domain_value_is_valid(SignalDomain::Bool, ONE));
+        assert!(!domain_value_is_valid(
+            SignalDomain::Bool,
+            wyrd_core::from_count(2)
+        ));
+
+        #[cfg(feature = "signal-f32")]
+        {
+            assert!(domain_value_is_valid(SignalDomain::Level, 0.25));
+            assert!(!domain_value_is_valid(SignalDomain::Level, f32::NAN));
+            assert!(domain_value_is_valid(SignalDomain::Count, 42.0));
+            assert!(!domain_value_is_valid(SignalDomain::Count, 1.5));
+            assert!(!domain_value_is_valid(SignalDomain::Count, 2_147_483_648.0));
+        }
+
+        #[cfg(feature = "signal-i32")]
+        {
+            assert!(domain_value_is_valid(SignalDomain::Level, i32::MAX));
+            assert!(domain_value_is_valid(SignalDomain::Count, i32::MIN));
+        }
+    }
+
+    #[test]
     fn set_sense_oob_returns_error_without_mutation() {
         let mut b = Weave::builder("x").unwrap();
-        let _k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+        let _k_c = b
+            .knot("c", KnotKind::constant(ONE, SignalDomain::Bool))
+            .unwrap();
         let weave = b.build().unwrap();
         let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
         let mut other_builder = Weave::builder("other").unwrap();
-        let _sense = other_builder.knot("sense", KnotKind::signal_in()).unwrap();
+        let _sense = other_builder
+            .knot("sense", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
         let other = Runtime::bind(other_builder.build().unwrap(), BindOpts::default()).unwrap();
         let invalid = other.sense_id("sense").unwrap();
         assert_eq!(

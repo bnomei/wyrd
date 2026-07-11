@@ -12,7 +12,7 @@ use wyrd_bevy::{
     apply_signal_bool, set_sense_bool, AndDoorBinding, Door, WyrdInstance, WyrdPlugin, WyrdSet,
     WyrdSignalConfirm, WyrdWorld,
 };
-use wyrd_core::KnotKind;
+use wyrd_core::{KnotKind, SignalDomain};
 use wyrd_graph::Weave;
 
 fn main() {
@@ -63,10 +63,19 @@ fn setup(mut world: ResMut<WyrdWorld>, mut commands: Commands) {
 
 fn and_door_weave() -> Weave {
     let mut b = Weave::builder("door").unwrap();
-    let pa = b.knot("plate_a", KnotKind::signal_in()).unwrap();
-    let pb = b.knot("plate_b", KnotKind::signal_in()).unwrap();
+    let pa = b
+        .knot("plate_a", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let pb = b
+        .knot("plate_b", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let both = b.knot("both", KnotKind::and2()).unwrap();
-    let door = b.knot("door", KnotKind::signal_out("door.open")).unwrap();
+    let door = b
+        .knot(
+            "door",
+            KnotKind::signal_out("door.open", SignalDomain::Bool),
+        )
+        .unwrap();
     let from = b.output(&pa, "out").unwrap();
     let to = b.input(&both, "in_0").unwrap();
     b.connect(from, to).unwrap();

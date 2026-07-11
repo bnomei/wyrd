@@ -1,5 +1,6 @@
 //! Catalog: Change.
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{is_truthy, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
@@ -7,9 +8,13 @@ use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 #[test]
 fn change_either_edge() {
     let mut b = Weave::builder("m").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_k = b.knot("k", KnotKind::change()).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_k, "in").unwrap();
     b.connect(from, to).unwrap();

@@ -5,6 +5,8 @@
 //! **Messages** (`WyrdSignalConfirm`) are post-apply VFX/UI confirmations —
 //! never Weave Threads. f32 signal path only.
 
+#![allow(clippy::result_large_err)] // Preserve contextual public BindError payloads.
+
 use bevy::prelude::*;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use wyrd_core::{HostTime, ONE, ZERO};
@@ -340,14 +342,23 @@ pub fn apply_signal_bool(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wyrd_core::KnotKind;
+    use wyrd_core::{KnotKind, SignalDomain};
 
     fn and_door_weave() -> Weave {
         let mut b = Weave::builder("door").unwrap();
-        let pa = b.knot("plate_a", KnotKind::signal_in()).unwrap();
-        let pb = b.knot("plate_b", KnotKind::signal_in()).unwrap();
+        let pa = b
+            .knot("plate_a", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
+        let pb = b
+            .knot("plate_b", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
         let both = b.knot("both", KnotKind::and2()).unwrap();
-        let door = b.knot("door", KnotKind::signal_out("door.open")).unwrap();
+        let door = b
+            .knot(
+                "door",
+                KnotKind::signal_out("door.open", SignalDomain::Bool),
+            )
+            .unwrap();
         let from = b.output(&pa, "out").unwrap();
         let to = b.input(&both, "in_0").unwrap();
         b.connect(from, to).unwrap();

@@ -11,7 +11,9 @@ use std::collections::BTreeMap;
 use std::string::String;
 use std::vec::Vec;
 
-use wyrd_core::{port_slot, ports_of, KnotKind, NumericPath, PortDir, PortSlot};
+use wyrd_core::{
+    port_domain, port_slot, ports_of, KnotKind, NumericPath, PortDir, PortDomain, PortSlot,
+};
 
 use crate::pattern::{expand, Pattern};
 use crate::{BuildError, KnotDef, PortRefDef, ThreadDef, ValidationError, Weave, WeaveDef};
@@ -187,6 +189,21 @@ impl WeaveBuilder {
             .knots
             .get(to.knot as usize)
             .ok_or(BuildError::ForeignHandle)?;
+        if let (Some(from_domain), Some(to_domain)) = (
+            fixed_port_domain(&from_knot.kind, &from.name),
+            fixed_port_domain(&to_knot.kind, &to.name),
+        ) {
+            if from_domain != to_domain {
+                return Err(BuildError::SignalDomainMismatch {
+                    from_knot: from_knot.id.clone(),
+                    from_port: from.name,
+                    from_domain,
+                    to_knot: to_knot.id.clone(),
+                    to_port: to.name,
+                    to_domain,
+                });
+            }
+        }
         self.threads.push(ThreadDef {
             from: PortRefDef::new(from_knot.id.clone(), from.name),
             to: PortRefDef::new(to_knot.id.clone(), to.name),
@@ -306,6 +323,14 @@ impl WeaveBuilder {
             });
         }
         Ok(String::from(name))
+    }
+}
+
+fn fixed_port_domain(kind: &KnotKind, name: &str) -> Option<wyrd_core::SignalDomain> {
+    let slot = port_slot(kind, name)?;
+    match port_domain(kind, slot)? {
+        PortDomain::Fixed(domain) => Some(domain),
+        PortDomain::Variable(_) | PortDomain::Any => None,
     }
 }
 

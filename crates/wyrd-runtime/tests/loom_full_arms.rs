@@ -1,5 +1,6 @@
 //! Drive every remaining loom eval arm via real builder → bind → loom → outbox.
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{from_count, CalcOp, CompareOp, FlagPriority, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{
@@ -10,12 +11,20 @@ use wyrd_runtime::{
 #[test]
 fn or_and_onstart() {
     let mut b = Weave::builder("o").unwrap();
-    let k_a = b.knot("a", KnotKind::signal_in()).unwrap();
-    let k_b = b.knot("b", KnotKind::signal_in()).unwrap();
+    let k_a = b
+        .knot("a", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_b = b
+        .knot("b", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_or = b.knot("or", KnotKind::or2()).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let k_start = b.knot("start", KnotKind::OnStart).unwrap();
-    let k_sout = b.knot("sout", KnotKind::signal_out("s")).unwrap();
+    let k_sout = b
+        .knot("sout", KnotKind::signal_out("s", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_a, "out").unwrap();
     let to = b.input(&k_or, "in_0").unwrap();
     b.connect(from, to).unwrap();
@@ -58,14 +67,32 @@ fn or_and_onstart() {
 fn map_abs_neg_calc_all() {
     let mut b = Weave::builder("m").unwrap();
     let k_neg_in = b
-        .knot("neg_in", KnotKind::constant(from_count(-4)))
+        .knot(
+            "neg_in",
+            KnotKind::constant(from_count(-4), SignalDomain::Count),
+        )
         .unwrap();
-    let k_abs = b.knot("abs", KnotKind::Abs).unwrap();
-    let k_neg = b.knot("neg", KnotKind::Neg).unwrap();
+    let k_abs = b
+        .knot(
+            "abs",
+            KnotKind::Abs {
+                domain: SignalDomain::Count,
+            },
+        )
+        .unwrap();
+    let k_neg = b
+        .knot(
+            "neg",
+            KnotKind::Neg {
+                domain: SignalDomain::Count,
+            },
+        )
+        .unwrap();
     let k_map = b
         .knot(
             "map",
             KnotKind::Map {
+                domain: SignalDomain::Count,
                 in_min: from_count(0),
                 in_max: from_count(4),
                 out_min: from_count(0),
@@ -73,17 +100,57 @@ fn map_abs_neg_calc_all() {
             },
         )
         .unwrap();
-    let k_c2 = b.knot("c2", KnotKind::constant(from_count(2))).unwrap();
-    let k_c3 = b.knot("c3", KnotKind::constant(from_count(3))).unwrap();
-    let k_add = b.knot("add", KnotKind::Calc { op: CalcOp::Add }).unwrap();
-    let k_sub = b.knot("sub", KnotKind::Calc { op: CalcOp::Sub }).unwrap();
-    let k_mul = b.knot("mul", KnotKind::Calc { op: CalcOp::Mul }).unwrap();
-    let k_out_abs = b.knot("out_abs", KnotKind::signal_out("abs")).unwrap();
-    let k_out_neg = b.knot("out_neg", KnotKind::signal_out("neg")).unwrap();
-    let k_out_map = b.knot("out_map", KnotKind::signal_out("map")).unwrap();
-    let k_out_add = b.knot("out_add", KnotKind::signal_out("add")).unwrap();
-    let k_out_sub = b.knot("out_sub", KnotKind::signal_out("sub")).unwrap();
-    let k_out_mul = b.knot("out_mul", KnotKind::signal_out("mul")).unwrap();
+    let k_c2 = b
+        .knot("c2", KnotKind::constant(from_count(2), SignalDomain::Count))
+        .unwrap();
+    let k_c3 = b
+        .knot("c3", KnotKind::constant(from_count(3), SignalDomain::Count))
+        .unwrap();
+    let k_add = b
+        .knot(
+            "add",
+            KnotKind::Calc {
+                domain: SignalDomain::Count,
+                op: CalcOp::Add,
+            },
+        )
+        .unwrap();
+    let k_sub = b
+        .knot(
+            "sub",
+            KnotKind::Calc {
+                domain: SignalDomain::Count,
+                op: CalcOp::Sub,
+            },
+        )
+        .unwrap();
+    let k_mul = b
+        .knot(
+            "mul",
+            KnotKind::Calc {
+                domain: SignalDomain::Count,
+                op: CalcOp::Mul,
+            },
+        )
+        .unwrap();
+    let k_out_abs = b
+        .knot("out_abs", KnotKind::signal_out("abs", SignalDomain::Count))
+        .unwrap();
+    let k_out_neg = b
+        .knot("out_neg", KnotKind::signal_out("neg", SignalDomain::Count))
+        .unwrap();
+    let k_out_map = b
+        .knot("out_map", KnotKind::signal_out("map", SignalDomain::Count))
+        .unwrap();
+    let k_out_add = b
+        .knot("out_add", KnotKind::signal_out("add", SignalDomain::Count))
+        .unwrap();
+    let k_out_sub = b
+        .knot("out_sub", KnotKind::signal_out("sub", SignalDomain::Count))
+        .unwrap();
+    let k_out_mul = b
+        .knot("out_mul", KnotKind::signal_out("mul", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_neg_in, "out").unwrap();
     let to = b.input(&k_abs, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -138,27 +205,34 @@ fn map_abs_neg_calc_all() {
     assert_eq!(signal_out_value(&rt, "map"), from_count(40)); // 4 maps to 40
     assert_eq!(signal_out_value(&rt, "add"), from_count(5));
     assert_eq!(signal_out_value(&rt, "sub"), from_count(1));
-    #[cfg(feature = "signal-f32")]
     assert_eq!(signal_out_value(&rt, "mul"), from_count(6));
-    #[cfg(feature = "signal-i32")]
-    {
-        assert_eq!(signal_out_value(&rt, "mul"), from_count(0));
-    }
 }
 
 #[test]
 fn flag_setwins_and_counter_dec() {
     let mut b = Weave::builder("f").unwrap();
-    let k_set = b.knot("set", KnotKind::signal_in()).unwrap();
-    let k_rst = b.knot("rst", KnotKind::signal_in()).unwrap();
+    let k_set = b
+        .knot("set", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_rst = b
+        .knot("rst", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_flag = b
         .knot("flag", KnotKind::flag(FlagPriority::SetWins, false))
         .unwrap();
-    let k_fout = b.knot("fout", KnotKind::signal_out("flag")).unwrap();
-    let k_inc = b.knot("inc", KnotKind::signal_in()).unwrap();
-    let k_dec = b.knot("dec", KnotKind::signal_in()).unwrap();
+    let k_fout = b
+        .knot("fout", KnotKind::signal_out("flag", SignalDomain::Bool))
+        .unwrap();
+    let k_inc = b
+        .knot("inc", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_dec = b
+        .knot("dec", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_cnt = b.knot("cnt", KnotKind::counter()).unwrap();
-    let k_cout = b.knot("cout", KnotKind::signal_out("count")).unwrap();
+    let k_cout = b
+        .knot("cout", KnotKind::signal_out("count", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_set, "out").unwrap();
     let to = b.input(&k_flag, "set").unwrap();
     b.connect(from, to).unwrap();
@@ -235,10 +309,24 @@ fn compare_all_ops_wired_rhs() {
         (CompareOp::Eq, 1, 2, false),
     ] {
         let mut b = Weave::builder("c").unwrap();
-        let k_l = b.knot("l", KnotKind::constant(from_count(lhs))).unwrap();
-        let k_r = b.knot("r", KnotKind::constant(from_count(rhs))).unwrap();
-        let k_cmp = b.knot("cmp", KnotKind::compare(op, None)).unwrap();
-        let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let k_l = b
+            .knot(
+                "l",
+                KnotKind::constant(from_count(lhs), SignalDomain::Count),
+            )
+            .unwrap();
+        let k_r = b
+            .knot(
+                "r",
+                KnotKind::constant(from_count(rhs), SignalDomain::Count),
+            )
+            .unwrap();
+        let k_cmp = b
+            .knot("cmp", KnotKind::compare(op, None, SignalDomain::Count))
+            .unwrap();
+        let k_out = b
+            .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+            .unwrap();
         let from = b.output(&k_l, "out").unwrap();
         let to = b.input(&k_cmp, "lhs").unwrap();
         b.connect(from, to).unwrap();
@@ -259,13 +347,21 @@ fn compare_all_ops_wired_rhs() {
 #[test]
 fn flag_setwins_reset_and_toggle_and_resetwins_set() {
     let mut b = Weave::builder("sw").unwrap();
-    let k_set = b.knot("set", KnotKind::signal_in()).unwrap();
-    let k_rst = b.knot("rst", KnotKind::signal_in()).unwrap();
-    let k_tog = b.knot("tog", KnotKind::signal_in()).unwrap();
+    let k_set = b
+        .knot("set", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_rst = b
+        .knot("rst", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_tog = b
+        .knot("tog", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_flag = b
         .knot("flag", KnotKind::flag(FlagPriority::SetWins, true))
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_set, "out").unwrap();
     let to = b.input(&k_flag, "set").unwrap();
     b.connect(from, to).unwrap();
@@ -323,12 +419,18 @@ fn flag_setwins_reset_and_toggle_and_resetwins_set() {
     assert!(signal_out_truthy(&rt, "y"));
 
     let mut b = Weave::builder("rw").unwrap();
-    let k_set = b.knot("set", KnotKind::signal_in()).unwrap();
-    let k_rst = b.knot("rst", KnotKind::signal_in()).unwrap();
+    let k_set = b
+        .knot("set", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_rst = b
+        .knot("rst", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_flag = b
         .knot("flag", KnotKind::flag(FlagPriority::ResetWins, false))
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_set, "out").unwrap();
     let to = b.input(&k_flag, "set").unwrap();
     b.connect(from, to).unwrap();
@@ -355,11 +457,14 @@ fn flag_setwins_reset_and_toggle_and_resetwins_set() {
 #[test]
 fn map_zero_span_and_delay_one() {
     let mut b = Weave::builder("z").unwrap();
-    let k_c = b.knot("c", KnotKind::constant(from_count(1))).unwrap();
+    let k_c = b
+        .knot("c", KnotKind::constant(from_count(1), SignalDomain::Count))
+        .unwrap();
     let k_map = b
         .knot(
             "map",
             KnotKind::Map {
+                domain: SignalDomain::Count,
                 in_min: from_count(0),
                 in_max: from_count(0), // zero span
                 out_min: from_count(7),
@@ -368,8 +473,12 @@ fn map_zero_span_and_delay_one() {
         )
         .unwrap();
     let k_d = b.knot("d", KnotKind::Delay { ticks: 1 }).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
-    let k_dout = b.knot("dout", KnotKind::signal_out("d")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
+    let k_dout = b
+        .knot("dout", KnotKind::signal_out("d", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_c, "out").unwrap();
     let to = b.input(&k_map, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -396,11 +505,14 @@ fn map_zero_span_and_delay_one() {
 #[test]
 fn digitize_four_steps_mid_bin() {
     let mut b = Weave::builder("dig").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Count))
+        .unwrap();
     let k_d = b
         .knot(
             "d",
             KnotKind::Digitize {
+                domain: SignalDomain::Count,
                 steps: 4,
                 in_min: from_count(0),
                 in_max: from_count(4),
@@ -409,7 +521,9 @@ fn digitize_four_steps_mid_bin() {
             },
         )
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_d, "in").unwrap();
     b.connect(from, to).unwrap();

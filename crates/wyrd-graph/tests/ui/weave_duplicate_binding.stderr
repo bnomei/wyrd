@@ -1,11 +1,11 @@
 error[E0124]: field `same` is already declared
- --> tests/ui/weave_duplicate_binding.rs:4:13
-  |
+  --> tests/ui/weave_duplicate_binding.rs:4:13
+   |
  4 |       let _ = weave! {
    |  _____________^
  5 | |         id: "duplicate";
  6 | |         knots {
- 7 | |             same = KnotKind::signal_in();
+ 7 | |             same = KnotKind::signal_in(SignalDomain::Bool);
 ...  |
 13 | |     };
    | |     ^

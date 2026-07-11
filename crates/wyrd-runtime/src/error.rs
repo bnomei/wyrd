@@ -3,7 +3,7 @@
 use core::fmt;
 
 use std::string::String;
-use wyrd_core::PortSlot;
+use wyrd_core::{PortSlot, SignalDomain};
 use wyrd_graph::{BuildError, ValidationError};
 
 use crate::{CmdId, HostPathId, KnotHandle, SenseId};
@@ -76,12 +76,30 @@ impl std::error::Error for BindError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum HandleError {
-    ForeignRuntime { handle: &'static str },
-    InvalidSense { sense: SenseId },
-    InvalidHostPath { path: HostPathId },
-    InvalidCommand { cmd: CmdId },
-    InvalidKnot { knot: KnotHandle },
-    InvalidPort { knot: KnotHandle, port: PortSlot },
+    ForeignRuntime {
+        handle: &'static str,
+    },
+    InvalidSense {
+        sense: SenseId,
+    },
+    InvalidHostPath {
+        path: HostPathId,
+    },
+    InvalidCommand {
+        cmd: CmdId,
+    },
+    InvalidKnot {
+        knot: KnotHandle,
+    },
+    InvalidPort {
+        knot: KnotHandle,
+        port: PortSlot,
+    },
+    /// A host-authored sense value violates its declared signal domain.
+    DomainValue {
+        sense: SenseId,
+        domain: SignalDomain,
+    },
 }
 
 impl fmt::Display for HandleError {
@@ -111,6 +129,11 @@ impl fmt::Display for HandleError {
                 "port handle {} is invalid for knot {} in this runtime",
                 port.get(),
                 knot.get()
+            ),
+            Self::DomainValue { sense, domain } => write!(
+                f,
+                "sense value for handle {} is invalid for {domain:?} domain",
+                sense.get()
             ),
         }
     }

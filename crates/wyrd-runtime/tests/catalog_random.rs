@@ -1,14 +1,21 @@
 //! Seeded Random knot.
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{HostTime, KnotKind, Seed, ONE, ZERO};
 use wyrd_graph::{ValidationError, Weave};
 use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
 fn random_weave(require_gate: bool) -> Weave {
     let mut b = Weave::builder("r").unwrap();
-    let k_g = b.knot("g", KnotKind::signal_in()).unwrap();
-    let k_rnd = b.knot("rnd", KnotKind::random(require_gate)).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_g = b
+        .knot("g", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_rnd = b
+        .knot("rnd", KnotKind::random(require_gate, SignalDomain::Level))
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_g, "out").unwrap();
     let to = b.input(&k_rnd, "gate").unwrap();
     b.connect(from, to).unwrap();
@@ -92,10 +99,18 @@ fn gate_rising_samples_once() {
 #[test]
 fn random_with_min_max_ports() {
     let mut b = Weave::builder("r").unwrap();
-    let k_lo = b.knot("lo", KnotKind::constant(ZERO)).unwrap();
-    let k_hi = b.knot("hi", KnotKind::constant(ONE)).unwrap();
-    let k_rnd = b.knot("rnd", KnotKind::random(false)).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_lo = b
+        .knot("lo", KnotKind::constant(ZERO, SignalDomain::Level))
+        .unwrap();
+    let k_hi = b
+        .knot("hi", KnotKind::constant(ONE, SignalDomain::Level))
+        .unwrap();
+    let k_rnd = b
+        .knot("rnd", KnotKind::random(false, SignalDomain::Level))
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_lo, "out").unwrap();
     let to = b.input(&k_rnd, "min").unwrap();
     b.connect(from, to).unwrap();
@@ -130,10 +145,18 @@ fn random_with_min_max_ports() {
 #[test]
 fn random_min_eq_max_is_constant() {
     let mut b = Weave::builder("r").unwrap();
-    let k_lo = b.knot("lo", KnotKind::constant(ONE)).unwrap();
-    let k_hi = b.knot("hi", KnotKind::constant(ONE)).unwrap();
-    let k_rnd = b.knot("rnd", KnotKind::random(false)).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_lo = b
+        .knot("lo", KnotKind::constant(ONE, SignalDomain::Level))
+        .unwrap();
+    let k_hi = b
+        .knot("hi", KnotKind::constant(ONE, SignalDomain::Level))
+        .unwrap();
+    let k_rnd = b
+        .knot("rnd", KnotKind::random(false, SignalDomain::Level))
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_lo, "out").unwrap();
     let to = b.input(&k_rnd, "min").unwrap();
     b.connect(from, to).unwrap();
@@ -189,8 +212,12 @@ fn reseed_matches_fresh_bind() {
 #[test]
 fn require_gate_without_wire_rejected() {
     let mut b = Weave::builder("r").unwrap();
-    let k_rnd = b.knot("rnd", KnotKind::random(true)).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_rnd = b
+        .knot("rnd", KnotKind::random(true, SignalDomain::Level))
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_rnd, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();

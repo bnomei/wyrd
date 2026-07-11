@@ -5,6 +5,8 @@
 //! allocates no topology after bind. Host resolves `sense_id` / `path_id` once
 //! at setup; the hot path uses only dense ids.
 
+#![allow(clippy::result_large_err)] // Preserve contextual public BindError payloads.
+
 use std::collections::BTreeMap;
 use std::string::String;
 use std::vec::Vec;
@@ -171,7 +173,7 @@ impl Runtime {
             id_to_name.push(k.id.clone());
 
             let (path, cmd) = match &k.kind {
-                KnotKind::SignalOut { path } => {
+                KnotKind::SignalOut { path, .. } => {
                     let pid = if let Some(id) = path_index.get(path) {
                         *id
                     } else {
@@ -295,10 +297,10 @@ impl Runtime {
             }
             input_slots.push(slots);
             match &k.kind {
-                KnotKind::Constant { value } => {
+                KnotKind::Constant { value, .. } => {
                     sense_seeds.push(SenseSeed::Constant { kid, value: *value });
                 }
-                KnotKind::SignalIn => {
+                KnotKind::SignalIn { .. } => {
                     sense_seeds.push(SenseSeed::SignalIn { kid });
                 }
                 KnotKind::OnStart => {
@@ -312,7 +314,7 @@ impl Runtime {
                         .any(|&(_, _, ts)| ts == PortSlot::new(1));
                     kind_tags[ki] = crate::kind_tag::KindTag::EmitCommand { enable_wired };
                 }
-                KnotKind::Random { require_gate } => {
+                KnotKind::Random { .. } => {
                     let mut min_wired = false;
                     let mut max_wired = false;
                     for &(_, _, ts) in &inbound_lists[ki] {
@@ -322,20 +324,19 @@ impl Runtime {
                             max_wired = true;
                         }
                     }
-                    kind_tags[ki] = crate::kind_tag::KindTag::Random {
-                        require_gate: *require_gate,
-                        min_wired,
-                        max_wired,
-                    };
+                    kind_tags[ki] = kind_tags[ki].with_random_wiring(min_wired, max_wired);
                 }
-                KnotKind::Calc { op: CalcOp::Div } => {
+                KnotKind::Calc {
+                    domain,
+                    op: CalcOp::Div,
+                } => {
                     if let Some(&(from, _, _)) = inbound_lists[ki]
                         .iter()
                         .find(|&&(_, _, ts)| ts == PortSlot::new(1))
                     {
-                        if let KnotKind::Constant { value } = knots[usize::from(from)].kind {
+                        if let KnotKind::Constant { value, .. } = knots[usize::from(from)].kind {
                             kind_tags[ki] =
-                                crate::kind_tag::KindTag::CalcDivConst { divisor: value };
+                                crate::kind_tag::KindTag::calc_div_const(*domain, value);
                         }
                     }
                 }
@@ -442,7 +443,10 @@ impl Runtime {
     /// Resolve a `SignalIn` author name to a dense sense id (setup only).
     pub fn sense_id(&self, name: &str) -> Option<SenseId> {
         let knot = self.name_to_id.get(name).copied()?;
-        if !matches!(self.knots.get(usize::from(knot))?.kind, KnotKind::SignalIn) {
+        if !matches!(
+            self.knots.get(usize::from(knot))?.kind,
+            KnotKind::SignalIn { .. }
+        ) {
             return None;
         }
         Some(SenseId::new(self.owner, knot.get()))
@@ -691,16 +695,22 @@ fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wyrd_core::{FlagPriority, KnotKind, ONE};
+    use wyrd_core::{FlagPriority, KnotKind, SignalDomain, ONE};
     use wyrd_graph::Weave;
 
     #[test]
     fn sense_seeds_lists_only_sense_knots() {
         let mut b = Weave::builder("s").unwrap();
-        let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
-        let _k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+        let k_in = b
+            .knot("in", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
+        let _k_c = b
+            .knot("c", KnotKind::constant(ONE, SignalDomain::Bool))
+            .unwrap();
         let k_n = b.knot("n", KnotKind::Not).unwrap();
-        let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let k_out = b
+            .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+            .unwrap();
         let from = b.output(&k_in, "out").unwrap();
         let to = b.input(&k_n, "in").unwrap();
         b.connect(from, to).unwrap();
@@ -719,7 +729,9 @@ mod tests {
             .iter()
             .any(|s| matches!(s, SenseSeed::Constant { value, .. } if *value == ONE)));
         let mut b = Weave::builder("e").unwrap();
-        let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+        let k_btn = b
+            .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
         let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
         let from = b.output(&k_btn, "out").unwrap();
         let to = b.input(&k_em, "trigger").unwrap();
@@ -745,9 +757,13 @@ mod tests {
     #[test]
     fn cmd_name_and_path_name_lookup() {
         let mut b = Weave::builder("e").unwrap();
-        let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+        let k_btn = b
+            .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
         let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
-        let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let k_out = b
+            .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+            .unwrap();
         let from = b.output(&k_btn, "out").unwrap();
         let to = b.input(&k_em, "trigger").unwrap();
         b.connect(from, to).unwrap();
@@ -795,7 +811,9 @@ mod tests {
     #[test]
     fn checked_port_access_reports_oob_without_mutation() {
         let mut b = Weave::builder("x").unwrap();
-        let _k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+        let _k_c = b
+            .knot("c", KnotKind::constant(ONE, SignalDomain::Bool))
+            .unwrap();
         let weave = b.build().unwrap();
         let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
         let far = KnotId::try_from(999usize).unwrap();
@@ -814,7 +832,9 @@ mod tests {
     #[test]
     fn dropped_emit_count_saturates() {
         let mut b = Weave::builder("emit-saturation").unwrap();
-        let input = b.knot("input", KnotKind::signal_in()).unwrap();
+        let input = b
+            .knot("input", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
         let emit = b.knot("emit", KnotKind::emit_command("fire")).unwrap();
         let from = b.output(&input, "out").unwrap();
         let to = b.input(&emit, "trigger").unwrap();
@@ -843,7 +863,9 @@ mod tests {
         let k_f = b
             .knot("f", KnotKind::flag(FlagPriority::SetWins, false))
             .unwrap();
-        let k_o = b.knot("o", KnotKind::signal_out("y")).unwrap();
+        let k_o = b
+            .knot("o", KnotKind::signal_out("y", SignalDomain::Bool))
+            .unwrap();
         let from = b.output(&k_f, "out").unwrap();
         let to = b.input(&k_o, "in").unwrap();
         b.connect(from, to).unwrap();
@@ -856,10 +878,24 @@ mod tests {
         );
 
         let mut b = Weave::builder("dv").unwrap();
-        let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
-        let k_one = b.knot("one", KnotKind::constant(ONE)).unwrap();
-        let k_d = b.knot("d", KnotKind::Calc { op: CalcOp::Div }).unwrap();
-        let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+        let k_in = b
+            .knot("in", KnotKind::signal_in(SignalDomain::Level))
+            .unwrap();
+        let k_one = b
+            .knot("one", KnotKind::constant(ONE, SignalDomain::Level))
+            .unwrap();
+        let k_d = b
+            .knot(
+                "d",
+                KnotKind::Calc {
+                    domain: SignalDomain::Level,
+                    op: CalcOp::Div,
+                },
+            )
+            .unwrap();
+        let k_out = b
+            .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+            .unwrap();
         let from = b.output(&k_in, "out").unwrap();
         let to = b.input(&k_d, "a").unwrap();
         b.connect(from, to).unwrap();
@@ -873,10 +909,10 @@ mod tests {
         let rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
         let d = *rt.name_to_id.get("d").expect("div knot");
         match rt.kind_tags[usize::from(d)] {
-            crate::kind_tag::KindTag::CalcDivConst { divisor } => {
+            crate::kind_tag::KindTag::CalcDivLevelConst { divisor } => {
                 assert_eq!(divisor, ONE);
             }
-            other => panic!("expected CalcDivConst, got {other:?}"),
+            other => panic!("expected CalcDivLevelConst, got {other:?}"),
         }
     }
 
@@ -884,9 +920,13 @@ mod tests {
     #[test]
     fn bind_builds_hot_path_tables() {
         let mut b = Weave::builder("h").unwrap();
-        let k_a = b.knot("a", KnotKind::signal_in()).unwrap();
+        let k_a = b
+            .knot("a", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
         let k_n = b.knot("n", KnotKind::not()).unwrap();
-        let k_o = b.knot("o", KnotKind::signal_out("y")).unwrap();
+        let k_o = b
+            .knot("o", KnotKind::signal_out("y", SignalDomain::Bool))
+            .unwrap();
         let from = b.output(&k_a, "out").unwrap();
         let to = b.input(&k_n, "in").unwrap();
         b.connect(from, to).unwrap();

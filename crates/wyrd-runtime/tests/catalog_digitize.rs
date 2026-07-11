@@ -1,5 +1,6 @@
 //! Digitize: quantize into steps over a range.
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{from_count, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::{ValidationError, Weave};
 use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
@@ -7,9 +8,15 @@ use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 #[test]
 fn digitize_two_steps_endpoints() {
     let mut b = Weave::builder("d").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
-    let k_dig = b.knot("dig", KnotKind::digitize(2)).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
+    let k_dig = b
+        .knot("dig", KnotKind::digitize(2, SignalDomain::Level))
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_dig, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -34,9 +41,15 @@ fn digitize_two_steps_endpoints() {
 #[test]
 fn digitize_one_step_is_out_min() {
     let mut b = Weave::builder("d").unwrap();
-    let k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
-    let k_dig = b.knot("dig", KnotKind::digitize(1)).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_c = b
+        .knot("c", KnotKind::constant(ONE, SignalDomain::Level))
+        .unwrap();
+    let k_dig = b
+        .knot("dig", KnotKind::digitize(1, SignalDomain::Level))
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_c, "out").unwrap();
     let to = b.input(&k_dig, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -53,11 +66,14 @@ fn digitize_one_step_is_out_min() {
 #[test]
 fn digitize_zero_span_is_out_min() {
     let mut b = Weave::builder("d").unwrap();
-    let k_c = b.knot("c", KnotKind::constant(from_count(1))).unwrap();
+    let k_c = b
+        .knot("c", KnotKind::constant(from_count(1), SignalDomain::Count))
+        .unwrap();
     let k_dig = b
         .knot(
             "dig",
             KnotKind::Digitize {
+                domain: SignalDomain::Count,
                 steps: 4,
                 in_min: from_count(0),
                 in_max: from_count(0),
@@ -66,7 +82,9 @@ fn digitize_zero_span_is_out_min() {
             },
         )
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_c, "out").unwrap();
     let to = b.input(&k_dig, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -83,11 +101,14 @@ fn digitize_zero_span_is_out_min() {
 #[test]
 fn digitize_mid_bins_custom_out_range() {
     let mut b = Weave::builder("d").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Count))
+        .unwrap();
     let k_dig = b
         .knot(
             "dig",
             KnotKind::Digitize {
+                domain: SignalDomain::Count,
                 steps: 4,
                 in_min: from_count(0),
                 in_max: from_count(4),
@@ -96,7 +117,9 @@ fn digitize_mid_bins_custom_out_range() {
             },
         )
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_dig, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -124,11 +147,14 @@ fn digitize_mid_bins_custom_out_range() {
 #[test]
 fn digitize_steps_zero_rejected_at_validate() {
     let mut b = Weave::builder("d").unwrap();
-    let k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let k_c = b
+        .knot("c", KnotKind::constant(ONE, SignalDomain::Level))
+        .unwrap();
     let k_dig = b
         .knot(
             "dig",
             KnotKind::Digitize {
+                domain: SignalDomain::Level,
                 steps: 0,
                 in_min: ZERO,
                 in_max: ONE,
@@ -137,7 +163,9 @@ fn digitize_steps_zero_rejected_at_validate() {
             },
         )
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_c, "out").unwrap();
     let to = b.input(&k_dig, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -153,11 +181,14 @@ fn digitize_steps_zero_rejected_at_validate() {
 #[test]
 fn digitize_inverted_in_range_rejected() {
     let mut b = Weave::builder("d").unwrap();
-    let k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let k_c = b
+        .knot("c", KnotKind::constant(ONE, SignalDomain::Count))
+        .unwrap();
     let k_dig = b
         .knot(
             "dig",
             KnotKind::Digitize {
+                domain: SignalDomain::Count,
                 steps: 4,
                 in_min: from_count(5),
                 in_max: from_count(1),
@@ -166,7 +197,9 @@ fn digitize_inverted_in_range_rejected() {
             },
         )
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_c, "out").unwrap();
     let to = b.input(&k_dig, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -182,11 +215,14 @@ fn digitize_inverted_in_range_rejected() {
 #[test]
 fn map_inverted_in_range_rejected() {
     let mut b = Weave::builder("m").unwrap();
-    let k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let k_c = b
+        .knot("c", KnotKind::constant(ONE, SignalDomain::Count))
+        .unwrap();
     let k_map = b
         .knot(
             "map",
             KnotKind::Map {
+                domain: SignalDomain::Count,
                 in_min: from_count(5),
                 in_max: from_count(1),
                 out_min: ZERO,
@@ -194,7 +230,9 @@ fn map_inverted_in_range_rejected() {
             },
         )
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_c, "out").unwrap();
     let to = b.input(&k_map, "in").unwrap();
     b.connect(from, to).unwrap();

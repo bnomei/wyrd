@@ -5,7 +5,7 @@
 //! arities return an empty table so validate can reject them.
 
 use crate::ids::PortSlot;
-use crate::kind::{KnotKind, TimerMode};
+use crate::kind::{KnotKind, SignalDomain, TimerMode};
 
 /// Direction of a catalog port relative to its knot.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -21,6 +21,17 @@ pub struct PortInfo {
     pub dir: PortDir,
     pub name: &'static str,
     pub required: bool,
+}
+
+/// Graph-time domain constraint for one structural port.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PortDomain {
+    /// The port always carries this domain.
+    Fixed(SignalDomain),
+    /// Ports with the same variable id on a knot must resolve identically.
+    Variable(u8),
+    /// The port accepts any already-resolved domain without constraining it.
+    Any,
 }
 
 const fn pin(slot: u8, name: &'static str, required: bool) -> PortInfo {
@@ -83,6 +94,7 @@ const RANDOM: &[PortInfo] = &[
     pout(3, "out"),
 ];
 const MAP_LIKE: &[PortInfo] = &[pin(0, "in", true), pout(1, "out")];
+const CONVERT: &[PortInfo] = &[pin(0, "in", true), pout(1, "out")];
 const SIGNAL_OUT: &[PortInfo] = &[pin(0, "in", true)];
 const EMIT: &[PortInfo] = &[
     pin(0, "trigger", true),
@@ -110,7 +122,7 @@ const AND4: &[PortInfo] = &[
 pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
     match kind {
         KnotKind::Constant { .. } => OUT_ONLY,
-        KnotKind::SignalIn => OUT_ONLY,
+        KnotKind::SignalIn { .. } => OUT_ONLY,
         KnotKind::OnStart => OUT_ONLY,
         KnotKind::Not => IN_OUT,
         KnotKind::RisingFromZero => IN_OUT,
@@ -126,20 +138,107 @@ pub fn ports_of(kind: &KnotKind) -> &'static [PortInfo] {
         KnotKind::Delay { .. } => IN_OUT,
         KnotKind::Calc { .. } => CALC,
         KnotKind::Map { .. } => MAP_LIKE,
-        KnotKind::Abs => MAP_LIKE,
-        KnotKind::Neg => MAP_LIKE,
+        KnotKind::Abs { .. } => MAP_LIKE,
+        KnotKind::Neg { .. } => MAP_LIKE,
         KnotKind::Select => SELECT,
         KnotKind::Digitize { .. } => MAP_LIKE,
         KnotKind::Threshold { .. } => THRESHOLD,
         KnotKind::Random { .. } => RANDOM,
-        KnotKind::Sqrt => MAP_LIKE,
+        KnotKind::Sqrt { .. } => MAP_LIKE,
         KnotKind::Xor => CALC,
         KnotKind::FallingToZero => IN_OUT,
         KnotKind::Change => IN_OUT,
         KnotKind::Clamp { .. } => MAP_LIKE,
+        KnotKind::Convert { .. } => CONVERT,
         KnotKind::SignalOut { .. } => SIGNAL_OUT,
         KnotKind::EmitCommand { .. } => EMIT,
     }
+}
+
+/// Domain constraint for a structural port, or `None` when `slot` is invalid.
+pub fn port_domain(kind: &KnotKind, slot: PortSlot) -> Option<PortDomain> {
+    if !ports_of(kind).iter().any(|port| port.slot == slot) {
+        return None;
+    }
+
+    let slot = slot.get();
+    Some(match kind {
+        KnotKind::Constant { domain, .. } | KnotKind::SignalIn { domain } => {
+            PortDomain::Fixed(*domain)
+        }
+        KnotKind::OnStart
+        | KnotKind::Not
+        | KnotKind::And { .. }
+        | KnotKind::Or { .. }
+        | KnotKind::Flag { .. }
+        | KnotKind::Timer { .. }
+        | KnotKind::Xor => PortDomain::Fixed(SignalDomain::Bool),
+        KnotKind::Compare { domain, .. } => {
+            if slot == 2 {
+                PortDomain::Fixed(SignalDomain::Bool)
+            } else {
+                PortDomain::Fixed(*domain)
+            }
+        }
+        KnotKind::RisingFromZero | KnotKind::FallingToZero | KnotKind::Change => {
+            if slot == 0 {
+                PortDomain::Any
+            } else {
+                PortDomain::Fixed(SignalDomain::Bool)
+            }
+        }
+        KnotKind::Counter => {
+            if slot == 3 {
+                PortDomain::Fixed(SignalDomain::Count)
+            } else {
+                PortDomain::Fixed(SignalDomain::Bool)
+            }
+        }
+        KnotKind::Delay { .. } => PortDomain::Variable(0),
+        KnotKind::Calc { domain, .. }
+        | KnotKind::Map { domain, .. }
+        | KnotKind::Abs { domain }
+        | KnotKind::Neg { domain }
+        | KnotKind::Digitize { domain, .. }
+        | KnotKind::Sqrt { domain }
+        | KnotKind::Clamp { domain, .. } => PortDomain::Fixed(*domain),
+        KnotKind::Select => {
+            if slot == 0 {
+                PortDomain::Fixed(SignalDomain::Bool)
+            } else {
+                PortDomain::Variable(0)
+            }
+        }
+        KnotKind::Threshold { domain, .. } => {
+            if slot == 0 {
+                PortDomain::Fixed(*domain)
+            } else {
+                PortDomain::Fixed(SignalDomain::Bool)
+            }
+        }
+        KnotKind::Random { domain, .. } => {
+            if slot == 2 {
+                PortDomain::Fixed(SignalDomain::Bool)
+            } else {
+                PortDomain::Fixed(*domain)
+            }
+        }
+        KnotKind::Convert { from, to } => {
+            if slot == 0 {
+                PortDomain::Fixed(*from)
+            } else {
+                PortDomain::Fixed(*to)
+            }
+        }
+        KnotKind::SignalOut { domain, .. } => PortDomain::Fixed(*domain),
+        KnotKind::EmitCommand { .. } => {
+            if slot == 2 {
+                PortDomain::Any
+            } else {
+                PortDomain::Fixed(SignalDomain::Bool)
+            }
+        }
+    })
 }
 
 fn and_or_ports(arity: u8) -> &'static [PortInfo] {
@@ -163,7 +262,7 @@ pub fn port_slot(kind: &KnotKind, name: &str) -> Option<PortSlot> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kind::TimerMode;
+    use crate::kind::{CompareOp, TimerMode};
 
     #[test]
     fn and2_ports() {
@@ -198,6 +297,7 @@ mod tests {
         );
         assert_eq!(
             ports_of(&KnotKind::Map {
+                domain: SignalDomain::Level,
                 in_min: crate::ZERO,
                 in_max: crate::ONE,
                 out_min: crate::ZERO,
@@ -206,32 +306,46 @@ mod tests {
                 .name,
             "in"
         );
-        assert_eq!(ports_of(&KnotKind::Abs)[1].name, "out");
-        assert_eq!(ports_of(&KnotKind::Neg)[0].name, "in");
+        assert_eq!(ports_of(&KnotKind::abs(SignalDomain::Level))[1].name, "out");
+        assert_eq!(ports_of(&KnotKind::neg(SignalDomain::Count))[0].name, "in");
         assert_eq!(
             port_slot(&KnotKind::select(), "sel"),
             Some(PortSlot::new(0))
         );
         assert_eq!(port_slot(&KnotKind::select(), "b"), Some(PortSlot::new(2)));
         assert_eq!(
-            port_slot(&KnotKind::random(false), "gate"),
+            port_slot(&KnotKind::random(false, SignalDomain::Level), "gate"),
             Some(PortSlot::new(2))
         );
         assert_eq!(
-            ports_of(&KnotKind::threshold_default())[2].name,
+            ports_of(&KnotKind::threshold_default(SignalDomain::Level))[2].name,
             "crossed_up"
         );
-        assert_eq!(ports_of(&KnotKind::digitize(4))[0].name, "in");
-        assert_eq!(ports_of(&KnotKind::sqrt())[0].name, "in");
+        assert_eq!(
+            ports_of(&KnotKind::digitize(4, SignalDomain::Level))[0].name,
+            "in"
+        );
+        assert_eq!(ports_of(&KnotKind::sqrt(SignalDomain::Count))[0].name, "in");
         assert_eq!(ports_of(&KnotKind::xor())[2].name, "out");
         assert_eq!(ports_of(&KnotKind::falling_to_zero())[1].name, "out");
         assert_eq!(ports_of(&KnotKind::change())[0].name, "in");
         assert_eq!(
-            ports_of(&KnotKind::clamp(crate::ZERO, crate::ONE))[0].name,
+            ports_of(&KnotKind::clamp(
+                crate::ZERO,
+                crate::ONE,
+                SignalDomain::Level
+            ))[0]
+                .name,
             "in"
         );
-        assert_eq!(ports_of(&KnotKind::constant(crate::ONE))[0].name, "out");
-        assert_eq!(ports_of(&KnotKind::signal_in())[0].name, "out");
+        assert_eq!(
+            ports_of(&KnotKind::constant(crate::ONE, SignalDomain::Bool))[0].name,
+            "out"
+        );
+        assert_eq!(
+            ports_of(&KnotKind::signal_in(SignalDomain::Bool))[0].name,
+            "out"
+        );
         assert_eq!(ports_of(&KnotKind::OnStart)[0].name, "out");
         assert_eq!(ports_of(&KnotKind::not())[0].name, "in");
         assert_eq!(ports_of(&KnotKind::rising_from_zero())[0].name, "in");
@@ -243,5 +357,68 @@ mod tests {
         let _out = pout(1, "y");
         assert_eq!(_out.dir, PortDir::Out);
         assert_eq!(_in.name, "x");
+    }
+
+    #[test]
+    fn domain_constraints_cover_fixed_variable_and_any_ports() {
+        let bool_in = KnotKind::signal_in(SignalDomain::Bool);
+        assert_eq!(
+            port_domain(&bool_in, PortSlot::new(0)),
+            Some(PortDomain::Fixed(SignalDomain::Bool))
+        );
+        assert_eq!(port_domain(&bool_in, PortSlot::new(1)), None);
+
+        let compare = KnotKind::compare(CompareOp::Eq, None, SignalDomain::Count);
+        assert_eq!(
+            port_domain(&compare, PortSlot::new(0)),
+            Some(PortDomain::Fixed(SignalDomain::Count))
+        );
+        assert_eq!(
+            port_domain(&compare, PortSlot::new(2)),
+            Some(PortDomain::Fixed(SignalDomain::Bool))
+        );
+
+        let delay = KnotKind::Delay { ticks: 1 };
+        assert_eq!(
+            port_domain(&delay, PortSlot::new(0)),
+            Some(PortDomain::Variable(0))
+        );
+        assert_eq!(
+            port_domain(&delay, PortSlot::new(1)),
+            Some(PortDomain::Variable(0))
+        );
+
+        let select = KnotKind::select();
+        assert_eq!(
+            port_domain(&select, PortSlot::new(0)),
+            Some(PortDomain::Fixed(SignalDomain::Bool))
+        );
+        assert_eq!(
+            port_domain(&select, PortSlot::new(3)),
+            Some(PortDomain::Variable(0))
+        );
+
+        let change = KnotKind::change();
+        assert_eq!(
+            port_domain(&change, PortSlot::new(0)),
+            Some(PortDomain::Any)
+        );
+        assert_eq!(
+            port_domain(&change, PortSlot::new(1)),
+            Some(PortDomain::Fixed(SignalDomain::Bool))
+        );
+
+        let emit = KnotKind::emit_command("x");
+        assert_eq!(port_domain(&emit, PortSlot::new(2)), Some(PortDomain::Any));
+
+        let convert = KnotKind::convert(SignalDomain::Count, SignalDomain::Level);
+        assert_eq!(
+            port_domain(&convert, PortSlot::new(0)),
+            Some(PortDomain::Fixed(SignalDomain::Count))
+        );
+        assert_eq!(
+            port_domain(&convert, PortSlot::new(1)),
+            Some(PortDomain::Fixed(SignalDomain::Level))
+        );
     }
 }

@@ -1,5 +1,6 @@
 //! Host unit coverage (kept out of host.rs to avoid match residual line noise).
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{is_truthy, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{
@@ -48,9 +49,16 @@ impl Host for InvalidSenseHost {
 #[test]
 fn tick_once_maps_signal_out_to_set_level() {
     let mut b = Weave::builder("h").unwrap();
-    let k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let k_c = b
+        .knot("c", KnotKind::constant(ONE, SignalDomain::Bool))
+        .unwrap();
     let k_n = b.knot("n", KnotKind::not()).unwrap();
-    let k_o = b.knot("o", KnotKind::signal_out("debug.inverted")).unwrap();
+    let k_o = b
+        .knot(
+            "o",
+            KnotKind::signal_out("debug.inverted", SignalDomain::Bool),
+        )
+        .unwrap();
     let from = b.output(&k_c, "out").unwrap();
     let to = b.input(&k_n, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -80,7 +88,9 @@ fn tick_once_maps_signal_out_to_set_level() {
 #[test]
 fn outbox_to_commands_includes_emit() {
     let mut b = Weave::builder("e").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_em, "trigger").unwrap();
@@ -106,8 +116,12 @@ fn outbox_to_commands_includes_emit() {
 #[test]
 fn host_command_variants_constructible() {
     let mut b = Weave::builder("commands").unwrap();
-    let constant = b.knot("constant", KnotKind::constant(ONE)).unwrap();
-    let out = b.knot("out", KnotKind::signal_out("out")).unwrap();
+    let constant = b
+        .knot("constant", KnotKind::constant(ONE, SignalDomain::Bool))
+        .unwrap();
+    let out = b
+        .knot("out", KnotKind::signal_out("out", SignalDomain::Bool))
+        .unwrap();
     let emit = b.knot("emit", KnotKind::emit_command("emit")).unwrap();
     let from = b.output(&constant, "out").unwrap();
     let to = b.input(&out, "in").unwrap();
@@ -138,7 +152,9 @@ fn scripted_last_commands_empty_before_tick() {
 #[test]
 fn scripted_sample_with_no_frames_is_noop() {
     let mut b = Weave::builder("n").unwrap();
-    let _k_c = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let _k_c = b
+        .knot("c", KnotKind::constant(ONE, SignalDomain::Bool))
+        .unwrap();
     let weave = b.build().unwrap();
     let mut rt = Runtime::bind(weave.clone(), BindOpts::default()).unwrap();
     let mut host = ScriptedHost::new();
@@ -150,11 +166,15 @@ fn scripted_sample_with_no_frames_is_noop() {
 #[test]
 fn tick_once_propagates_sampling_handle_error() {
     let mut b = Weave::builder("invalid-handle").unwrap();
-    let _constant = b.knot("constant", KnotKind::constant(ONE)).unwrap();
+    let _constant = b
+        .knot("constant", KnotKind::constant(ONE, SignalDomain::Bool))
+        .unwrap();
     let weave = b.build().unwrap();
     let mut rt = Runtime::bind(weave, BindOpts::default()).unwrap();
     let mut other_builder = Weave::builder("other-runtime").unwrap();
-    let _sense = other_builder.knot("sense", KnotKind::signal_in()).unwrap();
+    let _sense = other_builder
+        .knot("sense", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let other = Runtime::bind(other_builder.build().unwrap(), BindOpts::default()).unwrap();
     let invalid = other.sense_id("sense").unwrap();
     let mut host = InvalidSenseHost(invalid);

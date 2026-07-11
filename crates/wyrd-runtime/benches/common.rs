@@ -3,6 +3,7 @@
 //! Not a stand-alone bench target (`autobenches = false` in Cargo.toml).
 #![allow(dead_code)] // each bench binary uses a subset of helpers
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{
     from_count, CalcOp, CompareOp, FlagPriority, KnotKind, Seed, TimerMode, ONE, ZERO,
 };
@@ -35,7 +36,9 @@ pub fn bind_deep(weave: &Weave) -> Runtime {
 /// Constant → Not × n → SignalOut (total knots ≈ n + 2).
 pub fn chain_not_weave(n: usize) -> Weave {
     let mut b = Weave::builder("chain").unwrap();
-    let mut prev = b.knot("c0", KnotKind::constant(ONE)).unwrap();
+    let mut prev = b
+        .knot("c0", KnotKind::constant(ONE, SignalDomain::Bool))
+        .unwrap();
     for i in 0..n {
         let id = format!("n{i}");
         let next = b.knot(&id, KnotKind::not()).unwrap();
@@ -44,7 +47,9 @@ pub fn chain_not_weave(n: usize) -> Weave {
         b.connect(from, to).unwrap();
         prev = next;
     }
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -60,8 +65,12 @@ pub fn chain_not(n: usize) -> (Weave, Runtime) {
 /// Two plates → And → SignalOut (classic door).
 pub fn and_door() -> (Weave, Runtime) {
     let mut b = Weave::builder("door").unwrap();
-    let pa = b.knot("plate_a", KnotKind::signal_in()).unwrap();
-    let pb = b.knot("plate_b", KnotKind::signal_in()).unwrap();
+    let pa = b
+        .knot("plate_a", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let pb = b
+        .knot("plate_b", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_both = b.knot("both", KnotKind::and2()).unwrap();
     let from = b.output(&pa, "out").unwrap();
     let to = b.input(&k_both, "in_0").unwrap();
@@ -69,7 +78,12 @@ pub fn and_door() -> (Weave, Runtime) {
     let from = b.output(&pb, "out").unwrap();
     let to = b.input(&k_both, "in_1").unwrap();
     b.connect(from, to).unwrap();
-    let k_door = b.knot("door", KnotKind::signal_out("door.open")).unwrap();
+    let k_door = b
+        .knot(
+            "door",
+            KnotKind::signal_out("door.open", SignalDomain::Bool),
+        )
+        .unwrap();
     let from = b.output(&k_both, "out").unwrap();
     let to = b.input(&k_door, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -81,11 +95,14 @@ pub fn and_door() -> (Weave, Runtime) {
 /// SignalIn → Map → Digitize → SignalOut (catalog math).
 pub fn map_digitize_chain() -> (Weave, Runtime) {
     let mut b = Weave::builder("md").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
     let k_map = b
         .knot(
             "map",
             KnotKind::Map {
+                domain: SignalDomain::Level,
                 in_min: ZERO,
                 in_max: ONE,
                 out_min: ZERO,
@@ -97,6 +114,7 @@ pub fn map_digitize_chain() -> (Weave, Runtime) {
         .knot(
             "dig",
             KnotKind::Digitize {
+                domain: SignalDomain::Level,
                 steps: 8,
                 in_min: ZERO,
                 in_max: ONE,
@@ -105,7 +123,9 @@ pub fn map_digitize_chain() -> (Weave, Runtime) {
             },
         )
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_map, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -123,11 +143,32 @@ pub fn map_digitize_chain() -> (Weave, Runtime) {
 /// SignalIn pair → Calc(Add) → Abs → SignalOut.
 pub fn calc_abs_chain() -> (Weave, Runtime) {
     let mut b = Weave::builder("ca").unwrap();
-    let k_a = b.knot("a", KnotKind::signal_in()).unwrap();
-    let k_b = b.knot("b", KnotKind::signal_in()).unwrap();
-    let k_add = b.knot("add", KnotKind::Calc { op: CalcOp::Add }).unwrap();
-    let k_abs = b.knot("abs", KnotKind::Abs).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_a = b
+        .knot("a", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
+    let k_b = b
+        .knot("b", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
+    let k_add = b
+        .knot(
+            "add",
+            KnotKind::Calc {
+                domain: SignalDomain::Level,
+                op: CalcOp::Add,
+            },
+        )
+        .unwrap();
+    let k_abs = b
+        .knot(
+            "abs",
+            KnotKind::Abs {
+                domain: SignalDomain::Level,
+            },
+        )
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_a, "out").unwrap();
     let to = b.input(&k_add, "a").unwrap();
     b.connect(from, to).unwrap();
@@ -148,9 +189,13 @@ pub fn calc_abs_chain() -> (Weave, Runtime) {
 /// SignalIn → Delay(n) → SignalOut.
 pub fn delay_chain(ticks: u16) -> (Weave, Runtime) {
     let mut b = Weave::builder("dl").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_d = b.knot("d", KnotKind::Delay { ticks }).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_d, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -165,9 +210,15 @@ pub fn delay_chain(ticks: u16) -> (Weave, Runtime) {
 /// Gated Random → SignalOut (seeded).
 pub fn random_gated() -> (Weave, Runtime) {
     let mut b = Weave::builder("rnd").unwrap();
-    let k_g = b.knot("g", KnotKind::signal_in()).unwrap();
-    let k_r = b.knot("r", KnotKind::random(true)).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_g = b
+        .knot("g", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_r = b
+        .knot("r", KnotKind::random(true, SignalDomain::Level))
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&k_g, "out").unwrap();
     let to = b.input(&k_r, "gate").unwrap();
     b.connect(from, to).unwrap();
@@ -189,9 +240,15 @@ pub fn random_gated() -> (Weave, Runtime) {
 /// SignalIn → Threshold → SignalOut (no hysteresis).
 pub fn threshold_simple() -> (Weave, Runtime) {
     let mut b = Weave::builder("th").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
-    let k_t = b.knot("t", KnotKind::threshold_default()).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
+    let k_t = b
+        .knot("t", KnotKind::threshold_default(SignalDomain::Level))
+        .unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_t, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -206,12 +263,19 @@ pub fn threshold_simple() -> (Weave, Runtime) {
 /// Wide fan-out: one Constant → n Not → each SignalOut (stress gather / outbox).
 pub fn fanout_nots(n: usize) -> (Weave, Runtime) {
     let mut b = Weave::builder("fo").unwrap();
-    let source = b.knot("c", KnotKind::constant(ONE)).unwrap();
+    let source = b
+        .knot("c", KnotKind::constant(ONE, SignalDomain::Bool))
+        .unwrap();
     for i in 0..n {
         let nid = format!("n{i}");
         let oid = format!("o{i}");
         let not = b.knot(&nid, KnotKind::not()).unwrap();
-        let out = b.knot(&oid, KnotKind::signal_out(format!("y{i}"))).unwrap();
+        let out = b
+            .knot(
+                &oid,
+                KnotKind::signal_out(format!("y{i}"), SignalDomain::Bool),
+            )
+            .unwrap();
         let from = b.output(&source, "out").unwrap();
         let to = b.input(&not, "in").unwrap();
         b.connect(from, to).unwrap();
@@ -250,13 +314,16 @@ fn bind_scaled(weave: &Weave, extra: impl FnOnce(&mut Budget)) -> Runtime {
 /// SignalIn → Map × n → SignalOut (identity-ish linear map).
 pub fn chain_map(n: usize) -> (Weave, Runtime) {
     let mut b = Weave::builder("cmap").unwrap();
-    let mut prev = b.knot("in", KnotKind::signal_in()).unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
     for i in 0..n {
         let id = format!("m{i}");
         let next = b
             .knot(
                 &id,
                 KnotKind::Map {
+                    domain: SignalDomain::Level,
                     in_min: ZERO,
                     in_max: ONE,
                     out_min: ZERO,
@@ -269,7 +336,9 @@ pub fn chain_map(n: usize) -> (Weave, Runtime) {
         b.connect(from, to).unwrap();
         prev = next;
     }
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -281,13 +350,16 @@ pub fn chain_map(n: usize) -> (Weave, Runtime) {
 /// SignalIn → Digitize × n → SignalOut.
 pub fn chain_digitize(n: usize, steps: u16) -> (Weave, Runtime) {
     let mut b = Weave::builder("cdig").unwrap();
-    let mut prev = b.knot("in", KnotKind::signal_in()).unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
     for i in 0..n {
         let id = format!("d{i}");
         let next = b
             .knot(
                 &id,
                 KnotKind::Digitize {
+                    domain: SignalDomain::Level,
                     steps,
                     in_min: ZERO,
                     in_max: ONE,
@@ -301,7 +373,9 @@ pub fn chain_digitize(n: usize, steps: u16) -> (Weave, Runtime) {
         b.connect(from, to).unwrap();
         prev = next;
     }
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -316,11 +390,23 @@ pub fn chain_digitize(n: usize, steps: u16) -> (Weave, Runtime) {
 /// Whole-count mul would collapse to 0 on i32 (documented dual-path trap).
 pub fn chain_calc_mul(n: usize) -> (Weave, Runtime) {
     let mut b = Weave::builder("cmul").unwrap();
-    let mut prev = b.knot("in", KnotKind::signal_in()).unwrap();
-    let one = b.knot("one", KnotKind::constant(ONE)).unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
+    let one = b
+        .knot("one", KnotKind::constant(ONE, SignalDomain::Level))
+        .unwrap();
     for i in 0..n {
         let id = format!("mul{i}");
-        let next = b.knot(&id, KnotKind::Calc { op: CalcOp::Mul }).unwrap();
+        let next = b
+            .knot(
+                &id,
+                KnotKind::Calc {
+                    domain: SignalDomain::Level,
+                    op: CalcOp::Mul,
+                },
+            )
+            .unwrap();
         let from = b.output(&prev, "out").unwrap();
         let to = b.input(&next, "a").unwrap();
         b.connect(from, to).unwrap();
@@ -329,7 +415,9 @@ pub fn chain_calc_mul(n: usize) -> (Weave, Runtime) {
         b.connect(from, to).unwrap();
         prev = next;
     }
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -344,16 +432,20 @@ pub fn chain_calc_mul(n: usize) -> (Weave, Runtime) {
 /// SignalIn → Sqrt × n → SignalOut (feed positive levels).
 pub fn chain_sqrt(n: usize) -> (Weave, Runtime) {
     let mut b = Weave::builder("csqrt").unwrap();
-    let mut prev = b.knot("in", KnotKind::signal_in()).unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
     for i in 0..n {
         let id = format!("s{i}");
-        let next = b.knot(&id, KnotKind::sqrt()).unwrap();
+        let next = b.knot(&id, KnotKind::sqrt(SignalDomain::Level)).unwrap();
         let from = b.output(&prev, "out").unwrap();
         let to = b.input(&next, "in").unwrap();
         b.connect(from, to).unwrap();
         prev = next;
     }
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -365,7 +457,9 @@ pub fn chain_sqrt(n: usize) -> (Weave, Runtime) {
 /// SignalIn → Delay(ticks) × n → SignalOut (ring traffic scales with n).
 pub fn chain_delays(n: usize, ticks: u16) -> (Weave, Runtime) {
     let mut b = Weave::builder("cdel").unwrap();
-    let mut prev = b.knot("in", KnotKind::signal_in()).unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     for i in 0..n {
         let id = format!("dl{i}");
         let next = b.knot(&id, KnotKind::Delay { ticks }).unwrap();
@@ -374,7 +468,9 @@ pub fn chain_delays(n: usize, ticks: u16) -> (Weave, Runtime) {
         b.connect(from, to).unwrap();
         prev = next;
     }
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -392,8 +488,12 @@ pub fn chain_delays(n: usize, ticks: u16) -> (Weave, Runtime) {
 /// Outs: `count`, `flag`, `pulse`, `fed`.
 pub fn stateful_kit() -> (Weave, Runtime) {
     let mut b = Weave::builder("kit").unwrap();
-    let k_start = b.knot("start", KnotKind::signal_in()).unwrap();
-    let k_feed = b.knot("feed", KnotKind::signal_in()).unwrap();
+    let k_start = b
+        .knot("start", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_feed = b
+        .knot("feed", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_rise = b.knot("rise", KnotKind::rising_from_zero()).unwrap();
     let k_cnt = b.knot("cnt", KnotKind::counter()).unwrap();
     let k_flg = b
@@ -406,10 +506,18 @@ pub fn stateful_kit() -> (Weave, Runtime) {
     let k_fed = b
         .knot("fed", KnotKind::timer(TimerMode::FedCountdown, 2))
         .unwrap();
-    let k_out_c = b.knot("out_c", KnotKind::signal_out("count")).unwrap();
-    let k_out_f = b.knot("out_f", KnotKind::signal_out("flag")).unwrap();
-    let k_out_p = b.knot("out_p", KnotKind::signal_out("pulse")).unwrap();
-    let k_out_d = b.knot("out_d", KnotKind::signal_out("fed")).unwrap();
+    let k_out_c = b
+        .knot("out_c", KnotKind::signal_out("count", SignalDomain::Count))
+        .unwrap();
+    let k_out_f = b
+        .knot("out_f", KnotKind::signal_out("flag", SignalDomain::Bool))
+        .unwrap();
+    let k_out_p = b
+        .knot("out_p", KnotKind::signal_out("pulse", SignalDomain::Bool))
+        .unwrap();
+    let k_out_d = b
+        .knot("out_d", KnotKind::signal_out("fed", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_start, "out").unwrap();
     let to = b.input(&k_rise, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -448,7 +556,9 @@ pub fn stateful_kit() -> (Weave, Runtime) {
 /// Shared gate → n EmitCommand (raise max_emits_per_tick).
 pub fn emit_storm(n: usize) -> (Weave, Runtime) {
     let mut b = Weave::builder("em").unwrap();
-    let gate = b.knot("g", KnotKind::signal_in()).unwrap();
+    let gate = b
+        .knot("g", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     for i in 0..n {
         let id = format!("e{i}");
         let emit = b
@@ -477,11 +587,23 @@ pub fn emit_storm(n: usize) -> (Weave, Runtime) {
 /// SignalIn → Calc(Div) × n with shared ONE divisor (non-zero dual-path).
 pub fn chain_calc_div(n: usize) -> (Weave, Runtime) {
     let mut b = Weave::builder("cdiv").unwrap();
-    let mut prev = b.knot("in", KnotKind::signal_in()).unwrap();
-    let one = b.knot("one", KnotKind::constant(ONE)).unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Level))
+        .unwrap();
+    let one = b
+        .knot("one", KnotKind::constant(ONE, SignalDomain::Level))
+        .unwrap();
     for i in 0..n {
         let id = format!("div{i}");
-        let next = b.knot(&id, KnotKind::Calc { op: CalcOp::Div }).unwrap();
+        let next = b
+            .knot(
+                &id,
+                KnotKind::Calc {
+                    domain: SignalDomain::Level,
+                    op: CalcOp::Div,
+                },
+            )
+            .unwrap();
         let from = b.output(&prev, "out").unwrap();
         let to = b.input(&next, "a").unwrap();
         b.connect(from, to).unwrap();
@@ -490,7 +612,9 @@ pub fn chain_calc_div(n: usize) -> (Weave, Runtime) {
         b.connect(from, to).unwrap();
         prev = next;
     }
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Level))
+        .unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -505,13 +629,21 @@ pub fn chain_calc_div(n: usize) -> (Weave, Runtime) {
 /// SignalIn → Rising / Falling / Change → three SignalOuts.
 pub fn edges_pack() -> (Weave, Runtime) {
     let mut b = Weave::builder("edg").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_r = b.knot("r", KnotKind::rising_from_zero()).unwrap();
     let k_f = b.knot("f", KnotKind::falling_to_zero()).unwrap();
     let k_c = b.knot("c", KnotKind::change()).unwrap();
-    let k_or = b.knot("or", KnotKind::signal_out("rise")).unwrap();
-    let k_of = b.knot("of", KnotKind::signal_out("fall")).unwrap();
-    let k_oc = b.knot("oc", KnotKind::signal_out("chg")).unwrap();
+    let k_or = b
+        .knot("or", KnotKind::signal_out("rise", SignalDomain::Bool))
+        .unwrap();
+    let k_of = b
+        .knot("of", KnotKind::signal_out("fall", SignalDomain::Bool))
+        .unwrap();
+    let k_oc = b
+        .knot("oc", KnotKind::signal_out("chg", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_r, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -539,17 +671,33 @@ pub fn edges_pack() -> (Weave, Runtime) {
 /// Or(2), Xor, Select with constants + SignalIn sel/a.
 pub fn logic_pack() -> (Weave, Runtime) {
     let mut b = Weave::builder("log").unwrap();
-    let k_a = b.knot("a", KnotKind::signal_in()).unwrap();
-    let k_b = b.knot("b", KnotKind::signal_in()).unwrap();
-    let k_sel = b.knot("sel", KnotKind::signal_in()).unwrap();
+    let k_a = b
+        .knot("a", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_b = b
+        .knot("b", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_sel = b
+        .knot("sel", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_or = b.knot("or", KnotKind::or2()).unwrap();
     let k_xor = b.knot("xor", KnotKind::xor()).unwrap();
     let k_selk = b.knot("selk", KnotKind::select()).unwrap();
-    let k_ca = b.knot("ca", KnotKind::constant(ZERO)).unwrap();
-    let k_cb = b.knot("cb", KnotKind::constant(ONE)).unwrap();
-    let k_oo = b.knot("oo", KnotKind::signal_out("or")).unwrap();
-    let k_ox = b.knot("ox", KnotKind::signal_out("xor")).unwrap();
-    let k_os = b.knot("os", KnotKind::signal_out("sel")).unwrap();
+    let k_ca = b
+        .knot("ca", KnotKind::constant(ZERO, SignalDomain::Bool))
+        .unwrap();
+    let k_cb = b
+        .knot("cb", KnotKind::constant(ONE, SignalDomain::Bool))
+        .unwrap();
+    let k_oo = b
+        .knot("oo", KnotKind::signal_out("or", SignalDomain::Bool))
+        .unwrap();
+    let k_ox = b
+        .knot("ox", KnotKind::signal_out("xor", SignalDomain::Bool))
+        .unwrap();
+    let k_os = b
+        .knot("os", KnotKind::signal_out("sel", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_a, "out").unwrap();
     let to = b.input(&k_or, "in_0").unwrap();
     b.connect(from, to).unwrap();
@@ -588,13 +736,25 @@ pub fn logic_pack() -> (Weave, Runtime) {
 /// SignalIn → (Neg → Clamp) × n layers → Out.
 pub fn chain_clamp_neg(n: usize) -> (Weave, Runtime) {
     let mut b = Weave::builder("ccl").unwrap();
-    let mut prev = b.knot("in", KnotKind::signal_in()).unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Count))
+        .unwrap();
     for i in 0..n {
         let neg = format!("n{i}");
         let cl = format!("c{i}");
-        let neg_knot = b.knot(&neg, KnotKind::Neg).unwrap();
+        let neg_knot = b
+            .knot(
+                &neg,
+                KnotKind::Neg {
+                    domain: SignalDomain::Count,
+                },
+            )
+            .unwrap();
         let clamp = b
-            .knot(&cl, KnotKind::clamp(from_count(-2), from_count(2)))
+            .knot(
+                &cl,
+                KnotKind::clamp(from_count(-2), from_count(2), SignalDomain::Count),
+            )
             .unwrap();
         let from = b.output(&prev, "out").unwrap();
         let to = b.input(&neg_knot, "in").unwrap();
@@ -604,7 +764,9 @@ pub fn chain_clamp_neg(n: usize) -> (Weave, Runtime) {
         b.connect(from, to).unwrap();
         prev = clamp;
     }
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -616,18 +778,27 @@ pub fn chain_clamp_neg(n: usize) -> (Weave, Runtime) {
 /// SignalIn → Compare(Gte, rhs_const=0) × n → Out.
 pub fn chain_compare(n: usize) -> (Weave, Runtime) {
     let mut b = Weave::builder("ccmp").unwrap();
-    let mut prev = b.knot("in", KnotKind::signal_in()).unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Count))
+        .unwrap();
     for i in 0..n {
         let id = format!("cmp{i}");
+        let (op, rhs_const, domain) = if i == 0 {
+            (CompareOp::Gte, Some(from_count(0)), SignalDomain::Count)
+        } else {
+            (CompareOp::Eq, Some(ONE), SignalDomain::Bool)
+        };
         let next = b
-            .knot(&id, KnotKind::compare(CompareOp::Gte, Some(0)))
+            .knot(&id, KnotKind::compare(op, rhs_const, domain))
             .unwrap();
         let from = b.output(&prev, "out").unwrap();
         let to = b.input(&next, "lhs").unwrap();
         b.connect(from, to).unwrap();
         prev = next;
     }
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&prev, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -640,7 +811,9 @@ pub fn chain_compare(n: usize) -> (Weave, Runtime) {
 pub fn onstart_out() -> (Weave, Runtime) {
     let mut b = Weave::builder("ons").unwrap();
     let k_s = b.knot("s", KnotKind::OnStart).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_s, "out").unwrap();
     let to = b.input(&k_out, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -652,12 +825,21 @@ pub fn onstart_out() -> (Weave, Runtime) {
 /// Small authored graph used for bind-cost benches (not deep).
 pub fn small_authored_weave() -> Weave {
     let mut b = Weave::builder("bind_me").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_n = b.knot("n", KnotKind::not()).unwrap();
+    let k_convert = b
+        .knot(
+            "convert",
+            KnotKind::convert(SignalDomain::Bool, SignalDomain::Count),
+        )
+        .unwrap();
     let k_map = b
         .knot(
             "map",
             KnotKind::Map {
+                domain: SignalDomain::Count,
                 in_min: from_count(0),
                 in_max: from_count(1),
                 out_min: from_count(0),
@@ -665,11 +847,16 @@ pub fn small_authored_weave() -> Weave {
             },
         )
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_n, "in").unwrap();
     b.connect(from, to).unwrap();
     let from = b.output(&k_n, "out").unwrap();
+    let to = b.input(&k_convert, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_convert, "out").unwrap();
     let to = b.input(&k_map, "in").unwrap();
     b.connect(from, to).unwrap();
     let from = b.output(&k_map, "out").unwrap();
@@ -710,8 +897,12 @@ pub fn monostable_pattern() -> Pattern {
 pub fn expand_monostable_once() -> usize {
     let p = monostable_pattern();
     let mut b = Weave::builder("expand-bench").unwrap();
-    let trigger = b.knot("trigger", KnotKind::signal_in()).unwrap();
-    let sink = b.knot("sink", KnotKind::signal_out("sink")).unwrap();
+    let trigger = b
+        .knot("trigger", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let sink = b
+        .knot("sink", KnotKind::signal_out("sink", SignalDomain::Bool))
+        .unwrap();
     let instance = b.include("hold1", &p).unwrap();
     let from = b.output(&trigger, "out").unwrap();
     let to = instance.input("start").unwrap();
@@ -726,11 +917,15 @@ pub fn expand_monostable_once() -> usize {
 pub fn weave_with_monostable_include() -> Weave {
     let pat = monostable_pattern();
     let mut b = Weave::builder("lvl").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let exp = b.include("hold1", &pat).unwrap();
     let start = exp.input("start").unwrap();
     let active = exp.output("active").unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("lamp")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("lamp", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     b.connect(from, start).unwrap();
     let to = b.input(&k_out, "in").unwrap();

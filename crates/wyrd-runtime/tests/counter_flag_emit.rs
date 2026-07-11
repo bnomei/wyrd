@@ -1,5 +1,6 @@
 //! Counter rising-edge, Flag toggle/reset, Emit rising-edge (step 1.3).
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{FlagPriority, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::Weave;
 use wyrd_runtime::{
@@ -30,9 +31,13 @@ fn count_out(rt: &Runtime) -> i32 {
 #[test]
 fn counter_rising_edge_not_level() {
     let mut b = Weave::builder("c").unwrap();
-    let k_inc = b.knot("inc", KnotKind::signal_in()).unwrap();
+    let k_inc = b
+        .knot("inc", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_cnt = b.knot("cnt", KnotKind::counter()).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("count")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("count", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_inc, "out").unwrap();
     let to = b.input(&k_cnt, "inc").unwrap();
     b.connect(from, to).unwrap();
@@ -65,10 +70,16 @@ fn counter_rising_edge_not_level() {
 #[test]
 fn counter_reset_then_rising_inc_same_tick() {
     let mut b = Weave::builder("cr").unwrap();
-    let k_inc = b.knot("inc", KnotKind::signal_in()).unwrap();
-    let k_rst = b.knot("rst", KnotKind::signal_in()).unwrap();
+    let k_inc = b
+        .knot("inc", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_rst = b
+        .knot("rst", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_cnt = b.knot("cnt", KnotKind::counter()).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("count")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("count", SignalDomain::Count))
+        .unwrap();
     let from = b.output(&k_inc, "out").unwrap();
     let to = b.input(&k_cnt, "inc").unwrap();
     b.connect(from, to).unwrap();
@@ -113,12 +124,18 @@ fn counter_reset_then_rising_inc_same_tick() {
 #[test]
 fn flag_toggle_rising_and_reset() {
     let mut b = Weave::builder("f").unwrap();
-    let k_tog = b.knot("tog", KnotKind::signal_in()).unwrap();
-    let k_rst = b.knot("rst", KnotKind::signal_in()).unwrap();
+    let k_tog = b
+        .knot("tog", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_rst = b
+        .knot("rst", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_flag = b
         .knot("flag", KnotKind::flag(FlagPriority::ResetWins, true))
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("lamp")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("lamp", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_tog, "out").unwrap();
     let to = b.input(&k_flag, "toggle").unwrap();
     b.connect(from, to).unwrap();
@@ -164,7 +181,9 @@ fn flag_toggle_rising_and_reset() {
 #[test]
 fn emit_once_on_held_trigger() {
     let mut b = Weave::builder("e").unwrap();
-    let k_btn = b.knot("btn", KnotKind::signal_in()).unwrap();
+    let k_btn = b
+        .knot("btn", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
     let k_em = b.knot("em", KnotKind::emit_command("fire")).unwrap();
     let from = b.output(&k_btn, "out").unwrap();
     let to = b.input(&k_em, "trigger").unwrap();

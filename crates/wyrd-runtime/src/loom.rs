@@ -4,7 +4,9 @@
 //! Dispatch uses bind-time [`KindTag`]s; inbound edges use CSR tables. Stateful
 //! runes (Flag, Counter, Timer, Delay, edges) update per-knot storage here.
 
-use wyrd_core::{is_truthy, CompareOp, FlagPriority, KnotId, PortSlot, Signal, ONE, ZERO};
+use wyrd_core::{
+    is_truthy, CompareOp, FlagPriority, KnotId, PortSlot, Signal, SignalDomain, ONE, ZERO,
+};
 
 use crate::bind::{Runtime, SenseSeed};
 use crate::kind_tag::KindTag;
@@ -252,27 +254,45 @@ impl Runtime {
                     self.set_port_hot(kid, PortSlot::new(1), o);
                 }
             }
-            KindTag::CalcAdd => {
+            KindTag::CalcAdd { domain } => {
                 let a = self.get_port_hot(kid, PortSlot::new(0));
                 let b = self.get_port_hot(kid, PortSlot::new(1));
-                self.set_port_hot(kid, PortSlot::new(2), wyrd_core::signal_ops::sat_add(a, b));
+                let out = match domain {
+                    SignalDomain::Count => count_add(a, b),
+                    _ => wyrd_core::signal_ops::sat_add(a, b),
+                };
+                self.set_port_hot(kid, PortSlot::new(2), out);
             }
-            KindTag::CalcSub => {
+            KindTag::CalcSub { domain } => {
                 let a = self.get_port_hot(kid, PortSlot::new(0));
                 let b = self.get_port_hot(kid, PortSlot::new(1));
-                self.set_port_hot(kid, PortSlot::new(2), wyrd_core::signal_ops::sat_sub(a, b));
+                let out = match domain {
+                    SignalDomain::Count => count_sub(a, b),
+                    _ => wyrd_core::signal_ops::sat_sub(a, b),
+                };
+                self.set_port_hot(kid, PortSlot::new(2), out);
             }
-            KindTag::CalcMul => {
+            KindTag::CalcMulLevel => {
                 let a = self.get_port_hot(kid, PortSlot::new(0));
                 let b = self.get_port_hot(kid, PortSlot::new(1));
                 self.set_port_hot(kid, PortSlot::new(2), wyrd_core::signal_ops::mul(a, b));
             }
-            KindTag::CalcDiv => {
+            KindTag::CalcMulCount => {
+                let a = self.get_port_hot(kid, PortSlot::new(0));
+                let b = self.get_port_hot(kid, PortSlot::new(1));
+                self.set_port_hot(kid, PortSlot::new(2), count_mul(a, b));
+            }
+            KindTag::CalcDivLevel => {
                 let a = self.get_port_hot(kid, PortSlot::new(0));
                 let b = self.get_port_hot(kid, PortSlot::new(1));
                 self.set_port_hot(kid, PortSlot::new(2), wyrd_core::signal_ops::div(a, b));
             }
-            KindTag::CalcDivConst { divisor } => {
+            KindTag::CalcDivCount => {
+                let a = self.get_port_hot(kid, PortSlot::new(0));
+                let b = self.get_port_hot(kid, PortSlot::new(1));
+                self.set_port_hot(kid, PortSlot::new(2), count_div(a, b));
+            }
+            KindTag::CalcDivLevelConst { divisor } => {
                 let a = self.get_port_hot(kid, PortSlot::new(0));
                 self.set_port_hot(
                     kid,
@@ -280,23 +300,28 @@ impl Runtime {
                     wyrd_core::signal_ops::div(a, divisor),
                 );
             }
-            KindTag::Abs => {
+            KindTag::CalcDivCountConst { divisor } => {
+                let a = self.get_port_hot(kid, PortSlot::new(0));
+                self.set_port_hot(kid, PortSlot::new(2), count_div(a, divisor));
+            }
+            KindTag::Abs { domain } => {
                 let i = self.get_port_hot(kid, PortSlot::new(0));
-                #[cfg(feature = "signal-f32")]
-                let o = if i < 0.0 { -i } else { i };
-                #[cfg(feature = "signal-i32")]
-                let o = i.saturating_abs();
+                let o = match domain {
+                    SignalDomain::Count => count_abs(i),
+                    _ => level_abs(i),
+                };
                 self.set_port_hot(kid, PortSlot::new(1), o);
             }
-            KindTag::Neg => {
+            KindTag::Neg { domain } => {
                 let i = self.get_port_hot(kid, PortSlot::new(0));
-                #[cfg(feature = "signal-f32")]
-                let o = -i;
-                #[cfg(feature = "signal-i32")]
-                let o = i.saturating_neg();
+                let o = match domain {
+                    SignalDomain::Count => count_neg(i),
+                    _ => level_neg(i),
+                };
                 self.set_port_hot(kid, PortSlot::new(1), o);
             }
             KindTag::Map {
+                domain,
                 degenerate,
                 in_min,
                 out_min,
@@ -310,6 +335,7 @@ impl Runtime {
                 let i = self.get_port_hot(kid, PortSlot::new(0));
                 let o = map_linear_fast(
                     i,
+                    domain,
                     degenerate,
                     in_min,
                     out_min,
@@ -330,6 +356,7 @@ impl Runtime {
                 self.set_port_hot(kid, PortSlot::new(3), o);
             }
             KindTag::Digitize {
+                domain,
                 degenerate,
                 in_min,
                 out_min,
@@ -346,6 +373,7 @@ impl Runtime {
                 let i = self.get_port_hot(kid, PortSlot::new(0));
                 let o = digitize_fast(
                     i,
+                    domain,
                     degenerate,
                     in_min,
                     out_min,
@@ -393,11 +421,16 @@ impl Runtime {
                     if prev && !latched { ONE } else { ZERO },
                 );
             }
-            KindTag::Random {
+            tag @ (KindTag::RandomLevel {
                 require_gate,
                 min_wired,
                 max_wired,
-            } => {
+            }
+            | KindTag::RandomCount {
+                require_gate,
+                min_wired,
+                max_wired,
+            }) => {
                 // Unwired min/max ports default to ZERO / ONE (not cleared gather zeros).
                 let min_v = if min_wired {
                     self.get_port_hot(kid, PortSlot::new(0))
@@ -407,7 +440,10 @@ impl Runtime {
                 let max_v = if max_wired {
                     self.get_port_hot(kid, PortSlot::new(1))
                 } else {
-                    ONE
+                    match tag {
+                        KindTag::RandomCount { .. } => wyrd_core::from_count(1),
+                        _ => ONE,
+                    }
                 };
                 let gate = self.get_port_hot(kid, PortSlot::new(2));
                 let prev = self.prev_in[ki];
@@ -415,7 +451,10 @@ impl Runtime {
                 let sample = if require_gate { rising } else { true };
                 if sample {
                     let u = self.next_rng_u32();
-                    let o = random_in_range(u, min_v, max_v);
+                    let o = match tag {
+                        KindTag::RandomCount { .. } => random_count_in_range(u, min_v, max_v),
+                        _ => random_level_in_range(u, min_v, max_v),
+                    };
                     self.set_port_hot(kid, PortSlot::new(3), o);
                     // Last sample is stashed in `counter` (shared rune storage).
                     #[cfg(feature = "signal-f32")]
@@ -442,10 +481,36 @@ impl Runtime {
                 }
                 self.prev_in[ki] = gate;
             }
-            KindTag::Sqrt => {
+            KindTag::SqrtLevel => {
                 let i = self.get_port_hot(kid, PortSlot::new(0));
-                let o = signal_sqrt(i);
+                let o = level_sqrt(i);
                 self.set_port_hot(kid, PortSlot::new(1), o);
+            }
+            KindTag::SqrtCount => {
+                let i = self.get_port_hot(kid, PortSlot::new(0));
+                let o = count_sqrt(i);
+                self.set_port_hot(kid, PortSlot::new(1), o);
+            }
+            KindTag::ConvertBoolToLevel | KindTag::ConvertIdentity => {
+                let i = self.get_port_hot(kid, PortSlot::new(0));
+                self.set_port_hot(kid, PortSlot::new(1), i);
+            }
+            KindTag::ConvertBoolToCount => {
+                let i = self.get_port_hot(kid, PortSlot::new(0));
+                let o = wyrd_core::from_count(i32::from(is_truthy(i)));
+                self.set_port_hot(kid, PortSlot::new(1), o);
+            }
+            KindTag::ConvertLevelToBool | KindTag::ConvertCountToBool => {
+                let i = self.get_port_hot(kid, PortSlot::new(0));
+                self.set_port_hot(kid, PortSlot::new(1), if is_truthy(i) { ONE } else { ZERO });
+            }
+            KindTag::ConvertLevelToCount => {
+                let i = self.get_port_hot(kid, PortSlot::new(0));
+                self.set_port_hot(kid, PortSlot::new(1), level_to_count(i));
+            }
+            KindTag::ConvertCountToLevel => {
+                let i = self.get_port_hot(kid, PortSlot::new(0));
+                self.set_port_hot(kid, PortSlot::new(1), count_to_level(i));
             }
             KindTag::Xor => {
                 let a = is_truthy(self.get_port_hot(kid, PortSlot::new(0)));
@@ -525,8 +590,162 @@ fn compare(op: CompareOp, lhs: Signal, rhs: Signal) -> bool {
 }
 
 #[inline]
+#[cfg(feature = "signal-f32")]
+fn normalize_count(value: Signal) -> Signal {
+    const MAX_COUNT: f32 = 2_147_483_520.0;
+    if value.is_nan() {
+        ZERO
+    } else {
+        value.trunc().clamp(i32::MIN as f32, MAX_COUNT)
+    }
+}
+
+#[inline]
+fn count_add(a: Signal, b: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        normalize_count(a + b)
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        a.saturating_add(b)
+    }
+}
+
+#[inline]
+fn count_sub(a: Signal, b: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        normalize_count(a - b)
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        a.saturating_sub(b)
+    }
+}
+
+#[inline]
+fn count_mul(a: Signal, b: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        normalize_count((a as f64 * b as f64) as f32)
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        a.saturating_mul(b)
+    }
+}
+
+#[inline]
+fn count_div(a: Signal, b: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        let a = a as i32;
+        let b = b as i32;
+        if b == 0 {
+            0.0
+        } else {
+            normalize_count(a.checked_div(b).unwrap_or(i32::MAX) as f32)
+        }
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        if b == 0 {
+            0
+        } else {
+            a.checked_div(b).unwrap_or(i32::MAX)
+        }
+    }
+}
+
+#[inline]
+fn level_to_count(value: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        let rounded = if value >= 0.0 {
+            value + 0.5
+        } else {
+            value - 0.5
+        };
+        normalize_count(rounded)
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        let value = value as i64;
+        let half = (ONE / 2) as i64;
+        let rounded = if value >= 0 {
+            (value + half) / (ONE as i64)
+        } else {
+            (value - half) / (ONE as i64)
+        };
+        rounded.clamp(i32::MIN as i64, i32::MAX as i64) as i32
+    }
+}
+
+#[inline]
+fn count_abs(value: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        normalize_count(value.abs())
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        value.saturating_abs()
+    }
+}
+
+#[inline]
+fn count_neg(value: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        normalize_count(-value)
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        value.saturating_neg()
+    }
+}
+
+#[inline]
+fn level_abs(value: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        value.abs()
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        value.saturating_abs()
+    }
+}
+
+#[inline]
+fn level_neg(value: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        -value
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        value.saturating_neg()
+    }
+}
+
+#[inline]
+fn count_to_level(value: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        value
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        value.saturating_mul(ONE)
+    }
+}
+
+#[inline]
 fn map_linear_fast(
     i: Signal,
+    domain: SignalDomain,
     degenerate: bool,
     in_min: Signal,
     out_min: Signal,
@@ -541,11 +760,16 @@ fn map_linear_fast(
     #[cfg(feature = "signal-f32")]
     {
         let t = ((i - in_min) * inv_in_span).clamp(0.0, 1.0);
-        out_min + t * out_span
+        let mapped = out_min + t * out_span;
+        if domain == SignalDomain::Count {
+            normalize_count(mapped)
+        } else {
+            mapped
+        }
     }
     #[cfg(feature = "signal-i32")]
     {
-        let _ = (inv_in_span, out_span);
+        let _ = (domain, inv_in_span, out_span);
         let t = ((i as i64) - (in_min as i64)).clamp(0, den);
         let mapped = (out_min as i128) + (t as i128) * (out_span_i64 as i128) / (den as i128);
         mapped as i32
@@ -560,8 +784,21 @@ pub(crate) fn map_linear_for_test(
     out_min: Signal,
     out_max: Signal,
 ) -> Signal {
-    match KindTag::map_precomputed(in_min, in_max, out_min, out_max) {
+    map_linear_for_domain_test(SignalDomain::Level, i, in_min, in_max, out_min, out_max)
+}
+
+#[cfg(test)]
+pub(crate) fn map_linear_for_domain_test(
+    domain: SignalDomain,
+    i: Signal,
+    in_min: Signal,
+    in_max: Signal,
+    out_min: Signal,
+    out_max: Signal,
+) -> Signal {
+    match KindTag::map_precomputed(domain, in_min, in_max, out_min, out_max) {
         KindTag::Map {
+            domain,
             degenerate,
             in_min,
             out_min,
@@ -573,6 +810,7 @@ pub(crate) fn map_linear_for_test(
             out_span_i64,
         } => map_linear_fast(
             i,
+            domain,
             degenerate,
             in_min,
             out_min,
@@ -592,6 +830,7 @@ pub(crate) fn map_linear_for_test(
 #[allow(clippy::too_many_arguments)]
 fn digitize_fast(
     i: Signal,
+    domain: SignalDomain,
     degenerate: bool,
     in_min: Signal,
     out_min: Signal,
@@ -612,17 +851,18 @@ fn digitize_fast(
         let raw = (i - in_min) * bin_scale;
         let bin = raw.max(0.0).min(last_f) as u32;
         #[cfg(feature = "std")]
-        {
-            out_scale.mul_add(bin as f32, out_min)
-        }
+        let mapped = { out_scale.mul_add(bin as f32, out_min) };
         #[cfg(not(feature = "std"))]
-        {
-            out_scale * bin as f32 + out_min
+        let mapped = { out_scale * bin as f32 + out_min };
+        if domain == SignalDomain::Count {
+            normalize_count(mapped)
+        } else {
+            mapped
         }
     }
     #[cfg(feature = "signal-i32")]
     {
-        let _ = (bin_scale, out_scale, last_f);
+        let _ = (domain, bin_scale, out_scale, last_f);
         let last_i = last as i64;
         let t = ((i as i64) - (in_min as i64)).clamp(0, den);
         let mut bin = t * (steps as i64) / den;
@@ -643,8 +883,30 @@ pub(crate) fn digitize_for_test(
     out_min: Signal,
     out_max: Signal,
 ) -> Signal {
-    match KindTag::digitize_precomputed(steps, in_min, in_max, out_min, out_max) {
+    digitize_for_domain_test(
+        SignalDomain::Level,
+        i,
+        steps,
+        in_min,
+        in_max,
+        out_min,
+        out_max,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn digitize_for_domain_test(
+    domain: SignalDomain,
+    i: Signal,
+    steps: u16,
+    in_min: Signal,
+    in_max: Signal,
+    out_min: Signal,
+    out_max: Signal,
+) -> Signal {
+    match KindTag::digitize_precomputed(domain, steps, in_min, in_max, out_min, out_max) {
         KindTag::Digitize {
+            domain,
             degenerate,
             in_min,
             out_min,
@@ -659,6 +921,7 @@ pub(crate) fn digitize_for_test(
             out_span,
         } => digitize_fast(
             i,
+            domain,
             degenerate,
             in_min,
             out_min,
@@ -678,7 +941,7 @@ pub(crate) fn digitize_for_test(
 
 /// Map `u` into `[min_v, max_v]` (order-independent). i32 uses a wide product so
 /// full-domain spans do not overflow intermediate mul.
-fn random_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
+fn random_level_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
     #[cfg(feature = "signal-f32")]
     {
         let t = (u as f32) / (u32::MAX as f32);
@@ -699,7 +962,20 @@ fn random_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
     }
 }
 
-fn signal_sqrt(i: Signal) -> Signal {
+fn random_count_in_range(u: u32, min_v: Signal, max_v: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    let (min_v, max_v) = (min_v as i32, max_v as i32);
+    let lo = min_v.min(max_v) as i64;
+    let hi = min_v.max(max_v) as i64;
+    let span = hi - lo;
+    if span <= 0 {
+        return wyrd_core::from_count(lo as i32);
+    }
+    let offset = ((u as u128) * (span as u128)) / (u32::MAX as u128);
+    wyrd_core::from_count((lo + offset as i64) as i32)
+}
+
+fn level_sqrt(i: Signal) -> Signal {
     #[cfg(feature = "signal-f32")]
     {
         if i <= 0.0 {
@@ -710,7 +986,30 @@ fn signal_sqrt(i: Signal) -> Signal {
     }
     #[cfg(feature = "signal-i32")]
     {
-        isqrt_i32(i)
+        if i <= 0 {
+            0
+        } else {
+            isqrt_u64((i as u64) * (ONE as u64)) as i32
+        }
+    }
+}
+
+fn count_sqrt(i: Signal) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        if i <= 0.0 {
+            0.0
+        } else {
+            (sqrt_f32(i) as i32) as f32
+        }
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        if i <= 0 {
+            0
+        } else {
+            isqrt_u64(i as u64) as i32
+        }
     }
 }
 
@@ -764,18 +1063,13 @@ mod sqrt_f32_tests {
 /// Floor integer square root via Newton iteration.
 #[cfg(feature = "signal-i32")]
 #[inline]
-fn isqrt_i32(n: i32) -> i32 {
-    if n <= 0 {
-        return 0;
+fn isqrt_u64(n: u64) -> u64 {
+    if n < 2 {
+        return n;
     }
-    if n < 4 {
-        return 1;
-    }
-    let z = n as u32;
-    let mut x = 1i32 << ((32 - z.leading_zeros() + 1) / 2);
+    let mut x = 1u64 << ((64 - n.leading_zeros() + 1) / 2);
     loop {
-        let y = ((x as i64) + (n as i64) / (x as i64)) / 2;
-        let y = y as i32;
+        let y = (x + n / x) / 2;
         if y >= x {
             return x;
         }
@@ -788,19 +1082,69 @@ fn isqrt_i32(n: i32) -> i32 {
 fn isqrt_matches_perfect_squares() {
     for k in 0i32..200 {
         let n = k * k;
-        assert_eq!(isqrt_i32(n), k, "isqrt({n})");
+        assert_eq!(isqrt_u64(n as u64), k as u64, "isqrt({n})");
         if k > 0 {
-            assert_eq!(isqrt_i32(n - 1), k - 1);
+            assert_eq!(isqrt_u64((n - 1) as u64), (k - 1) as u64);
         }
     }
-    assert_eq!(isqrt_i32(0), 0);
-    assert_eq!(isqrt_i32(-3), 0);
+    assert_eq!(isqrt_u64(0), 0);
+}
+
+#[cfg(test)]
+mod domain_math_tests {
+    use super::{
+        count_abs, count_add, count_div, count_mul, count_neg, count_sqrt, count_sub,
+        count_to_level, level_sqrt, level_to_count,
+    };
+    use wyrd_core::{from_count, from_level};
+
+    #[test]
+    fn count_arithmetic_is_integer_and_saturating() {
+        assert_eq!(count_mul(from_count(6), from_count(7)), from_count(42));
+        assert_eq!(
+            count_mul(from_count(50_000), from_count(50_000)),
+            from_count(i32::MAX)
+        );
+        assert_eq!(count_div(from_count(7), from_count(2)), from_count(3));
+        assert_eq!(count_div(from_count(7), from_count(0)), from_count(0));
+        assert_eq!(
+            count_div(from_count(i32::MIN), from_count(-1)),
+            from_count(i32::MAX)
+        );
+        assert_eq!(
+            count_add(from_count(i32::MAX), from_count(1)),
+            from_count(i32::MAX)
+        );
+        assert_eq!(
+            count_sub(from_count(i32::MIN), from_count(1)),
+            from_count(i32::MIN)
+        );
+        assert_eq!(count_abs(from_count(i32::MIN)), from_count(i32::MAX));
+        assert_eq!(count_neg(from_count(i32::MIN)), from_count(i32::MAX));
+    }
+
+    #[test]
+    fn numeric_conversions_round_and_saturate() {
+        assert_eq!(level_to_count(from_level(2.5)), from_count(3));
+        assert_eq!(level_to_count(from_level(-2.5)), from_count(-3));
+        assert_eq!(count_to_level(from_count(2)), from_level(2.0));
+
+        #[cfg(feature = "signal-i32")]
+        assert_eq!(count_to_level(i32::MAX), i32::MAX);
+    }
+
+    #[test]
+    fn sqrt_respects_level_and_count_representations() {
+        assert_eq!(level_sqrt(from_level(0.25)), from_level(0.5));
+        assert_eq!(count_sqrt(from_count(15)), from_count(3));
+        assert_eq!(count_sqrt(from_count(-1)), from_count(0));
+    }
 }
 
 #[cfg(test)]
 mod digitize_tests {
-    use super::digitize_for_test;
-    use wyrd_core::{from_count, ONE, ZERO};
+    use super::{digitize_for_domain_test, digitize_for_test};
+    use wyrd_core::{from_count, SignalDomain, ONE, ZERO};
 
     #[test]
     fn digitize_precompute_matches_endpoints_and_mids() {
@@ -834,12 +1178,28 @@ mod digitize_tests {
             from_count(7)
         );
     }
+
+    #[test]
+    fn count_digitize_truncates_non_divisible_ranges() {
+        assert_eq!(
+            digitize_for_domain_test(
+                SignalDomain::Count,
+                from_count(1),
+                4,
+                from_count(0),
+                from_count(3),
+                from_count(0),
+                from_count(10),
+            ),
+            from_count(3)
+        );
+    }
 }
 
 #[cfg(test)]
 mod map_tests {
-    use super::map_linear_for_test;
-    use wyrd_core::{from_count, ONE, ZERO};
+    use super::{map_linear_for_domain_test, map_linear_for_test};
+    use wyrd_core::{from_count, SignalDomain, ONE, ZERO};
 
     #[test]
     fn map_precompute_endpoints_mid_and_degenerate() {
@@ -877,6 +1237,21 @@ mod map_tests {
         assert!((mid - 0.5).abs() < 1e-5);
         #[cfg(feature = "signal-i32")]
         assert_eq!(mid, ONE / 2);
+    }
+
+    #[test]
+    fn count_map_truncates_non_divisible_ranges() {
+        assert_eq!(
+            map_linear_for_domain_test(
+                SignalDomain::Count,
+                from_count(1),
+                from_count(0),
+                from_count(3),
+                from_count(0),
+                from_count(10),
+            ),
+            from_count(3)
+        );
     }
 
     #[cfg(feature = "signal-i32")]

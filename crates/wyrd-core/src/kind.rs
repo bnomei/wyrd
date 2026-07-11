@@ -22,6 +22,29 @@ pub enum NumericPath {
     I32Q16,
 }
 
+/// Semantic domain carried by a monomorphic [`Signal`] wire.
+///
+/// Domains are graph-time contracts. They do not change the runtime wire
+/// representation selected by `signal-f32` or `signal-i32`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
+pub enum SignalDomain {
+    /// Exact false/true values (`ZERO`/`ONE`).
+    Bool,
+    /// Continuous numeric values.
+    Level,
+    /// Whole-number values.
+    Count,
+}
+
+impl SignalDomain {
+    /// Whether this domain supports numeric knot operations.
+    pub const fn is_numeric(self) -> bool {
+        matches!(self, SignalDomain::Level | SignalDomain::Count)
+    }
+}
+
 impl NumericPath {
     /// Path encoded by the active cargo feature for this build.
     pub fn compiled() -> Self {
@@ -46,6 +69,16 @@ pub enum CompareOp {
     Lte,
     Gt,
     Gte,
+}
+
+impl CompareOp {
+    /// Whether this comparison is defined for `domain`.
+    ///
+    /// Boolean signals support equality only; numeric domains also support
+    /// ordering comparisons.
+    pub const fn supports_domain(self, domain: SignalDomain) -> bool {
+        !matches!(domain, SignalDomain::Bool) || matches!(self, CompareOp::Eq | CompareOp::Ne)
+    }
 }
 
 /// Timer behavior for [`KnotKind::Timer`].
@@ -84,9 +117,12 @@ pub enum FlagPriority {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum KnotKind {
     Constant {
+        domain: SignalDomain,
         value: Signal,
     },
-    SignalIn,
+    SignalIn {
+        domain: SignalDomain,
+    },
     OnStart,
     Not,
     And {
@@ -96,9 +132,10 @@ pub enum KnotKind {
         arity: u8,
     },
     Compare {
+        domain: SignalDomain,
         op: CompareOp,
-        /// Whole-unit rhs when the `rhs` port is unconnected.
-        rhs_const: Option<i32>,
+        /// Domain-encoded fallback when the `rhs` port is unconnected.
+        rhs_const: Option<Signal>,
     },
     RisingFromZero,
     Flag {
@@ -114,20 +151,27 @@ pub enum KnotKind {
         ticks: u16,
     },
     Calc {
+        domain: SignalDomain,
         op: CalcOp,
     },
     Map {
+        domain: SignalDomain,
         in_min: Signal,
         in_max: Signal,
         out_min: Signal,
         out_max: Signal,
     },
-    Abs,
-    Neg,
+    Abs {
+        domain: SignalDomain,
+    },
+    Neg {
+        domain: SignalDomain,
+    },
     /// Multiplex: falsey `sel` → `a`, truthy `sel` → `b`.
     Select,
     /// Quantize `in` into `steps` bins over in range, map to out range.
     Digitize {
+        domain: SignalDomain,
         steps: u16,
         in_min: Signal,
         in_max: Signal,
@@ -136,26 +180,36 @@ pub enum KnotKind {
     },
     /// Gate a continuous signal with optional hysteresis; edge pulse outs.
     Threshold {
+        domain: SignalDomain,
         high: Signal,
         low: Signal,
         use_hysteresis: bool,
     },
     /// Seeded PRNG sample into `[min,max]` ports; optional rising `gate`.
     Random {
+        domain: SignalDomain,
         require_gate: bool,
     },
-    /// Square root. f32: `f32::sqrt` on levels. i32: integer isqrt on Signal
-    /// bits (count-domain friendly; not Q16.16 level-sqrt).
-    Sqrt,
+    /// Square root using the declared numeric domain's representation.
+    Sqrt {
+        domain: SignalDomain,
+    },
     Xor,
     FallingToZero,
     Change,
     Clamp {
+        domain: SignalDomain,
         min: Signal,
         max: Signal,
     },
+    /// Explicit conversion between two distinct signal domains.
+    Convert {
+        from: SignalDomain,
+        to: SignalDomain,
+    },
     SignalOut {
         path: std::string::String,
+        domain: SignalDomain,
     },
     EmitCommand {
         name: std::string::String,
@@ -175,22 +229,44 @@ impl KnotKind {
         KnotKind::Not
     }
 
-    pub fn signal_in() -> Self {
-        KnotKind::SignalIn
+    pub fn signal_in(domain: SignalDomain) -> Self {
+        KnotKind::SignalIn { domain }
     }
 
-    pub fn constant(value: Signal) -> Self {
-        KnotKind::Constant { value }
+    pub fn constant(value: Signal, domain: SignalDomain) -> Self {
+        KnotKind::Constant { domain, value }
     }
 
     pub fn constant_count(n: i32) -> Self {
         KnotKind::Constant {
+            domain: SignalDomain::Count,
             value: crate::signal::from_count(n),
         }
     }
 
-    pub fn signal_out(path: impl Into<std::string::String>) -> Self {
-        KnotKind::SignalOut { path: path.into() }
+    pub fn constant_bool(value: bool) -> Self {
+        KnotKind::Constant {
+            domain: SignalDomain::Bool,
+            value: if value {
+                crate::signal::ONE
+            } else {
+                crate::signal::ZERO
+            },
+        }
+    }
+
+    pub fn constant_level(value: f32) -> Self {
+        KnotKind::Constant {
+            domain: SignalDomain::Level,
+            value: crate::signal::from_level(value),
+        }
+    }
+
+    pub fn signal_out(path: impl Into<std::string::String>, domain: SignalDomain) -> Self {
+        KnotKind::SignalOut {
+            path: path.into(),
+            domain,
+        }
     }
 
     pub fn emit_command(name: impl Into<std::string::String>) -> Self {
@@ -201,8 +277,12 @@ impl KnotKind {
         KnotKind::RisingFromZero
     }
 
-    pub fn compare(op: CompareOp, rhs_const: Option<i32>) -> Self {
-        KnotKind::Compare { op, rhs_const }
+    pub fn compare(op: CompareOp, rhs_const: Option<Signal>, domain: SignalDomain) -> Self {
+        KnotKind::Compare {
+            domain,
+            op,
+            rhs_const,
+        }
     }
 
     pub fn counter() -> Self {
@@ -224,9 +304,38 @@ impl KnotKind {
         KnotKind::Select
     }
 
+    pub fn calc(op: CalcOp, domain: SignalDomain) -> Self {
+        KnotKind::Calc { domain, op }
+    }
+
+    pub fn map(
+        in_min: Signal,
+        in_max: Signal,
+        out_min: Signal,
+        out_max: Signal,
+        domain: SignalDomain,
+    ) -> Self {
+        KnotKind::Map {
+            domain,
+            in_min,
+            in_max,
+            out_min,
+            out_max,
+        }
+    }
+
+    pub fn abs(domain: SignalDomain) -> Self {
+        KnotKind::Abs { domain }
+    }
+
+    pub fn neg(domain: SignalDomain) -> Self {
+        KnotKind::Neg { domain }
+    }
+
     /// Digitize with `steps` bins over 0..ONE → 0..ONE. Steps of 0 become 1.
-    pub fn digitize(steps: u16) -> Self {
+    pub fn digitize(steps: u16, domain: SignalDomain) -> Self {
         KnotKind::Digitize {
+            domain,
             steps: steps.max(1),
             in_min: crate::signal::ZERO,
             in_max: crate::signal::ONE,
@@ -235,11 +344,20 @@ impl KnotKind {
         }
     }
 
-    /// Threshold at half-scale with mild hysteresis (low=0.4·ONE, high=0.5·ONE on f32).
-    pub fn threshold_default() -> Self {
+    /// Level thresholds use half-scale hysteresis; Count thresholds use 0/1.
+    pub fn threshold_default(domain: SignalDomain) -> Self {
+        if domain == SignalDomain::Count {
+            return KnotKind::Threshold {
+                domain,
+                high: crate::signal::from_count(1),
+                low: crate::signal::from_count(0),
+                use_hysteresis: true,
+            };
+        }
         #[cfg(feature = "signal-f32")]
         {
             KnotKind::Threshold {
+                domain,
                 high: 0.5,
                 low: 0.4,
                 use_hysteresis: true,
@@ -249,6 +367,7 @@ impl KnotKind {
         {
             let one = crate::signal::ONE;
             KnotKind::Threshold {
+                domain,
                 high: one / 2,
                 low: one * 2 / 5, // 0.4
                 use_hysteresis: true,
@@ -256,12 +375,15 @@ impl KnotKind {
         }
     }
 
-    pub fn random(require_gate: bool) -> Self {
-        KnotKind::Random { require_gate }
+    pub fn random(require_gate: bool, domain: SignalDomain) -> Self {
+        KnotKind::Random {
+            domain,
+            require_gate,
+        }
     }
 
-    pub fn sqrt() -> Self {
-        KnotKind::Sqrt
+    pub fn sqrt(domain: SignalDomain) -> Self {
+        KnotKind::Sqrt { domain }
     }
 
     pub fn xor() -> Self {
@@ -276,8 +398,30 @@ impl KnotKind {
         KnotKind::Change
     }
 
-    pub fn clamp(min: Signal, max: Signal) -> Self {
-        KnotKind::Clamp { min, max }
+    pub fn clamp(min: Signal, max: Signal, domain: SignalDomain) -> Self {
+        KnotKind::Clamp { domain, min, max }
+    }
+
+    pub fn convert(from: SignalDomain, to: SignalDomain) -> Self {
+        KnotKind::Convert { from, to }
+    }
+
+    /// Whether all authored domain choices are legal for this knot kind.
+    pub fn has_valid_domains(&self) -> bool {
+        match self {
+            KnotKind::Compare { domain, op, .. } => op.supports_domain(*domain),
+            KnotKind::Calc { domain, .. }
+            | KnotKind::Map { domain, .. }
+            | KnotKind::Abs { domain }
+            | KnotKind::Neg { domain }
+            | KnotKind::Digitize { domain, .. }
+            | KnotKind::Threshold { domain, .. }
+            | KnotKind::Random { domain, .. }
+            | KnotKind::Sqrt { domain }
+            | KnotKind::Clamp { domain, .. } => domain.is_numeric(),
+            KnotKind::Convert { from, to } => from != to,
+            _ => true,
+        }
     }
 
     /// And/Or input arity when applicable.
@@ -301,7 +445,7 @@ mod tests {
         assert!(matches!(KnotKind::not(), KnotKind::Not));
         assert!(matches!(
             KnotKind::constant_count(7),
-            KnotKind::Constant { value } if value == from_count(7)
+            KnotKind::Constant { value, .. } if value == from_count(7)
         ));
         assert!(matches!(
             KnotKind::emit_command("go"),
@@ -312,22 +456,37 @@ mod tests {
         assert_eq!(KnotKind::not().arity(), None);
         assert_eq!(NumericPath::compiled(), NumericPath::compiled());
         let _ = ONE;
-        let _ = KnotKind::signal_in();
-        let _ = KnotKind::signal_out("p");
+        let _ = KnotKind::signal_in(SignalDomain::Bool);
+        let _ = KnotKind::signal_out("p", SignalDomain::Bool);
         let _ = KnotKind::rising_from_zero();
-        let _ = KnotKind::compare(CompareOp::Eq, None);
+        let _ = KnotKind::compare(CompareOp::Eq, None, SignalDomain::Bool);
         let _ = KnotKind::counter();
         let _ = KnotKind::timer(TimerMode::PulseHold, 1);
         let _ = KnotKind::flag(FlagPriority::SetWins, false);
-        let _ = KnotKind::constant(ONE);
+        let _ = KnotKind::constant(ONE, SignalDomain::Bool);
         let _ = KnotKind::select();
-        let _ = KnotKind::digitize(4);
-        let _ = KnotKind::threshold_default();
-        let _ = KnotKind::random(false);
-        let _ = KnotKind::sqrt();
+        let _ = KnotKind::calc(CalcOp::Add, SignalDomain::Count);
+        let _ = KnotKind::map(crate::ZERO, ONE, crate::ZERO, ONE, SignalDomain::Level);
+        let _ = KnotKind::abs(SignalDomain::Level);
+        let _ = KnotKind::neg(SignalDomain::Count);
+        let _ = KnotKind::digitize(4, SignalDomain::Level);
+        let _ = KnotKind::threshold_default(SignalDomain::Level);
+        let _ = KnotKind::random(false, SignalDomain::Count);
+        let _ = KnotKind::sqrt(SignalDomain::Count);
         let _ = KnotKind::xor();
         let _ = KnotKind::falling_to_zero();
         let _ = KnotKind::change();
-        let _ = KnotKind::clamp(crate::ZERO, ONE);
+        let _ = KnotKind::clamp(crate::ZERO, ONE, SignalDomain::Level);
+        let _ = KnotKind::convert(SignalDomain::Count, SignalDomain::Level);
+    }
+
+    #[test]
+    fn domain_legality_is_catalog_owned() {
+        assert!(KnotKind::compare(CompareOp::Eq, None, SignalDomain::Bool).has_valid_domains());
+        assert!(!KnotKind::compare(CompareOp::Lt, None, SignalDomain::Bool).has_valid_domains());
+        assert!(KnotKind::calc(CalcOp::Mul, SignalDomain::Count).has_valid_domains());
+        assert!(!KnotKind::calc(CalcOp::Mul, SignalDomain::Bool).has_valid_domains());
+        assert!(KnotKind::convert(SignalDomain::Bool, SignalDomain::Level).has_valid_domains());
+        assert!(!KnotKind::convert(SignalDomain::Bool, SignalDomain::Bool).has_valid_domains());
     }
 }

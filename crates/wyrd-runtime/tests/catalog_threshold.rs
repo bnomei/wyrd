@@ -1,16 +1,23 @@
 //! Threshold: gate with optional hysteresis and edge pulses.
 
+use wyrd_core::SignalDomain;
 use wyrd_core::{from_count, is_truthy, HostTime, KnotKind, ONE, ZERO};
 use wyrd_graph::{ValidationError, Weave};
 use wyrd_runtime::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 
-fn wire_threshold(kind: KnotKind) -> (Weave, Runtime) {
+fn wire_threshold(kind: KnotKind, domain: SignalDomain) -> (Weave, Runtime) {
     let mut b = Weave::builder("t").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b.knot("in", KnotKind::signal_in(domain)).unwrap();
     let k_th = b.knot("th", kind).unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("gate")).unwrap();
-    let k_up = b.knot("up", KnotKind::signal_out("up")).unwrap();
-    let k_dn = b.knot("dn", KnotKind::signal_out("dn")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("gate", SignalDomain::Bool))
+        .unwrap();
+    let k_up = b
+        .knot("up", KnotKind::signal_out("up", SignalDomain::Bool))
+        .unwrap();
+    let k_dn = b
+        .knot("dn", KnotKind::signal_out("dn", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_th, "in").unwrap();
     b.connect(from, to).unwrap();
@@ -30,11 +37,15 @@ fn wire_threshold(kind: KnotKind) -> (Weave, Runtime) {
 
 #[test]
 fn threshold_simple_no_hysteresis() {
-    let (_weave, mut rt) = wire_threshold(KnotKind::Threshold {
-        high: from_count(5),
-        low: from_count(0),
-        use_hysteresis: false,
-    });
+    let (_weave, mut rt) = wire_threshold(
+        KnotKind::Threshold {
+            domain: SignalDomain::Count,
+            high: from_count(5),
+            low: from_count(0),
+            use_hysteresis: false,
+        },
+        SignalDomain::Count,
+    );
     let id = rt.sense_id("in").unwrap();
 
     rt.begin_frame(HostTime { tick: 0 });
@@ -58,7 +69,10 @@ fn threshold_simple_no_hysteresis() {
 
 #[test]
 fn threshold_hysteresis_band() {
-    let (_weave, mut rt) = wire_threshold(KnotKind::threshold_default());
+    let (_weave, mut rt) = wire_threshold(
+        KnotKind::threshold_default(SignalDomain::Level),
+        SignalDomain::Level,
+    );
     let id = rt.sense_id("in").unwrap();
 
     rt.begin_frame(HostTime { tick: 0 });
@@ -86,18 +100,23 @@ fn threshold_hysteresis_band() {
 #[test]
 fn threshold_invalid_hysteresis_rejected() {
     let mut b = Weave::builder("t").unwrap();
-    let k_in = b.knot("in", KnotKind::signal_in()).unwrap();
+    let k_in = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Count))
+        .unwrap();
     let k_th = b
         .knot(
             "th",
             KnotKind::Threshold {
+                domain: SignalDomain::Count,
                 high: from_count(1),
                 low: from_count(2),
                 use_hysteresis: true,
             },
         )
         .unwrap();
-    let k_out = b.knot("out", KnotKind::signal_out("y")).unwrap();
+    let k_out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
     let from = b.output(&k_in, "out").unwrap();
     let to = b.input(&k_th, "in").unwrap();
     b.connect(from, to).unwrap();
