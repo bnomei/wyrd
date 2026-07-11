@@ -547,7 +547,8 @@ fn map_linear_fast(
     {
         let _ = (inv_in_span, out_span);
         let t = ((i as i64) - (in_min as i64)).clamp(0, den);
-        (out_min as i64 + t * out_span_i64 / den) as i32
+        let mapped = (out_min as i128) + (t as i128) * (out_span_i64 as i128) / (den as i128);
+        mapped as i32
     }
 }
 
@@ -876,5 +877,48 @@ mod map_tests {
         assert!((mid - 0.5).abs() < 1e-5);
         #[cfg(feature = "signal-i32")]
         assert_eq!(mid, ONE / 2);
+    }
+
+    #[cfg(feature = "signal-i32")]
+    #[test]
+    fn map_full_i32_range_uses_wide_intermediates() {
+        assert_eq!(
+            map_linear_for_test(i32::MIN, i32::MIN, i32::MAX, i32::MIN, i32::MAX),
+            i32::MIN
+        );
+        assert_eq!(
+            map_linear_for_test(i32::MAX, i32::MIN, i32::MAX, i32::MIN, i32::MAX),
+            i32::MAX
+        );
+        assert_eq!(
+            map_linear_for_test(0, i32::MIN, i32::MAX, i32::MIN, i32::MAX),
+            0
+        );
+
+        assert_eq!(
+            map_linear_for_test(i32::MIN, i32::MIN, i32::MAX, i32::MAX, i32::MIN),
+            i32::MAX
+        );
+        assert_eq!(
+            map_linear_for_test(i32::MAX, i32::MIN, i32::MAX, i32::MAX, i32::MIN),
+            i32::MIN
+        );
+        assert_eq!(
+            map_linear_for_test(0, i32::MIN, i32::MAX, i32::MAX, i32::MIN),
+            -1
+        );
+    }
+
+    #[cfg(feature = "signal-i32")]
+    #[test]
+    fn map_full_i32_output_range_clamps_inputs_outside_range() {
+        assert_eq!(
+            map_linear_for_test(i32::MIN, -1, 1, i32::MIN, i32::MAX),
+            i32::MIN
+        );
+        assert_eq!(
+            map_linear_for_test(i32::MAX, -1, 1, i32::MIN, i32::MAX),
+            i32::MAX
+        );
     }
 }
