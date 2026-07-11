@@ -1,14 +1,14 @@
 # Wyrd
 
+[![CI](https://img.shields.io/github/actions/workflow/status/bnomei/wyrd/ci.yml?branch=main&label=CI)](https://github.com/bnomei/wyrd/actions/workflows/ci.yml)
+[![CodSpeed](https://img.shields.io/github/actions/workflow/status/bnomei/wyrd/codspeed.yml?branch=main&label=CodSpeed)](https://github.com/bnomei/wyrd/actions/workflows/codspeed.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Wyrd is a Rust library for composing game behavior as validated signal graphs. You author a
 `Weave`, bind it once into dense runtime state, sample host inputs, settle the graph, and apply
 its outputs back to your game.
 
 **Engine-neutral** · **`no_std` + `alloc`** · **`f32` or Q16 `i32` signals** · **Bevy 0.18 adapter**
-
-[![CodSpeed](https://img.shields.io/github/actions/workflow/status/bnomei/wyrd/codspeed.yml?branch=main&label=CodSpeed)](https://github.com/bnomei/wyrd/actions/workflows/codspeed.yml)
-
-Wyrd 0.2 is pre-1.0 and contains a breaking API redesign.
 
 ## When Wyrd fits
 
