@@ -10,6 +10,7 @@
 use bevy::prelude::*;
 use wyrd::core::{KnotKind, SignalDomain};
 use wyrd::graph::Weave;
+use wyrd::{weave, BuildError};
 use wyrd_bevy::{
     apply_signal_bool, set_sense_bool, AndDoorBinding, Door, WyrdInstance, WyrdPlugin, WyrdSet,
     WyrdSignalConfirm, WyrdWorld,
@@ -44,7 +45,7 @@ struct PlateState {
 }
 
 fn setup(mut world: ResMut<WyrdWorld>, mut commands: Commands) {
-    let weave = and_door_weave();
+    let weave = and_door_weave().expect("valid static weave");
     let inst = WyrdInstance::new("and_door", weave).expect("bind weave");
     let plate_a = inst.sense_id("plate_a").expect("plate_a");
     let plate_b = inst.sense_id("plate_b").expect("plate_b");
@@ -63,31 +64,21 @@ fn setup(mut world: ResMut<WyrdWorld>, mut commands: Commands) {
     );
 }
 
-fn and_door_weave() -> Weave {
-    let mut b = Weave::builder("door").unwrap();
-    let pa = b
-        .knot("plate_a", KnotKind::signal_in(SignalDomain::Bool))
-        .unwrap();
-    let pb = b
-        .knot("plate_b", KnotKind::signal_in(SignalDomain::Bool))
-        .unwrap();
-    let both = b.knot("both", KnotKind::and2()).unwrap();
-    let door = b
-        .knot(
-            "door",
-            KnotKind::signal_out("door.open", SignalDomain::Bool),
-        )
-        .unwrap();
-    let from = b.output(&pa, "out").unwrap();
-    let to = b.input(&both, "in_0").unwrap();
-    b.connect(from, to).unwrap();
-    let from = b.output(&pb, "out").unwrap();
-    let to = b.input(&both, "in_1").unwrap();
-    b.connect(from, to).unwrap();
-    let from = b.output(&both, "out").unwrap();
-    let to = b.input(&door, "in").unwrap();
-    b.connect(from, to).unwrap();
-    b.build().unwrap()
+fn and_door_weave() -> Result<Weave, BuildError> {
+    weave! {
+        id: "door";
+        knots {
+            plate_a = KnotKind::signal_in(SignalDomain::Bool);
+            plate_b = KnotKind::signal_in(SignalDomain::Bool);
+            both = KnotKind::and2();
+            door = KnotKind::signal_out("door.open", SignalDomain::Bool);
+        }
+        threads {
+            plate_a.out -> both.in_0;
+            plate_b.out -> both.in_1;
+            both.out -> door.in;
+        }
+    }
 }
 
 fn drive_plates(

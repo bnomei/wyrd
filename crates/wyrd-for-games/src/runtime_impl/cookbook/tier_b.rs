@@ -1,29 +1,26 @@
 //! Tier B — first five Weaves (GBG middle core).
-//!
-//! Full Weave listings appear under each function’s **Examples** in rustdoc.
 
-#![allow(clippy::result_large_err)] // CookbookError intentionally preserves context.
+#![allow(clippy::result_large_err)]
 
 use super::helpers::{bind_default, signal_out_truthy, tick_senses};
 use super::Result;
 use crate::authoring::{
-    KnotDef, Pattern, PatternDef, PatternExportDef, PortRefDef, ThreadDef, Weave, WeaveDef,
+    BuildError, KnotDef, Pattern, PatternDef, PatternExportDef, PortRefDef, ThreadDef, Weave,
+    WeaveDef,
 };
 use crate::foundation::{
     from_count, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
 };
 use crate::runtime_impl::host::ScriptedHost;
+use crate::weave;
 
-fn duplicate_knot_id<'a>(
-    failure_at: Option<&str>,
-    target: &str,
-    default: &'a str,
-    duplicate: &'a str,
-) -> &'a str {
-    if failure_at == Some(target) {
-        duplicate
-    } else {
-        default
+/// Topology for B01, with the monostable pattern supplied by the caller.
+pub fn b01_monostable_pattern_weave(pat: &Pattern) -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "lvl";
+        knots { btn = KnotKind::signal_in(SignalDomain::Bool); out = KnotKind::signal_out("lamp", SignalDomain::Bool); }
+        patterns { hold = ("hold1", pat); }
+        threads { btn.out -> hold.in("start"); hold.out("active") -> out.in; }
     }
 }
 
@@ -43,38 +40,25 @@ pub fn run_b01_monostable_pattern() -> Result<()> {
             knots: alloc::vec![
                 KnotDef {
                     id: "edge".into(),
-                    kind: KnotKind::rising_from_zero(),
+                    kind: KnotKind::rising_from_zero()
                 },
                 KnotDef {
                     id: "t".into(),
-                    kind: KnotKind::timer(TimerMode::PulseHold, 2),
-                },
+                    kind: KnotKind::timer(TimerMode::PulseHold, 2)
+                }
             ],
             threads: alloc::vec![ThreadDef {
                 from: PortRefDef::new("edge", "out"),
-                to: PortRefDef::new("t", "start"),
+                to: PortRefDef::new("t", "start")
             }],
         },
         inputs: alloc::vec![PatternExportDef::new("start", "edge", "in")],
         outputs: alloc::vec![PatternExportDef::new("active", "t", "active")],
     })?;
-
-    let mut b = Weave::builder("lvl")?;
-    let k_btn = b.knot("btn", KnotKind::signal_in(SignalDomain::Bool))?;
-    let exp = b.include("hold1", &pat)?;
-    let start = exp.input("start")?;
-    let active = exp.output("active")?;
-    let k_out = b.knot("out", KnotKind::signal_out("lamp", SignalDomain::Bool))?;
-    let btn_out = b.output(&k_btn, "out")?;
-    b.connect(btn_out, start)?;
-    let out_in = b.input(&k_out, "in")?;
-    b.connect(active, out_in)?;
-    let weave = b.build()?;
-
+    let weave = b01_monostable_pattern_weave(&pat)?;
     let mut rt = bind_default(&weave)?;
     let btn = rt.sense_id("btn").expect("btn");
     let mut host = ScriptedHost::new();
-
     tick_senses(&mut host, &mut rt, &[(btn, ZERO)])?;
     assert!(!signal_out_truthy(&rt, "lamp"));
     tick_senses(&mut host, &mut rt, &[(btn, ONE)])?;
@@ -86,6 +70,15 @@ pub fn run_b01_monostable_pattern() -> Result<()> {
     Ok(())
 }
 
+/// Topology for B02: two plates → And → door request.
+pub fn b02_two_plate_door_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "door";
+        knots { plate_a = KnotKind::signal_in(SignalDomain::Bool); plate_b = KnotKind::signal_in(SignalDomain::Bool); both = KnotKind::and2(); door = KnotKind::signal_out("door.open", SignalDomain::Bool); }
+        threads { plate_a.out -> both.in_0; plate_b.out -> both.in_1; both.out -> door.in; }
+    }
+}
+
 /// B02: Two-plate door (And) over ScriptedHost frames.
 ///
 /// # Examples
@@ -94,39 +87,25 @@ pub fn run_b01_monostable_pattern() -> Result<()> {
 /// wyrd::cookbook::tier_b::run_b02_two_plate_door().unwrap();
 /// ```
 pub fn run_b02_two_plate_door() -> Result<()> {
-    run_b02_two_plate_door_with(None)
-}
-
-fn run_b02_two_plate_door_with(failure_at: Option<&str>) -> Result<()> {
-    let mut b = Weave::builder("door")?;
-    let pa = b.knot("plate_a", KnotKind::signal_in(SignalDomain::Bool))?;
-    let pb = b.knot("plate_b", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_both = b.knot("both", KnotKind::and2())?;
-    let from = b.output(&pa, "out")?;
-    let to = b.input(&k_both, "in_0")?;
-    b.connect(from, to)?;
-    let from = b.output(&pb, "out")?;
-    let to = b.input(&k_both, "in_1")?;
-    b.connect(from, to)?;
-    let k_door = b.knot(
-        duplicate_knot_id(failure_at, "b02.door", "door", "plate_a"),
-        KnotKind::signal_out("door.open", SignalDomain::Bool),
-    )?;
-    let from = b.output(&k_both, "out")?;
-    let to = b.input(&k_door, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
+    let weave = b02_two_plate_door_weave()?;
     let mut rt = bind_default(&weave)?;
     let a = rt.sense_id("plate_a").expect("a");
-    let b_id = rt.sense_id("plate_b").expect("b");
+    let b = rt.sense_id("plate_b").expect("b");
     let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(a, ONE), (b_id, ZERO)])?;
+    tick_senses(&mut host, &mut rt, &[(a, ONE), (b, ZERO)])?;
     assert!(!signal_out_truthy(&rt, "door.open"));
-    tick_senses(&mut host, &mut rt, &[(a, ONE), (b_id, ONE)])?;
+    tick_senses(&mut host, &mut rt, &[(a, ONE), (b, ONE)])?;
     assert!(signal_out_truthy(&rt, "door.open"));
     Ok(())
+}
+
+/// Topology for B03: toggle/reset Flag → lamp.
+pub fn b03_flag_toggle_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "f";
+        knots { tog = KnotKind::signal_in(SignalDomain::Bool); rst = KnotKind::signal_in(SignalDomain::Bool); flag = KnotKind::flag(FlagPriority::ResetWins, true); out = KnotKind::signal_out("lamp", SignalDomain::Bool); }
+        threads { tog.out -> flag.toggle; rst.out -> flag.reset; flag.out -> out.in; }
+    }
 }
 
 /// B03: Flag toggle on rising `toggle` port + `reset` (ResetWins).
@@ -137,27 +116,11 @@ fn run_b02_two_plate_door_with(failure_at: Option<&str>) -> Result<()> {
 /// wyrd::cookbook::tier_b::run_b03_flag_toggle().unwrap();
 /// ```
 pub fn run_b03_flag_toggle() -> Result<()> {
-    let mut b = Weave::builder("f")?;
-    let k_tog = b.knot("tog", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_rst = b.knot("rst", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_flag = b.knot("flag", KnotKind::flag(FlagPriority::ResetWins, true))?;
-    let k_out = b.knot("out", KnotKind::signal_out("lamp", SignalDomain::Bool))?;
-    let from = b.output(&k_tog, "out")?;
-    let to = b.input(&k_flag, "toggle")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_rst, "out")?;
-    let to = b.input(&k_flag, "reset")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_flag, "out")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
+    let weave = b03_flag_toggle_weave()?;
     let mut rt = bind_default(&weave)?;
     let tog = rt.sense_id("tog").expect("tog");
     let rst = rt.sense_id("rst").expect("rst");
     let mut host = ScriptedHost::new();
-
     tick_senses(&mut host, &mut rt, &[(tog, ONE), (rst, ZERO)])?;
     assert!(signal_out_truthy(&rt, "lamp"));
     tick_senses(&mut host, &mut rt, &[(tog, ONE), (rst, ZERO)])?;
@@ -167,7 +130,16 @@ pub fn run_b03_flag_toggle() -> Result<()> {
     Ok(())
 }
 
-/// B04: Counter → Compare(Gte) — Counter owns rising-edge on `inc` (no extra Rising).
+/// Topology for B04: Counter → Compare(Gte) → ready.
+pub fn b04_counter_threshold_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "c";
+        knots { inc = KnotKind::signal_in(SignalDomain::Bool); cnt = KnotKind::counter(); cmp = KnotKind::compare(CompareOp::Gte, Some(from_count(2)), SignalDomain::Count); out = KnotKind::signal_out("ready", SignalDomain::Bool); }
+        threads { inc.out -> cnt.inc; cnt.count -> cmp.lhs; cmp.out -> out.in; }
+    }
+}
+
+/// B04: Counter → Compare(Gte) — Counter owns rising-edge on `inc`.
 ///
 /// # Examples
 ///
@@ -175,33 +147,10 @@ pub fn run_b03_flag_toggle() -> Result<()> {
 /// wyrd::cookbook::tier_b::run_b04_counter_threshold().unwrap();
 /// ```
 pub fn run_b04_counter_threshold() -> Result<()> {
-    run_b04_counter_threshold_with(None)
-}
-
-fn run_b04_counter_threshold_with(failure_at: Option<&str>) -> Result<()> {
-    let mut b = Weave::builder("c")?;
-    let k_inc = b.knot("inc", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_cnt = b.knot("cnt", KnotKind::counter())?;
-    let k_cmp = b.knot(
-        duplicate_knot_id(failure_at, "b04.compare", "cmp", "inc"),
-        KnotKind::compare(CompareOp::Gte, Some(from_count(2)), SignalDomain::Count),
-    )?;
-    let k_out = b.knot("out", KnotKind::signal_out("ready", SignalDomain::Bool))?;
-    let from = b.output(&k_inc, "out")?;
-    let to = b.input(&k_cnt, "inc")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_cnt, "count")?;
-    let to = b.input(&k_cmp, "lhs")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_cmp, "out")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
+    let weave = b04_counter_threshold_weave()?;
     let mut rt = bind_default(&weave)?;
     let inc = rt.sense_id("inc").expect("inc");
     let mut host = ScriptedHost::new();
-
     tick_senses(&mut host, &mut rt, &[(inc, ONE)])?;
     assert!(!signal_out_truthy(&rt, "ready"));
     tick_senses(&mut host, &mut rt, &[(inc, ZERO)])?;
@@ -209,6 +158,15 @@ fn run_b04_counter_threshold_with(failure_at: Option<&str>) -> Result<()> {
     tick_senses(&mut host, &mut rt, &[(inc, ONE)])?;
     assert!(signal_out_truthy(&rt, "ready"));
     Ok(())
+}
+
+/// Topology for B05: Delay → output.
+pub fn b05_delayed_pulse_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "d";
+        knots { input as "in" = KnotKind::signal_in(SignalDomain::Level); del = KnotKind::Delay { ticks: 2 }; out = KnotKind::signal_out("y", SignalDomain::Level); }
+        threads { input.out -> del.in; del.out -> out.in; }
+    }
 }
 
 /// B05: Delay Rune (2 ticks) passes level through.
@@ -219,22 +177,10 @@ fn run_b04_counter_threshold_with(failure_at: Option<&str>) -> Result<()> {
 /// wyrd::cookbook::tier_b::run_b05_delayed_pulse().unwrap();
 /// ```
 pub fn run_b05_delayed_pulse() -> Result<()> {
-    let mut b = Weave::builder("d")?;
-    let k_in = b.knot("in", KnotKind::signal_in(SignalDomain::Level))?;
-    let k_del = b.knot("del", KnotKind::Delay { ticks: 2 })?;
-    let k_out = b.knot("out", KnotKind::signal_out("y", SignalDomain::Level))?;
-    let from = b.output(&k_in, "out")?;
-    let to = b.input(&k_del, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_del, "out")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
+    let weave = b05_delayed_pulse_weave()?;
     let mut rt = bind_default(&weave)?;
     let id = rt.sense_id("in").expect("in");
     let mut host = ScriptedHost::new();
-
     tick_senses(&mut host, &mut rt, &[(id, ONE)])?;
     assert!(!signal_out_truthy(&rt, "y"));
     tick_senses(&mut host, &mut rt, &[(id, ONE)])?;
@@ -248,13 +194,25 @@ pub fn run_b05_delayed_pulse() -> Result<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn b02_duplicate_door_propagates_the_real_builder_error() {
-        assert!(run_b02_two_plate_door_with(Some("b02.door")).is_err());
+    fn assert_duplicate_knot_rejected(weave: &Weave, id: &str) {
+        let kind = weave
+            .knots()
+            .iter()
+            .find(|knot| knot.id == id)
+            .expect("recipe owns the requested knot")
+            .kind
+            .clone();
+        let mut builder = Weave::builder("cookbook-duplicate").expect("valid builder id");
+        builder.knot(id, kind.clone()).expect("first knot is valid");
+        assert!(matches!(
+            builder.knot(id, kind),
+            Err(BuildError::DuplicateKnotId { .. })
+        ));
     }
 
     #[test]
-    fn b04_duplicate_compare_propagates_the_real_builder_error() {
-        assert!(run_b04_counter_threshold_with(Some("b04.compare")).is_err());
+    fn b02_and_b04_keep_duplicate_knot_diagnostics() {
+        assert_duplicate_knot_rejected(&b02_two_plate_door_weave().unwrap(), "door");
+        assert_duplicate_knot_rejected(&b04_counter_threshold_weave().unwrap(), "cmp");
     }
 }

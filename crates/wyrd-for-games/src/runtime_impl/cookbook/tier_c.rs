@@ -1,27 +1,21 @@
 //! Tier C — GBG / Zelda literacy (softlock-aware compositions).
-//!
-//! Full Weave listings under each function’s **Examples** in rustdoc.
 
-#![allow(clippy::result_large_err)] // CookbookError intentionally preserves context.
+#![allow(clippy::result_large_err)]
 
 use super::helpers::{bind_default, emit_count, signal_out_truthy, signal_out_value, tick_senses};
 use super::Result;
-use crate::authoring::Weave;
+use crate::authoring::{BuildError, Weave};
 use crate::foundation::{
     from_count, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
 };
 use crate::runtime_impl::host::ScriptedHost;
+use crate::weave;
 
-fn duplicate_knot_id<'a>(
-    failure_at: Option<&str>,
-    target: &str,
-    default: &'a str,
-    duplicate: &'a str,
-) -> &'a str {
-    if failure_at == Some(target) {
-        duplicate
-    } else {
-        default
+/// Topology for C01: multi-switch latch.
+pub fn c01_multi_switch_latch_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "c01"; knots { a = KnotKind::signal_in(SignalDomain::Bool); b = KnotKind::signal_in(SignalDomain::Bool); both = KnotKind::and2(); edge = KnotKind::rising_from_zero(); rst = KnotKind::signal_in(SignalDomain::Bool); flag = KnotKind::flag(FlagPriority::ResetWins, false); out = KnotKind::signal_out("door.open", SignalDomain::Bool); }
+        threads { a.out -> both.in_0; b.out -> both.in_1; both.out -> edge.in; edge.out -> flag.set; rst.out -> flag.reset; flag.out -> out.in; }
     }
 }
 
@@ -33,49 +27,28 @@ fn duplicate_knot_id<'a>(
 /// wyrd::cookbook::tier_c::run_c01_multi_switch_latch().unwrap();
 /// ```
 pub fn run_c01_multi_switch_latch() -> Result<()> {
-    let mut b = Weave::builder("c01")?;
-    let pa = b.knot("a", KnotKind::signal_in(SignalDomain::Bool))?;
-    let pb = b.knot("b", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_both = b.knot("both", KnotKind::and2())?;
-    let from = b.output(&pa, "out")?;
-    let to = b.input(&k_both, "in_0")?;
-    b.connect(from, to)?;
-    let from = b.output(&pb, "out")?;
-    let to = b.input(&k_both, "in_1")?;
-    b.connect(from, to)?;
-    let k_edge = b.knot("edge", KnotKind::rising_from_zero())?;
-    let k_rst = b.knot("rst", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_flag = b.knot("flag", KnotKind::flag(FlagPriority::ResetWins, false))?;
-    let k_out = b.knot("out", KnotKind::signal_out("door.open", SignalDomain::Bool))?;
-    let from = b.output(&k_both, "out")?;
-    let to = b.input(&k_edge, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_edge, "out")?;
-    let to = b.input(&k_flag, "set")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_rst, "out")?;
-    let to = b.input(&k_flag, "reset")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_flag, "out")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
+    let weave = c01_multi_switch_latch_weave()?;
     let mut rt = bind_default(&weave)?;
-    let a = rt.sense_id("a").expect("a");
-    let b_id = rt.sense_id("b").expect("b");
-    let rst = rt.sense_id("rst").expect("rst");
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(a, ONE), (b_id, ZERO), (rst, ZERO)])?;
+    let a = rt.sense_id("a").unwrap();
+    let b = rt.sense_id("b").unwrap();
+    let r = rt.sense_id("rst").unwrap();
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[(a, ONE), (b, ZERO), (r, ZERO)])?;
     assert!(!signal_out_truthy(&rt, "door.open"));
-    tick_senses(&mut host, &mut rt, &[(a, ONE), (b_id, ONE), (rst, ZERO)])?;
+    tick_senses(&mut h, &mut rt, &[(a, ONE), (b, ONE), (r, ZERO)])?;
     assert!(signal_out_truthy(&rt, "door.open"));
-    tick_senses(&mut host, &mut rt, &[(a, ZERO), (b_id, ZERO), (rst, ZERO)])?;
+    tick_senses(&mut h, &mut rt, &[(a, ZERO), (b, ZERO), (r, ZERO)])?;
     assert!(signal_out_truthy(&rt, "door.open"));
-    tick_senses(&mut host, &mut rt, &[(a, ZERO), (b_id, ZERO), (rst, ONE)])?;
+    tick_senses(&mut h, &mut rt, &[(a, ZERO), (b, ZERO), (r, ONE)])?;
     assert!(!signal_out_truthy(&rt, "door.open"));
     Ok(())
+}
+
+/// Topology for C02: fed countdown hold.
+pub fn c02_timed_hold_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "c02"; knots { plate = KnotKind::signal_in(SignalDomain::Bool); t = KnotKind::timer(TimerMode::FedCountdown, 2); out = KnotKind::signal_out("unlocked", SignalDomain::Bool); } threads { plate.out -> t.feed; t.active -> out.in; }
+    }
 }
 
 /// C02: TimedHold — FedCountdown while plate held.
@@ -86,29 +59,24 @@ pub fn run_c01_multi_switch_latch() -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c02_timed_hold().unwrap();
 /// ```
 pub fn run_c02_timed_hold() -> Result<()> {
-    let mut b = Weave::builder("c02")?;
-    let k_plate = b.knot("plate", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_t = b.knot("t", KnotKind::timer(TimerMode::FedCountdown, 2))?;
-    let k_out = b.knot("out", KnotKind::signal_out("unlocked", SignalDomain::Bool))?;
-    let from = b.output(&k_plate, "out")?;
-    let to = b.input(&k_t, "feed")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_t, "active")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
-    let mut rt = bind_default(&weave)?;
-    let plate = rt.sense_id("plate").expect("plate");
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(plate, ONE)])?;
+    let w = c02_timed_hold_weave()?;
+    let mut rt = bind_default(&w)?;
+    let p = rt.sense_id("plate").unwrap();
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[(p, ONE)])?;
     assert!(!signal_out_truthy(&rt, "unlocked"));
-    tick_senses(&mut host, &mut rt, &[(plate, ONE)])?;
+    tick_senses(&mut h, &mut rt, &[(p, ONE)])?;
     assert!(signal_out_truthy(&rt, "unlocked"));
-    tick_senses(&mut host, &mut rt, &[(plate, ZERO)])?;
+    tick_senses(&mut h, &mut rt, &[(p, ZERO)])?;
     assert!(!signal_out_truthy(&rt, "unlocked"));
     Ok(())
+}
+
+/// Topology for C03: counter threshold reward window.
+pub fn c03_press_n_then_window_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "c03"; knots { inc = KnotKind::signal_in(SignalDomain::Bool); cnt = KnotKind::counter(); cmp = KnotKind::compare(CompareOp::Gte, Some(from_count(2)), SignalDomain::Count); rise = KnotKind::rising_from_zero(); hold = KnotKind::timer(TimerMode::PulseHold, 2); out = KnotKind::signal_out("reward", SignalDomain::Bool); } threads { inc.out -> cnt.inc; cnt.count -> cmp.lhs; cmp.out -> rise.in; rise.out -> hold.start; hold.active -> out.in; }
+    }
 }
 
 /// C03: Press N times → edge Compare → monostable reward window.
@@ -119,58 +87,34 @@ pub fn run_c02_timed_hold() -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c03_press_n_then_window().unwrap();
 /// ```
 pub fn run_c03_press_n_then_window() -> Result<()> {
-    run_c03_press_n_then_window_with(None)
-}
-
-fn run_c03_press_n_then_window_with(failure_at: Option<&str>) -> Result<()> {
-    let mut b = Weave::builder("c03")?;
-    let k_inc = b.knot("inc", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_cnt = b.knot("cnt", KnotKind::counter())?;
-    let k_cmp = b.knot(
-        duplicate_knot_id(failure_at, "c03.compare", "cmp", "inc"),
-        KnotKind::compare(CompareOp::Gte, Some(from_count(2)), SignalDomain::Count),
-    )?;
-    let k_rise = b.knot("rise", KnotKind::rising_from_zero())?;
-    let k_hold = b.knot("hold", KnotKind::timer(TimerMode::PulseHold, 2))?;
-    let k_out = b.knot("out", KnotKind::signal_out("reward", SignalDomain::Bool))?;
-    let from = b.output(&k_inc, "out")?;
-    let to = b.input(&k_cnt, "inc")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_cnt, "count")?;
-    let to = b.input(&k_cmp, "lhs")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_cmp, "out")?;
-    let to = b.input(&k_rise, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_rise, "out")?;
-    let to = b.input(&k_hold, "start")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_hold, "active")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
-    let mut rt = bind_default(&weave)?;
-    let inc = rt.sense_id("inc").expect("inc");
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(inc, ONE)])?;
+    let w = c03_press_n_then_window_weave()?;
+    let mut rt = bind_default(&w)?;
+    let i = rt.sense_id("inc").unwrap();
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[(i, ONE)])?;
     assert!(!signal_out_truthy(&rt, "reward"));
-    tick_senses(&mut host, &mut rt, &[(inc, ZERO)])?;
-    tick_senses(&mut host, &mut rt, &[(inc, ONE)])?;
+    tick_senses(&mut h, &mut rt, &[(i, ZERO)])?;
+    tick_senses(&mut h, &mut rt, &[(i, ONE)])?;
     assert!(signal_out_truthy(&rt, "reward"));
-    tick_senses(&mut host, &mut rt, &[(inc, ZERO)])?;
+    tick_senses(&mut h, &mut rt, &[(i, ZERO)])?;
     assert!(signal_out_truthy(&rt, "reward"));
-    tick_senses(&mut host, &mut rt, &[(inc, ZERO)])?;
+    tick_senses(&mut h, &mut rt, &[(i, ZERO)])?;
     assert!(!signal_out_truthy(&rt, "reward"));
     Ok(())
 }
 
+/// Topology for C04: edge shot and cooling cue.
+pub fn c04_button_cooldown_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "c04"; knots { btn = KnotKind::signal_in(SignalDomain::Bool); edge = KnotKind::rising_from_zero(); hold = KnotKind::timer(TimerMode::PulseHold, 2); shot = KnotKind::signal_out("shot", SignalDomain::Bool); cool = KnotKind::signal_out("cooling", SignalDomain::Bool); } threads { btn.out -> edge.in; edge.out -> hold.start; edge.out -> shot.in; hold.active -> cool.in; }
+    }
+}
+
 /// C04: Button edge shot + monostable cooling cue.
 ///
-/// Wyrd Weaves are **DAGs** — you cannot gate Timer `start` on the same Timer’s
-/// `active` (cycle). Teach: **RisingFromZero** kills hold-spam; **PulseHold**
-/// is the visible cooldown lamp. Host may suppress input while `cooling`.
+/// Wyrd Weaves are **DAGs** — you cannot gate Timer `start` on the same Timer's
+/// `active` (cycle). **RisingFromZero** removes hold-spam; **PulseHold** is the
+/// visible cooldown lamp. The host may suppress input while `cooling`.
 ///
 /// # Examples
 ///
@@ -178,40 +122,27 @@ fn run_c03_press_n_then_window_with(failure_at: Option<&str>) -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c04_button_cooldown().unwrap();
 /// ```
 pub fn run_c04_button_cooldown() -> Result<()> {
-    let mut b = Weave::builder("c04")?;
-    let k_btn = b.knot("btn", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_edge = b.knot("edge", KnotKind::rising_from_zero())?;
-    let k_hold = b.knot("hold", KnotKind::timer(TimerMode::PulseHold, 2))?;
-    let k_shot = b.knot("shot", KnotKind::signal_out("shot", SignalDomain::Bool))?;
-    let k_cool = b.knot("cool", KnotKind::signal_out("cooling", SignalDomain::Bool))?;
-    let from = b.output(&k_btn, "out")?;
-    let to = b.input(&k_edge, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_edge, "out")?;
-    let to = b.input(&k_hold, "start")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_edge, "out")?;
-    let to = b.input(&k_shot, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_hold, "active")?;
-    let to = b.input(&k_cool, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
-    let mut rt = bind_default(&weave)?;
-    let btn = rt.sense_id("btn").expect("btn");
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(btn, ONE)])?;
+    let w = c04_button_cooldown_weave()?;
+    let mut rt = bind_default(&w)?;
+    let b = rt.sense_id("btn").unwrap();
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[(b, ONE)])?;
     assert!(signal_out_truthy(&rt, "shot"));
     assert!(signal_out_truthy(&rt, "cooling"));
-    tick_senses(&mut host, &mut rt, &[(btn, ONE)])?;
+    tick_senses(&mut h, &mut rt, &[(b, ONE)])?;
     assert!(!signal_out_truthy(&rt, "shot"));
     assert!(signal_out_truthy(&rt, "cooling"));
-    tick_senses(&mut host, &mut rt, &[(btn, ZERO)])?;
-    tick_senses(&mut host, &mut rt, &[(btn, ONE)])?;
+    tick_senses(&mut h, &mut rt, &[(b, ZERO)])?;
+    tick_senses(&mut h, &mut rt, &[(b, ONE)])?;
     assert!(signal_out_truthy(&rt, "shot"));
     Ok(())
+}
+
+/// Topology for C05: threshold pressed and crossed-up output.
+pub fn c05_axis_digital_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "c05"; knots { axis = KnotKind::signal_in(SignalDomain::Level); th = KnotKind::Threshold { domain: SignalDomain::Level, high: from_count(5), low: from_count(0), use_hysteresis: false }; pressed = KnotKind::signal_out("pressed", SignalDomain::Bool); just = KnotKind::signal_out("just_pressed", SignalDomain::Bool); } threads { axis.out -> th.in; th.out -> pressed.in; th.crossed_up -> just.in; }
+    }
 }
 
 /// C05: AxisDigital — Threshold pressed + `crossed_up` pulse.
@@ -222,54 +153,27 @@ pub fn run_c04_button_cooldown() -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c05_axis_digital().unwrap();
 /// ```
 pub fn run_c05_axis_digital() -> Result<()> {
-    run_c05_axis_digital_with(None)
-}
-
-fn run_c05_axis_digital_with(failure_at: Option<&str>) -> Result<()> {
-    let mut b = Weave::builder("c05")?;
-    let k_axis = b.knot("axis", KnotKind::signal_in(SignalDomain::Level))?;
-    let k_th = b.knot(
-        duplicate_knot_id(failure_at, "c05.threshold", "th", "axis"),
-        KnotKind::Threshold {
-            domain: SignalDomain::Level,
-            high: from_count(5),
-            low: from_count(0),
-            use_hysteresis: false,
-        },
-    )?;
-    let k_pressed = b.knot(
-        duplicate_knot_id(failure_at, "c05.pressed", "pressed", "axis"),
-        KnotKind::signal_out("pressed", SignalDomain::Bool),
-    )?;
-    let k_just = b.knot(
-        duplicate_knot_id(failure_at, "c05.just_pressed", "just", "axis"),
-        KnotKind::signal_out("just_pressed", SignalDomain::Bool),
-    )?;
-    let from = b.output(&k_axis, "out")?;
-    let to = b.input(&k_th, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_th, "out")?;
-    let to = b.input(&k_pressed, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_th, "crossed_up")?;
-    let to = b.input(&k_just, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
-    let mut rt = bind_default(&weave)?;
-    let axis = rt.sense_id("axis").expect("axis");
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(axis, from_count(4))])?;
+    let w = c05_axis_digital_weave()?;
+    let mut rt = bind_default(&w)?;
+    let a = rt.sense_id("axis").unwrap();
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[(a, from_count(4))])?;
     assert!(!signal_out_truthy(&rt, "pressed"));
     assert!(!signal_out_truthy(&rt, "just_pressed"));
-    tick_senses(&mut host, &mut rt, &[(axis, from_count(5))])?;
+    tick_senses(&mut h, &mut rt, &[(a, from_count(5))])?;
     assert!(signal_out_truthy(&rt, "pressed"));
     assert!(signal_out_truthy(&rt, "just_pressed"));
-    tick_senses(&mut host, &mut rt, &[(axis, from_count(5))])?;
+    tick_senses(&mut h, &mut rt, &[(a, from_count(5))])?;
     assert!(signal_out_truthy(&rt, "pressed"));
     assert!(!signal_out_truthy(&rt, "just_pressed"));
     Ok(())
+}
+
+/// Topology for C06: count remapping.
+pub fn c06_map_remap_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "c06"; knots { input as "in" = KnotKind::signal_in(SignalDomain::Count); map = KnotKind::Map { domain: SignalDomain::Count, in_min: ZERO, in_max: ONE, out_min: from_count(0), out_max: from_count(10) }; out = KnotKind::signal_out("scaled", SignalDomain::Count); } threads { input.out -> map.in; map.out -> out.in; }
+    }
 }
 
 /// C06: Map remap ZERO..ONE → 0..10 counts.
@@ -280,40 +184,22 @@ fn run_c05_axis_digital_with(failure_at: Option<&str>) -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c06_map_remap().unwrap();
 /// ```
 pub fn run_c06_map_remap() -> Result<()> {
-    run_c06_map_remap_with(None)
-}
-
-fn run_c06_map_remap_with(failure_at: Option<&str>) -> Result<()> {
-    let mut b = Weave::builder("c06")?;
-    let k_in = b.knot("in", KnotKind::signal_in(SignalDomain::Count))?;
-    let k_map = b.knot(
-        duplicate_knot_id(failure_at, "c06.map", "map", "in"),
-        KnotKind::Map {
-            domain: SignalDomain::Count,
-            in_min: ZERO,
-            in_max: ONE,
-            out_min: from_count(0),
-            out_max: from_count(10),
-        },
-    )?;
-    let k_out = b.knot("out", KnotKind::signal_out("scaled", SignalDomain::Count))?;
-    let from = b.output(&k_in, "out")?;
-    let to = b.input(&k_map, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_map, "out")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
-    let mut rt = bind_default(&weave)?;
-    let id = rt.sense_id("in").expect("in");
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(id, ZERO)])?;
+    let w = c06_map_remap_weave()?;
+    let mut rt = bind_default(&w)?;
+    let i = rt.sense_id("in").unwrap();
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[(i, ZERO)])?;
     assert_eq!(signal_out_value(&rt, "scaled"), from_count(0));
-    tick_senses(&mut host, &mut rt, &[(id, ONE)])?;
+    tick_senses(&mut h, &mut rt, &[(i, ONE)])?;
     assert_eq!(signal_out_value(&rt, "scaled"), from_count(10));
     Ok(())
+}
+
+/// Topology for C07: digitized levels.
+pub fn c07_digitize_steps_weave() -> core::result::Result<Weave, BuildError> {
+    weave! {
+        id: "c07"; knots { input as "in" = KnotKind::signal_in(SignalDomain::Level); dig = KnotKind::Digitize { domain: SignalDomain::Level, steps: 2, in_min: ZERO, in_max: ONE, out_min: from_count(0), out_max: from_count(1) }; out = KnotKind::signal_out("bin", SignalDomain::Level); } threads { input.out -> dig.in; dig.out -> out.in; }
+    }
 }
 
 /// C07: Digitize into steps over ZERO..ONE.
@@ -324,41 +210,20 @@ fn run_c06_map_remap_with(failure_at: Option<&str>) -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c07_digitize_steps().unwrap();
 /// ```
 pub fn run_c07_digitize_steps() -> Result<()> {
-    run_c07_digitize_steps_with(None)
-}
-
-fn run_c07_digitize_steps_with(failure_at: Option<&str>) -> Result<()> {
-    let mut b = Weave::builder("c07")?;
-    let k_in = b.knot("in", KnotKind::signal_in(SignalDomain::Level))?;
-    let k_dig = b.knot(
-        duplicate_knot_id(failure_at, "c07.digitize", "dig", "in"),
-        KnotKind::Digitize {
-            domain: SignalDomain::Level,
-            steps: 2,
-            in_min: ZERO,
-            in_max: ONE,
-            out_min: from_count(0),
-            out_max: from_count(1),
-        },
-    )?;
-    let k_out = b.knot("out", KnotKind::signal_out("bin", SignalDomain::Level))?;
-    let from = b.output(&k_in, "out")?;
-    let to = b.input(&k_dig, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_dig, "out")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
-    let mut rt = bind_default(&weave)?;
-    let id = rt.sense_id("in").expect("in");
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(id, ZERO)])?;
+    let w = c07_digitize_steps_weave()?;
+    let mut rt = bind_default(&w)?;
+    let i = rt.sense_id("in").unwrap();
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[(i, ZERO)])?;
     assert_eq!(signal_out_value(&rt, "bin"), from_count(0));
-    tick_senses(&mut host, &mut rt, &[(id, ONE)])?;
+    tick_senses(&mut h, &mut rt, &[(i, ONE)])?;
     assert_eq!(signal_out_value(&rt, "bin"), from_count(1));
     Ok(())
+}
+
+/// Topology for C08: OnStart latches boot state.
+pub fn c08_on_start_once_weave() -> core::result::Result<Weave, BuildError> {
+    weave! { id: "c08"; knots { start = KnotKind::OnStart; flag = KnotKind::flag(FlagPriority::SetWins, false); out = KnotKind::signal_out("booted", SignalDomain::Bool); } threads { start.out -> flag.set; flag.out -> out.in; } }
 }
 
 /// C08: OnStart latches Flag once (second tick OnStart is falsey).
@@ -369,26 +234,19 @@ fn run_c07_digitize_steps_with(failure_at: Option<&str>) -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c08_on_start_once().unwrap();
 /// ```
 pub fn run_c08_on_start_once() -> Result<()> {
-    let mut b = Weave::builder("c08")?;
-    let k_start = b.knot("start", KnotKind::OnStart)?;
-    let k_flag = b.knot("flag", KnotKind::flag(FlagPriority::SetWins, false))?;
-    let k_out = b.knot("out", KnotKind::signal_out("booted", SignalDomain::Bool))?;
-    let from = b.output(&k_start, "out")?;
-    let to = b.input(&k_flag, "set")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_flag, "out")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
-    let mut rt = bind_default(&weave)?;
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[])?;
+    let w = c08_on_start_once_weave()?;
+    let mut rt = bind_default(&w)?;
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[])?;
     assert!(signal_out_truthy(&rt, "booted"));
-    tick_senses(&mut host, &mut rt, &[])?;
+    tick_senses(&mut h, &mut rt, &[])?;
     assert!(signal_out_truthy(&rt, "booted"));
     Ok(())
+}
+
+/// Topology for C09: one-shot command emission.
+pub fn c09_emit_once_weave() -> core::result::Result<Weave, BuildError> {
+    weave! { id: "c09"; knots { ok = KnotKind::signal_in(SignalDomain::Bool); edge = KnotKind::rising_from_zero(); em = KnotKind::emit_command("sfx.ping"); } threads { ok.out -> edge.in; edge.out -> em.trigger; } }
 }
 
 /// C09: Emit once — level → Rising → Emit.trigger (never level→Emit forever).
@@ -399,27 +257,20 @@ pub fn run_c08_on_start_once() -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c09_emit_once().unwrap();
 /// ```
 pub fn run_c09_emit_once() -> Result<()> {
-    let mut b = Weave::builder("c09")?;
-    let k_ok = b.knot("ok", KnotKind::signal_in(SignalDomain::Bool))?;
-    let k_edge = b.knot("edge", KnotKind::rising_from_zero())?;
-    let k_em = b.knot("em", KnotKind::emit_command("sfx.ping"))?;
-    let from = b.output(&k_ok, "out")?;
-    let to = b.input(&k_edge, "in")?;
-    b.connect(from, to)?;
-    let from = b.output(&k_edge, "out")?;
-    let to = b.input(&k_em, "trigger")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
-    let mut rt = bind_default(&weave)?;
-    let ok = rt.sense_id("ok").expect("ok");
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(ok, ONE)])?;
+    let w = c09_emit_once_weave()?;
+    let mut rt = bind_default(&w)?;
+    let o = rt.sense_id("ok").unwrap();
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[(o, ONE)])?;
     assert_eq!(emit_count(&rt, "sfx.ping"), 1);
-    tick_senses(&mut host, &mut rt, &[(ok, ONE)])?;
+    tick_senses(&mut h, &mut rt, &[(o, ONE)])?;
     assert_eq!(emit_count(&rt, "sfx.ping"), 0);
     Ok(())
+}
+
+/// Topology for C10: either key opens the output.
+pub fn c10_or_any_of_keys_weave() -> core::result::Result<Weave, BuildError> {
+    weave! { id: "c10"; knots { key_a = KnotKind::signal_in(SignalDomain::Bool); key_b = KnotKind::signal_in(SignalDomain::Bool); any = KnotKind::or2(); out = KnotKind::signal_out("open", SignalDomain::Bool); } threads { key_a.out -> any.in_0; key_b.out -> any.in_1; any.out -> out.in; } }
 }
 
 /// C10: Or any-of keys.
@@ -430,32 +281,16 @@ pub fn run_c09_emit_once() -> Result<()> {
 /// wyrd::cookbook::tier_c::run_c10_or_any_of_keys().unwrap();
 /// ```
 pub fn run_c10_or_any_of_keys() -> Result<()> {
-    let mut b = Weave::builder("c10")?;
-    let ka = b.knot("key_a", KnotKind::signal_in(SignalDomain::Bool))?;
-    let kb = b.knot("key_b", KnotKind::signal_in(SignalDomain::Bool))?;
-    let or_id = b.knot("any", KnotKind::or2())?;
-    let k_out = b.knot("out", KnotKind::signal_out("open", SignalDomain::Bool))?;
-    let from = b.output(&ka, "out")?;
-    let to = b.input(&or_id, "in_0")?;
-    b.connect(from, to)?;
-    let from = b.output(&kb, "out")?;
-    let to = b.input(&or_id, "in_1")?;
-    b.connect(from, to)?;
-    let from = b.output(&or_id, "out")?;
-    let to = b.input(&k_out, "in")?;
-    b.connect(from, to)?;
-    let weave = b.build()?;
-
-    let mut rt = bind_default(&weave)?;
-    let a = rt.sense_id("key_a").expect("a");
-    let b_id = rt.sense_id("key_b").expect("b");
-    let mut host = ScriptedHost::new();
-
-    tick_senses(&mut host, &mut rt, &[(a, ZERO), (b_id, ZERO)])?;
+    let w = c10_or_any_of_keys_weave()?;
+    let mut rt = bind_default(&w)?;
+    let a = rt.sense_id("key_a").unwrap();
+    let b = rt.sense_id("key_b").unwrap();
+    let mut h = ScriptedHost::new();
+    tick_senses(&mut h, &mut rt, &[(a, ZERO), (b, ZERO)])?;
     assert!(!signal_out_truthy(&rt, "open"));
-    tick_senses(&mut host, &mut rt, &[(a, ONE), (b_id, ZERO)])?;
+    tick_senses(&mut h, &mut rt, &[(a, ONE), (b, ZERO)])?;
     assert!(signal_out_truthy(&rt, "open"));
-    tick_senses(&mut host, &mut rt, &[(a, ZERO), (b_id, ONE)])?;
+    tick_senses(&mut h, &mut rt, &[(a, ZERO), (b, ONE)])?;
     assert!(signal_out_truthy(&rt, "open"));
     Ok(())
 }
@@ -464,25 +299,30 @@ pub fn run_c10_or_any_of_keys() -> Result<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn c03_duplicate_compare_propagates_the_real_builder_error() {
-        assert!(run_c03_press_n_then_window_with(Some("c03.compare")).is_err());
+    fn assert_duplicate_knot_rejected(weave: &Weave, id: &str) {
+        let kind = weave
+            .knots()
+            .iter()
+            .find(|knot| knot.id == id)
+            .expect("recipe owns the requested knot")
+            .kind
+            .clone();
+        let mut builder = Weave::builder("cookbook-duplicate").expect("valid builder id");
+        builder.knot(id, kind.clone()).expect("first knot is valid");
+        assert!(matches!(
+            builder.knot(id, kind),
+            Err(BuildError::DuplicateKnotId { .. })
+        ));
     }
 
     #[test]
-    fn c05_duplicate_knots_propagate_the_real_builder_error() {
-        for failure_at in ["c05.threshold", "c05.pressed", "c05.just_pressed"] {
-            assert!(run_c05_axis_digital_with(Some(failure_at)).is_err());
+    fn c03_c05_c06_and_c07_keep_duplicate_knot_diagnostics() {
+        assert_duplicate_knot_rejected(&c03_press_n_then_window_weave().unwrap(), "cmp");
+        let c05 = c05_axis_digital_weave().unwrap();
+        for id in ["th", "pressed", "just"] {
+            assert_duplicate_knot_rejected(&c05, id);
         }
-    }
-
-    #[test]
-    fn c06_duplicate_map_propagates_the_real_builder_error() {
-        assert!(run_c06_map_remap_with(Some("c06.map")).is_err());
-    }
-
-    #[test]
-    fn c07_duplicate_digitize_propagates_the_real_builder_error() {
-        assert!(run_c07_digitize_steps_with(Some("c07.digitize")).is_err());
+        assert_duplicate_knot_rejected(&c06_map_remap_weave().unwrap(), "map");
+        assert_duplicate_knot_rejected(&c07_digitize_steps_weave().unwrap(), "dig");
     }
 }
