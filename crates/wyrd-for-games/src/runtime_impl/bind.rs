@@ -142,18 +142,21 @@ impl Runtime {
     /// exceeded, a port cannot be resolved, or topo order cannot be built.
     pub fn bind(weave: Weave, opts: BindOpts) -> Result<Self, BindError> {
         let weave_id = String::from(weave.id());
-        let owner = NEXT_RUNTIME_OWNER.fetch_add(1, Ordering::Relaxed);
-        if owner == usize::MAX {
-            return Err(BindError::CapacityExceeded {
-                weave_id,
-                resource: "runtime owner token",
-                count: owner,
-            });
-        }
         validate(&weave, &opts.budget).map_err(|source| BindError::InvalidWeave {
             weave_id: weave_id.clone(),
             source,
         })?;
+
+        Self::bind_validated(weave, opts, weave_id)
+    }
+
+    /// Build dense state from a weave that already passed structural and budget validation.
+    ///
+    /// Keeping this phase separate makes the defensive error handling below
+    /// testable without exposing a way to bypass validation to callers.
+    fn bind_validated(weave: Weave, opts: BindOpts, weave_id: String) -> Result<Self, BindError> {
+        let owner = NEXT_RUNTIME_OWNER.fetch_add(1, Ordering::Relaxed);
+        reserve_owner(owner, &weave_id)?;
 
         let mut name_to_id = BTreeMap::new();
         let mut id_to_name = Vec::new();
@@ -662,6 +665,17 @@ impl Runtime {
     }
 }
 
+fn reserve_owner(owner: usize, weave_id: &str) -> Result<(), BindError> {
+    if owner == usize::MAX {
+        return Err(BindError::CapacityExceeded {
+            weave_id: String::from(weave_id),
+            resource: "runtime owner token",
+            count: owner,
+        });
+    }
+    Ok(())
+}
+
 fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Option<Vec<KnotId>> {
     let mut indeg = alloc::vec![0u32; n];
     let mut adj: Vec<Vec<usize>> = alloc::vec![Vec::new(); n];
@@ -697,8 +711,36 @@ fn topo_order(n: usize, threads: &[(KnotId, PortSlot, KnotId, PortSlot)]) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authoring::Weave;
-    use crate::foundation::{FlagPriority, KnotKind, SignalDomain, ONE};
+    use crate::authoring::{KnotDef, PortRefDef, ThreadDef, Weave, WeaveDef};
+    use crate::foundation::{FlagPriority, KnotKind, NumericPath, SignalDomain, ONE};
+    use std::vec;
+
+    fn unchecked_weave(id: &str, knots: Vec<KnotDef>, threads: Vec<ThreadDef>) -> Weave {
+        Weave::from_validated(WeaveDef {
+            id: String::from(id),
+            numeric: NumericPath::compiled(),
+            knots,
+            threads,
+        })
+    }
+
+    fn bind_unchecked(id: &str, knots: Vec<KnotDef>, threads: Vec<ThreadDef>) -> BindError {
+        match Runtime::bind_validated(
+            unchecked_weave(id, knots, threads),
+            BindOpts::default(),
+            String::from(id),
+        ) {
+            Ok(_) => panic!("malformed internal weave must not bind"),
+            Err(error) => error,
+        }
+    }
+
+    fn knot(id: &str, kind: KnotKind) -> KnotDef {
+        KnotDef {
+            id: String::from(id),
+            kind,
+        }
+    }
 
     #[test]
     fn sense_seeds_lists_only_sense_knots() {
@@ -946,5 +988,118 @@ mod tests {
         assert_eq!(rt.get_port_hot(n_id, PortSlot::new(0)), ONE);
         let n_handle = rt.knot_id("n").unwrap();
         assert_eq!(rt.get_port_checked(n_handle, PortSlot::new(0)), Ok(ONE));
+    }
+
+    #[test]
+    fn defensive_bind_phase_rejects_invalid_internal_definitions() {
+        let constant = || knot("constant", KnotKind::constant(ONE, SignalDomain::Bool));
+        let out = || knot("out", KnotKind::signal_out("out", SignalDomain::Bool));
+
+        let error = bind_unchecked(
+            "missing-from",
+            vec![constant()],
+            vec![ThreadDef {
+                from: PortRefDef::new("missing", "out"),
+                to: PortRefDef::new("constant", "out"),
+            }],
+        );
+        assert!(matches!(
+            error,
+            BindError::InvalidReference { knot, port, .. } if knot == "missing" && port == "out"
+        ));
+
+        let error = bind_unchecked(
+            "missing-to",
+            vec![constant()],
+            vec![ThreadDef {
+                from: PortRefDef::new("constant", "out"),
+                to: PortRefDef::new("missing", "in"),
+            }],
+        );
+        assert!(matches!(
+            error,
+            BindError::InvalidReference { knot, port, .. } if knot == "missing" && port == "in"
+        ));
+
+        let error = bind_unchecked(
+            "missing-from-port",
+            vec![constant(), out()],
+            vec![ThreadDef {
+                from: PortRefDef::new("constant", "in"),
+                to: PortRefDef::new("out", "in"),
+            }],
+        );
+        assert!(matches!(
+            error,
+            BindError::InvalidReference { knot, port, .. } if knot == "constant" && port == "in"
+        ));
+
+        let error = bind_unchecked(
+            "missing-to-port",
+            vec![constant(), out()],
+            vec![ThreadDef {
+                from: PortRefDef::new("constant", "out"),
+                to: PortRefDef::new("out", "out"),
+            }],
+        );
+        assert!(matches!(
+            error,
+            BindError::InvalidReference { knot, port, .. } if knot == "out" && port == "out"
+        ));
+
+        let error = bind_unchecked(
+            "cycle",
+            vec![knot("a", KnotKind::Not), knot("b", KnotKind::Not)],
+            vec![
+                ThreadDef {
+                    from: PortRefDef::new("a", "out"),
+                    to: PortRefDef::new("b", "in"),
+                },
+                ThreadDef {
+                    from: PortRefDef::new("b", "out"),
+                    to: PortRefDef::new("a", "in"),
+                },
+            ],
+        );
+        assert!(matches!(error, BindError::InvalidTopology { .. }));
+    }
+
+    #[test]
+    fn defensive_bind_phase_checks_dense_capacities_before_allocation() {
+        assert_eq!(
+            reserve_owner(usize::MAX, "owner"),
+            Err(BindError::CapacityExceeded {
+                weave_id: String::from("owner"),
+                resource: "runtime owner token",
+                count: usize::MAX,
+            })
+        );
+        assert_eq!(reserve_owner(1, "owner"), Ok(()));
+
+        let excessive_knots = (0..=(usize::from(u16::MAX) + 1))
+            .map(|_| knot("", KnotKind::OnStart))
+            .collect();
+        let error = bind_unchecked("too-many-knots", excessive_knots, Vec::new());
+        assert_eq!(
+            error,
+            BindError::CapacityExceeded {
+                weave_id: String::from("too-many-knots"),
+                resource: "knot",
+                count: usize::from(u16::MAX) + 2,
+            }
+        );
+
+        let delay_knots = (0..256)
+            .map(|_| knot("", KnotKind::Delay { ticks: 256 }))
+            .collect();
+        let error = bind_unchecked("delay-capacity", delay_knots, Vec::new());
+        assert_eq!(
+            error,
+            BindError::CapacityExceeded {
+                weave_id: String::from("delay-capacity"),
+                resource: "delay buffer",
+                count: usize::from(u16::MAX) + 1,
+            }
+        );
     }
 }

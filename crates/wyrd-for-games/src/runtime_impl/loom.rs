@@ -613,6 +613,12 @@ fn normalize_count(value: Signal) -> Signal {
     }
 }
 
+#[cfg(all(test, feature = "signal-f32"))]
+#[test]
+fn normalize_count_rejects_nan() {
+    assert_eq!(normalize_count(f32::NAN), ZERO);
+}
+
 #[inline]
 fn count_add(a: Signal, b: Signal) -> Signal {
     #[cfg(feature = "signal-f32")]
@@ -798,7 +804,16 @@ pub(crate) fn map_linear_for_domain_test(
     out_min: Signal,
     out_max: Signal,
 ) -> Signal {
-    match KindTag::map_precomputed(domain, in_min, in_max, out_min, out_max) {
+    map_linear_from_tag_for_test(
+        KindTag::map_precomputed(domain, in_min, in_max, out_min, out_max),
+        i,
+        out_min,
+    )
+}
+
+#[cfg(test)]
+fn map_linear_from_tag_for_test(tag: KindTag, i: Signal, fallback_out_min: Signal) -> Signal {
+    match tag {
         KindTag::Map {
             domain,
             #[cfg(feature = "signal-f32")]
@@ -832,7 +847,7 @@ pub(crate) fn map_linear_for_domain_test(
                 plan.map(i)
             }
         }
-        _ => out_min,
+        _ => fallback_out_min,
     }
 }
 
@@ -915,7 +930,16 @@ pub(crate) fn digitize_for_domain_test(
     out_min: Signal,
     out_max: Signal,
 ) -> Signal {
-    match KindTag::digitize_precomputed(domain, steps, in_min, in_max, out_min, out_max) {
+    digitize_from_tag_for_test(
+        KindTag::digitize_precomputed(domain, steps, in_min, in_max, out_min, out_max),
+        i,
+        out_min,
+    )
+}
+
+#[cfg(test)]
+fn digitize_from_tag_for_test(tag: KindTag, i: Signal, fallback_out_min: Signal) -> Signal {
+    match tag {
         KindTag::Digitize {
             domain,
             degenerate,
@@ -946,7 +970,25 @@ pub(crate) fn digitize_for_domain_test(
             #[cfg(feature = "signal-i32")]
             out_span,
         ),
-        _ => out_min,
+        _ => fallback_out_min,
+    }
+}
+
+#[cfg(test)]
+mod test_helper_dispatch_tests {
+    use super::{digitize_from_tag_for_test, map_linear_from_tag_for_test, KindTag};
+    use crate::foundation::{from_count, ONE};
+
+    #[test]
+    fn nonmatching_precompute_tags_return_the_requested_fallback() {
+        assert_eq!(
+            map_linear_from_tag_for_test(KindTag::Not, ONE, from_count(7)),
+            from_count(7)
+        );
+        assert_eq!(
+            digitize_from_tag_for_test(KindTag::Not, ONE, from_count(9)),
+            from_count(9)
+        );
     }
 }
 
@@ -1002,6 +1044,29 @@ fn level_sqrt(i: Signal) -> Signal {
         } else {
             isqrt_u64((i as u64) * (ONE as u64)) as i32
         }
+    }
+}
+
+#[cfg(test)]
+mod sense_dispatch_tests {
+    use super::*;
+    use crate::authoring::Weave;
+    use crate::foundation::{KnotKind, SignalDomain};
+    use crate::BindOpts;
+
+    #[test]
+    fn sense_dispatch_is_a_noop_after_seeding() {
+        let mut builder = Weave::builder("sense-dispatch").unwrap();
+        builder
+            .knot("constant", KnotKind::constant(ONE, SignalDomain::Bool))
+            .unwrap();
+        let mut runtime = Runtime::bind(builder.build().unwrap(), BindOpts::default()).unwrap();
+        let kid = KnotId::try_from(0usize).unwrap();
+
+        runtime.set_port_hot(kid, PortSlot::new(0), ONE);
+        runtime.eval_knot(kid);
+
+        assert_eq!(runtime.get_port_hot(kid, PortSlot::new(0)), ONE);
     }
 }
 

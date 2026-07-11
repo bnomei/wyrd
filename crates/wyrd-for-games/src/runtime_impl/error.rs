@@ -198,3 +198,110 @@ impl std::error::Error for CookbookError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error;
+    use std::string::ToString;
+    use std::vec::Vec;
+
+    #[test]
+    fn every_runtime_error_variant_has_a_stable_diagnostic_and_source_chain() {
+        let validation = ValidationError::EmptyWeave {
+            weave_id: String::from("empty"),
+        };
+        let bind_errors = [
+            BindError::InvalidWeave {
+                weave_id: String::from("invalid"),
+                source: validation.clone(),
+            },
+            BindError::CapacityExceeded {
+                weave_id: String::from("capacity"),
+                resource: "knot",
+                count: 257,
+            },
+            BindError::InvalidReference {
+                weave_id: String::from("reference"),
+                knot: String::from("target"),
+                port: String::from("input"),
+            },
+            BindError::InvalidTopology {
+                weave_id: String::from("cycle"),
+            },
+        ];
+        let diagnostics: Vec<String> = bind_errors.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            diagnostics,
+            [
+                "cannot bind weave 'invalid': weave 'empty' has no knots",
+                "cannot bind weave 'capacity': knot count 257 exceeds runtime capacity",
+                "cannot bind weave 'reference': unresolved port 'target.input'",
+                "cannot bind weave 'cycle': invalid topology",
+            ]
+        );
+        assert!(Error::source(&bind_errors[0]).is_some());
+        assert!(bind_errors[1..]
+            .iter()
+            .all(|error| Error::source(error).is_none()));
+
+        let owner = 7;
+        let handles = [
+            HandleError::ForeignRuntime { handle: "sense" },
+            HandleError::InvalidSense {
+                sense: SenseId::new(owner, 1),
+            },
+            HandleError::InvalidHostPath {
+                path: HostPathId::new(owner, 2),
+            },
+            HandleError::InvalidCommand {
+                cmd: CmdId::new(owner, 3),
+            },
+            HandleError::InvalidKnot {
+                knot: KnotHandle::new(owner, 4),
+            },
+            HandleError::InvalidPort {
+                knot: KnotHandle::new(owner, 5),
+                port: PortSlot::new(6),
+            },
+            HandleError::DomainValue {
+                sense: SenseId::new(owner, 7),
+                domain: SignalDomain::Count,
+            },
+        ];
+        let diagnostics: Vec<String> = handles.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            diagnostics,
+            [
+                "sense handle belongs to a different runtime",
+                "sense handle 1 is invalid for this runtime",
+                "host path handle 2 is invalid",
+                "command handle 3 is invalid",
+                "knot handle 4 is invalid for this runtime",
+                "port handle 6 is invalid for knot 5 in this runtime",
+                "sense value for handle 7 is invalid for Count domain",
+            ]
+        );
+        assert!(handles.iter().all(|error| Error::source(error).is_none()));
+
+        let cookbook_errors = [
+            CookbookError::from(BuildError::ForeignHandle),
+            CookbookError::from(validation),
+            CookbookError::from(bind_errors[0].clone()),
+            CookbookError::from(handles[0]),
+        ];
+        let diagnostics: Vec<String> = cookbook_errors.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            diagnostics,
+            [
+                "cookbook graph build failed: handle belongs to a different weave builder",
+                "cookbook validation failed: weave 'empty' has no knots",
+                "cookbook bind failed: cannot bind weave 'invalid': weave 'empty' has no knots",
+                "cookbook handle failed: sense handle belongs to a different runtime",
+            ]
+        );
+        assert!(cookbook_errors
+            .iter()
+            .all(|error| Error::source(error).is_some()));
+    }
+}

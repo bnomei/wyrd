@@ -103,13 +103,7 @@ impl WeaveBuilder {
             });
         }
         let owner = NEXT_OWNER.fetch_add(1, Ordering::Relaxed);
-        if owner == usize::MAX {
-            return Err(BuildError::RepresentationOverflow {
-                what: "builder owner token",
-                actual: owner,
-                limit: usize::MAX - 1,
-            });
-        }
+        validate_owner(owner)?;
         Ok(Self {
             owner,
             id,
@@ -326,6 +320,17 @@ impl WeaveBuilder {
     }
 }
 
+fn validate_owner(owner: usize) -> Result<(), BuildError> {
+    if owner == usize::MAX {
+        return Err(BuildError::RepresentationOverflow {
+            what: "builder owner token",
+            actual: owner,
+            limit: usize::MAX - 1,
+        });
+    }
+    Ok(())
+}
+
 fn fixed_port_domain(kind: &KnotKind, name: &str) -> Option<crate::foundation::SignalDomain> {
     let slot = port_slot(kind, name)?;
     match port_domain(kind, slot)? {
@@ -344,4 +349,23 @@ pub fn slot_of(kind: &KnotKind, name: &str) -> Result<PortSlot, BuildError> {
             .map(|port| String::from(port.name))
             .collect(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_owner;
+    use crate::BuildError;
+
+    #[test]
+    fn owner_tokens_reserve_the_overflow_sentinel() {
+        assert!(matches!(
+            validate_owner(usize::MAX),
+            Err(BuildError::RepresentationOverflow {
+                what: "builder owner token",
+                actual: usize::MAX,
+                limit,
+            }) if limit == usize::MAX - 1
+        ));
+        assert!(validate_owner(1).is_ok());
+    }
 }

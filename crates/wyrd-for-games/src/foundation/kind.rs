@@ -437,7 +437,7 @@ impl KnotKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::signal::{from_count, ONE};
+    use crate::foundation::signal::{from_count, from_level, ONE, ZERO};
 
     #[test]
     fn helpers_and_arity() {
@@ -446,6 +446,20 @@ mod tests {
         assert!(matches!(
             KnotKind::constant_count(7),
             KnotKind::Constant { value, .. } if value == from_count(7)
+        ));
+        assert!(matches!(
+            KnotKind::constant_bool(false),
+            KnotKind::Constant {
+                domain: SignalDomain::Bool,
+                value: ZERO,
+            }
+        ));
+        assert!(matches!(
+            KnotKind::constant_level(0.25),
+            KnotKind::Constant {
+                domain: SignalDomain::Level,
+                value,
+            } if value == from_level(0.25)
         ));
         assert!(matches!(
             KnotKind::emit_command("go"),
@@ -488,5 +502,17 @@ mod tests {
         assert!(!KnotKind::calc(CalcOp::Mul, SignalDomain::Bool).has_valid_domains());
         assert!(KnotKind::convert(SignalDomain::Bool, SignalDomain::Level).has_valid_domains());
         assert!(!KnotKind::convert(SignalDomain::Bool, SignalDomain::Bool).has_valid_domains());
+
+        let numeric_kinds = [
+            KnotKind::map(ZERO, ONE, ZERO, ONE, SignalDomain::Level),
+            KnotKind::abs(SignalDomain::Level),
+            KnotKind::neg(SignalDomain::Count),
+            KnotKind::digitize(2, SignalDomain::Level),
+            KnotKind::threshold_default(SignalDomain::Level),
+            KnotKind::random(false, SignalDomain::Count),
+            KnotKind::sqrt(SignalDomain::Level),
+            KnotKind::clamp(ZERO, ONE, SignalDomain::Count),
+        ];
+        assert!(numeric_kinds.iter().all(KnotKind::has_valid_domains));
     }
 }

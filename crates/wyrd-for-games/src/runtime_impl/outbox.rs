@@ -169,4 +169,56 @@ mod tests {
         assert!(rt.outbox().signals().is_empty());
         assert!(rt.outbox().emits().is_empty());
     }
+
+    #[test]
+    fn set_sense_rejects_same_runtime_non_sense_and_domain_values() {
+        let mut b = Weave::builder("domain-errors").unwrap();
+        let _constant = b
+            .knot("constant", KnotKind::constant(ONE, SignalDomain::Bool))
+            .unwrap();
+        let _bool_sense = b
+            .knot("bool", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
+        let _count_sense = b
+            .knot("count", KnotKind::signal_in(SignalDomain::Count))
+            .unwrap();
+        let mut rt = Runtime::bind(b.build().unwrap(), BindOpts::default()).unwrap();
+
+        // Knot insertion order is dense at bind: constant=0, bool=1, count=2.
+        let constant_as_sense = SenseId::new(rt.owner, 0);
+        assert_eq!(
+            rt.port_writer().set_sense(constant_as_sense, ONE),
+            Err(HandleError::InvalidSense {
+                sense: constant_as_sense
+            })
+        );
+
+        let bool_id = SenseId::new(rt.owner, 1);
+        assert_eq!(
+            rt.port_writer()
+                .set_sense(bool_id, crate::foundation::from_count(2)),
+            Err(HandleError::DomainValue {
+                sense: bool_id,
+                domain: SignalDomain::Bool,
+            })
+        );
+
+        #[cfg(feature = "signal-f32")]
+        {
+            let count_id = SenseId::new(rt.owner, 2);
+            assert_eq!(
+                rt.port_writer().set_sense(count_id, 1.5),
+                Err(HandleError::DomainValue {
+                    sense: count_id,
+                    domain: SignalDomain::Count,
+                })
+            );
+        }
+
+        #[cfg(feature = "signal-i32")]
+        {
+            let count_id = SenseId::new(rt.owner, 2);
+            rt.port_writer().set_sense(count_id, 1).unwrap();
+        }
+    }
 }

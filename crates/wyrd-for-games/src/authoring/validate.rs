@@ -547,16 +547,14 @@ fn validate_domains(
             if let PortDomain::Variable(variable) = constraint {
                 active.insert(node);
                 if let Some(&(first, first_port)) = variables.get(&(knot_index, variable)) {
-                    if let Some((from_domain, to_domain)) = inference.union(first, node) {
-                        return Err(ValidationError::SignalDomainMismatch {
-                            from_knot: knot.id.clone(),
-                            from_port: String::from(first_port),
-                            from_domain,
-                            to_knot: knot.id.clone(),
-                            to_port: String::from(port.name),
-                            to_domain,
-                        });
-                    }
+                    validate_variable_domains(
+                        &mut inference,
+                        first,
+                        node,
+                        &knot.id,
+                        first_port,
+                        port.name,
+                    )?;
                 } else {
                     variables.insert((knot_index, variable), (node, port.name));
                 }
@@ -607,16 +605,48 @@ fn validate_domains(
             if !active.contains(&node) {
                 continue;
             }
-            let root = inference.find(node);
-            if inference.nodes[root].domain.is_none() && !deferred.contains(&root) {
-                return Err(ValidationError::UnresolvedSignalDomain {
-                    knot_id: knot.id.clone(),
-                    port: String::from(port.name),
-                });
-            }
+            validate_resolved_domain(&mut inference, node, &deferred, &knot.id, port.name)?;
         }
     }
 
+    Ok(())
+}
+
+fn validate_variable_domains(
+    inference: &mut DomainInference,
+    first: usize,
+    node: usize,
+    knot_id: &str,
+    first_port: &str,
+    port: &str,
+) -> Result<(), ValidationError> {
+    if let Some((from_domain, to_domain)) = inference.union(first, node) {
+        return Err(ValidationError::SignalDomainMismatch {
+            from_knot: String::from(knot_id),
+            from_port: String::from(first_port),
+            from_domain,
+            to_knot: String::from(knot_id),
+            to_port: String::from(port),
+            to_domain,
+        });
+    }
+    Ok(())
+}
+
+fn validate_resolved_domain(
+    inference: &mut DomainInference,
+    node: usize,
+    deferred: &BTreeSet<usize>,
+    knot_id: &str,
+    port: &str,
+) -> Result<(), ValidationError> {
+    let root = inference.find(node);
+    if inference.nodes[root].domain.is_none() && !deferred.contains(&root) {
+        return Err(ValidationError::UnresolvedSignalDomain {
+            knot_id: String::from(knot_id),
+            port: String::from(port),
+        });
+    }
     Ok(())
 }
 
@@ -732,5 +762,59 @@ fn delay_ticks(kind: &KnotKind) -> u16 {
     match kind {
         KnotKind::Delay { ticks } => *ticks,
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::{validate_resolved_domain, validate_variable_domains, DomainInference};
+    use crate::{SignalDomain, ValidationError};
+
+    #[test]
+    fn domain_inference_reports_internal_conflicts_and_unresolved_components() {
+        let mut inference = DomainInference::default();
+        let level = inference.make_set(Some(SignalDomain::Level));
+        let boolean = inference.make_set(Some(SignalDomain::Bool));
+        assert!(matches!(
+            validate_variable_domains(
+                &mut inference,
+                level,
+                boolean,
+                "select",
+                "a",
+                "b",
+            ),
+            Err(ValidationError::SignalDomainMismatch {
+                from_knot,
+                from_port,
+                to_knot,
+                to_port,
+                ..
+            }) if from_knot == "select" && from_port == "a" && to_knot == "select" && to_port == "b"
+        ));
+
+        let unknown = inference.make_set(None);
+        assert!(matches!(
+            validate_resolved_domain(&mut inference, unknown, &BTreeSet::new(), "delay", "out"),
+            Err(ValidationError::UnresolvedSignalDomain { knot_id, port })
+                if knot_id == "delay" && port == "out"
+        ));
+        let deferred = BTreeSet::from([unknown]);
+        assert!(
+            validate_resolved_domain(&mut inference, unknown, &deferred, "delay", "out").is_ok()
+        );
+    }
+
+    #[test]
+    fn domain_inference_accepts_unified_nodes() {
+        let mut inference = DomainInference::default();
+        let first = inference.make_set(None);
+        let second = inference.make_set(None);
+        assert!(
+            validate_variable_domains(&mut inference, first, second, "delay", "in", "out",).is_ok()
+        );
+        assert!(inference.union(first, second).is_none());
     }
 }
