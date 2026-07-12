@@ -22,5 +22,6 @@ fn public_recipe_weaves_build() {
     assert!(tier_c::c08_on_start_once_weave().is_ok());
     assert!(tier_c::c09_emit_once_weave().is_ok());
     assert!(tier_c::c10_or_any_of_keys_weave().is_ok());
+    assert!(tier_c::c11_composer_weave().is_ok());
     assert!(tier_d::d01_shrine_chamber_weave().is_ok());
 }

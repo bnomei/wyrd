@@ -1,4 +1,10 @@
-//! Tier C — GBG / Zelda literacy (softlock-aware compositions).
+//! Tier C — GBG / Zelda literacy, including generated typed compositions.
+//!
+//! C01–C10 use concise [`crate::weave!`] declarations. C11 is the generated
+//! counterpart: [`crate::Weave::compose`] provides a closure-scoped
+//! [`crate::Composer`] whose Bool, Level, and Count wires cannot be mixed by
+//! accident. Use its raw `knot` / `thread` methods only when an advanced
+//! full-catalog operation has no semantic helper yet.
 
 #![allow(clippy::result_large_err)]
 
@@ -6,10 +12,11 @@ use super::helpers::{bind_default, emit_count, signal_out_truthy, signal_out_val
 use super::Result;
 use crate::authoring::{BuildError, Weave};
 use crate::foundation::{
-    from_count, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
+    from_count, from_level, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
 };
 use crate::runtime_impl::host::ScriptedHost;
 use crate::weave;
+use crate::{HostPathId, Recipe, RecipeResolveError, Scenario, SenseId};
 
 /// Topology for C01: multi-switch latch.
 pub fn c01_multi_switch_latch_weave() -> core::result::Result<Weave, BuildError> {
@@ -295,6 +302,98 @@ pub fn run_c10_or_any_of_keys() -> Result<()> {
     Ok(())
 }
 
+/// Typed ports for C11's generated Bool, Level, and Count composition.
+pub struct C11ComposerPorts {
+    pub button: SenseId,
+    pub level: SenseId,
+    pub count: SenseId,
+    pub ready: HostPathId,
+    pub level_out: HostPathId,
+    pub count_ready: HostPathId,
+}
+
+/// Typed host boundary for the generated C11 topology.
+pub struct C11ComposerRecipe;
+
+impl Recipe for C11ComposerRecipe {
+    type Ports = C11ComposerPorts;
+
+    fn weave() -> core::result::Result<Weave, BuildError> {
+        c11_composer_weave()
+    }
+
+    fn resolve_ports(
+        runtime: &crate::Runtime,
+    ) -> core::result::Result<Self::Ports, RecipeResolveError> {
+        Ok(C11ComposerPorts {
+            button: runtime.required_sense("button")?,
+            level: runtime.required_sense("level")?,
+            count: runtime.required_sense("count")?,
+            ready: runtime.required_path("composer.ready")?,
+            level_out: runtime.required_path("composer.level")?,
+            count_ready: runtime.required_path("composer.count_ready")?,
+        })
+    }
+}
+
+/// Generated topology for C11, composed with Bool, Level, and Count wires.
+///
+/// The semantic helpers retain normal builder validation. If an application
+/// needs an uncommon catalog knot, use `Composer::knot` and `Composer::thread`
+/// as a deliberate advanced escape hatch rather than turning routine recipe
+/// wiring back into string handles.
+pub fn c11_composer_weave() -> core::result::Result<Weave, BuildError> {
+    // `Weave::compose` distinguishes build and final validation errors. The
+    // tutorial's static inputs are valid, so surface either source through the
+    // cookbook's existing BuildError contract only after its construction.
+    match Weave::compose("c11-composer", |composer| {
+        let button = composer.bool_input("button")?;
+        let level = composer.level_input("level")?;
+        let count = composer.count_input("count")?;
+
+        let press = composer.rising("press", &button)?;
+        let ready = composer.pulse_hold("ready", 2, &press)?;
+        let count_ready =
+            composer.compare_constant("count-ready", CompareOp::Gte, &count, from_count(2))?;
+
+        composer.signal_out("ready-out", "composer.ready", &ready)?;
+        composer.signal_out("level-out", "composer.level", &level)?;
+        composer.signal_out("count-ready-out", "composer.count_ready", &count_ready)
+    }) {
+        Ok(weave) => Ok(weave),
+        Err(crate::ComposeError::Build(error)) => Err(error),
+        Err(crate::ComposeError::Validation(error)) => Err(BuildError::Validation(error)),
+    }
+}
+
+/// C11: generated recipe with typed Bool, Level, and Count composer wires.
+///
+/// [`Weave::compose`](crate::Weave::compose) is the ergonomic choice when
+/// gameplay data generates topology. The closure only accepts compatible wire
+/// domains, then returns the same validated [`Weave`] used by declarative
+/// recipes. C11 crosses the host boundary through [`Recipe`] + [`Scenario`]
+/// just like B02 and Tier A. The raw composer API is intentionally reserved
+/// for advanced catalog coverage; ordinary composition should stay semantic.
+///
+/// # Examples
+///
+/// ```
+/// wyrd::cookbook::tier_c::run_c11_typed_composer().unwrap();
+/// ```
+pub fn run_c11_typed_composer() -> Result<()> {
+    Scenario::<C11ComposerRecipe>::run(|scenario| {
+        scenario.frame(|frame| {
+            frame.set(|ports| ports.button, ONE)?;
+            frame.set(|ports| ports.level, from_level(0.5))?;
+            frame.set(|ports| ports.count, from_count(2))
+        })?;
+        scenario.expect_truthy(|ports| ports.ready)?;
+        scenario.expect_value(|ports| ports.level_out, from_level(0.5))?;
+        scenario.expect_truthy(|ports| ports.count_ready)
+    })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,5 +423,10 @@ mod tests {
         }
         assert_duplicate_knot_rejected(&c06_map_remap_weave().unwrap(), "map");
         assert_duplicate_knot_rejected(&c07_digitize_steps_weave().unwrap(), "dig");
+    }
+
+    #[test]
+    fn c11_composer_recipe_runs_through_typed_ports() {
+        run_c11_typed_composer().unwrap();
     }
 }

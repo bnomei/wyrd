@@ -1,4 +1,11 @@
-//! Tier D — chamber-scale composition with host-owned world effects.
+//! Tier D — chamber-scale declarative composition with host-owned world effects.
+//!
+//! The chamber keeps its [`crate::weave!`] topology separate from the host:
+//! Wyrd emits typed signal and command endpoints while the game owns movement,
+//! collision, transitions, and persistence. Its runner deliberately exposes a
+//! direct scripted-host loop as the advanced counterpart to the typed
+//! [`crate::Recipe`] + [`crate::Scenario`] boundary in Tiers A–C; it teaches
+//! multi-frame host effects rather than repeated string-handle setup.
 
 #![allow(clippy::result_large_err)]
 

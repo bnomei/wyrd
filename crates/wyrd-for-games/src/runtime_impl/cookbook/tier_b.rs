@@ -1,4 +1,9 @@
-//! Tier B — first five Weaves (GBG middle core).
+//! Tier B — reusable declarative patterns and compact typed recipes.
+//!
+//! These examples remain authored with [`crate::weave!`]; B01 introduces
+//! [`crate::pattern!`] for a validated reusable fragment. B02 carries that
+//! declarative topology across the host boundary with a [`crate::Recipe`] and
+//! [`crate::Scenario`], so its runner never re-resolves string handles per frame.
 
 #![allow(clippy::result_large_err)]
 
@@ -9,7 +14,35 @@ use crate::foundation::{
     from_count, CompareOp, FlagPriority, KnotKind, SignalDomain, TimerMode, ONE, ZERO,
 };
 use crate::runtime_impl::host::ScriptedHost;
-use crate::{pattern, weave};
+use crate::{pattern, weave, HostPathId, Recipe, RecipeResolveError, Scenario, SenseId};
+
+/// Typed ports for the B02 two-plate door recipe.
+pub struct B02TwoPlateDoorPorts {
+    pub plate_a: SenseId,
+    pub plate_b: SenseId,
+    pub door: HostPathId,
+}
+
+/// Typed host boundary for B02's declarative door topology.
+pub struct B02TwoPlateDoorRecipe;
+
+impl Recipe for B02TwoPlateDoorRecipe {
+    type Ports = B02TwoPlateDoorPorts;
+
+    fn weave() -> core::result::Result<Weave, BuildError> {
+        b02_two_plate_door_weave()
+    }
+
+    fn resolve_ports(
+        runtime: &crate::Runtime,
+    ) -> core::result::Result<Self::Ports, RecipeResolveError> {
+        Ok(B02TwoPlateDoorPorts {
+            plate_a: runtime.required_sense("plate_a")?,
+            plate_b: runtime.required_sense("plate_b")?,
+            door: runtime.required_path("door.open")?,
+        })
+    }
+}
 
 /// Topology for B01, with the monostable pattern supplied by the caller.
 pub fn b01_monostable_pattern_weave(pat: &Pattern) -> core::result::Result<Weave, BuildError> {
@@ -71,7 +104,7 @@ pub fn b02_two_plate_door_weave() -> core::result::Result<Weave, BuildError> {
     }
 }
 
-/// B02: Two-plate door (And) over ScriptedHost frames.
+/// B02: Two-plate door (And) through typed [`Recipe`] + [`Scenario`] frames.
 ///
 /// # Examples
 ///
@@ -79,15 +112,18 @@ pub fn b02_two_plate_door_weave() -> core::result::Result<Weave, BuildError> {
 /// wyrd::cookbook::tier_b::run_b02_two_plate_door().unwrap();
 /// ```
 pub fn run_b02_two_plate_door() -> Result<()> {
-    let weave = b02_two_plate_door_weave()?;
-    let mut rt = bind_default(&weave)?;
-    let a = rt.sense_id("plate_a").expect("a");
-    let b = rt.sense_id("plate_b").expect("b");
-    let mut host = ScriptedHost::new();
-    tick_senses(&mut host, &mut rt, &[(a, ONE), (b, ZERO)])?;
-    assert!(!signal_out_truthy(&rt, "door.open"));
-    tick_senses(&mut host, &mut rt, &[(a, ONE), (b, ONE)])?;
-    assert!(signal_out_truthy(&rt, "door.open"));
+    Scenario::<B02TwoPlateDoorRecipe>::run(|scenario| {
+        scenario.frame(|frame| {
+            frame.set(|ports| ports.plate_a, ONE)?;
+            frame.set(|ports| ports.plate_b, ZERO)
+        })?;
+        scenario.expect_value(|ports| ports.door, ZERO)?;
+        scenario.frame(|frame| {
+            frame.set(|ports| ports.plate_a, ONE)?;
+            frame.set(|ports| ports.plate_b, ONE)
+        })?;
+        scenario.expect_truthy(|ports| ports.door)
+    })?;
     Ok(())
 }
 

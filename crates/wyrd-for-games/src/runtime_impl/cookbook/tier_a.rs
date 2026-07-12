@@ -1,4 +1,10 @@
-//! Tier A — foundations (short graphs, rustdoc-friendly).
+//! Tier A — declarative foundations and the typed host boundary.
+//!
+//! A01–A04 pair [`crate::weave!`] topology with [`crate::Recipe`] port
+//! resolution and closure-scoped [`crate::Scenario`] frames. This is the
+//! default shape for a static recipe: graph names stay at authoring time while
+//! a generic host receives dense typed handles after bind. A05 intentionally
+//! remains a direct validation lesson.
 
 #![allow(clippy::result_large_err)]
 

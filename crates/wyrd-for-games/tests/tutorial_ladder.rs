@@ -90,6 +90,11 @@ fn c10_or_any_of_keys() {
 }
 
 #[test]
+fn c11_typed_composer() {
+    tier_c::run_c11_typed_composer().unwrap();
+}
+
+#[test]
 fn d01_shrine_chamber() {
     tier_d::run_d01_shrine_chamber().unwrap();
 }
