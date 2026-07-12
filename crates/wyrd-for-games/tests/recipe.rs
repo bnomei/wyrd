@@ -112,3 +112,91 @@ fn manifest_is_derived_from_topology_in_stable_order() {
     assert_eq!(manifest.emit_commands[0].name, "door-chime");
     assert_eq!(DoorRecipe::manifest().unwrap(), manifest);
 }
+
+#[test]
+fn recipe_ports_resolve_all_named_endpoint_kinds_and_can_be_split() {
+    let instance = DoorRecipe::bind().expect("recipe should bind");
+    let (runtime, ports) = instance.into_parts();
+
+    assert_eq!(runtime.required_sense("plate").unwrap(), ports.plate);
+    assert_eq!(runtime.required_path("door.open").unwrap(), ports.door);
+    assert_eq!(runtime.required_command("door-chime").unwrap(), ports.chime);
+    assert_eq!(runtime.required_knot("plate").unwrap().get(), 0);
+
+    assert!(matches!(
+        runtime.required_sense("missing"),
+        Err(RecipeResolveError::Missing { endpoint: RecipeEndpoint::SignalIn, name })
+            if name == "missing"
+    ));
+    assert!(matches!(
+        runtime.required_knot("missing"),
+        Err(RecipeResolveError::Missing { endpoint: RecipeEndpoint::Knot, name })
+            if name == "missing"
+    ));
+    assert!(matches!(
+        runtime.required_path("missing"),
+        Err(RecipeResolveError::Missing { endpoint: RecipeEndpoint::SignalOut, name })
+            if name == "missing"
+    ));
+    assert!(matches!(
+        runtime.required_command("missing"),
+        Err(RecipeResolveError::Missing { endpoint: RecipeEndpoint::EmitCommand, name })
+            if name == "missing"
+    ));
+}
+
+#[test]
+fn manifest_ignores_non_host_knots() {
+    let mut builder = Weave::builder("recipe-manifest-constant").unwrap();
+    builder
+        .knot("constant", KnotKind::constant_bool(true))
+        .unwrap();
+    let manifest = RecipeManifest::from_weave(&builder.build().unwrap());
+
+    assert!(manifest.signal_inputs.is_empty());
+    assert!(manifest.signal_outputs.is_empty());
+    assert!(manifest.emit_commands.is_empty());
+}
+
+#[test]
+fn manifest_orders_duplicate_host_names_by_knot_id() {
+    let weave = weave! {
+        id: "recipe-manifest-order";
+        knots {
+            source = KnotKind::signal_in(SignalDomain::Bool);
+            output_z = KnotKind::signal_out("z", SignalDomain::Bool);
+            output_a_late = KnotKind::signal_out("a", SignalDomain::Bool);
+            output_a_early = KnotKind::signal_out("a", SignalDomain::Bool);
+            command_z = KnotKind::emit_command("z");
+            command_a_late = KnotKind::emit_command("a");
+            command_a_early = KnotKind::emit_command("a");
+        }
+        threads {
+            source.out -> output_z.in;
+            source.out -> output_a_late.in;
+            source.out -> output_a_early.in;
+            source.out -> command_z.trigger;
+            source.out -> command_a_late.trigger;
+            source.out -> command_a_early.trigger;
+        }
+    }
+    .unwrap();
+    let manifest = RecipeManifest::from_weave(&weave);
+
+    assert_eq!(
+        manifest
+            .signal_outputs
+            .iter()
+            .map(|output| output.knot.as_str())
+            .collect::<Vec<_>>(),
+        ["output_a_early", "output_a_late", "output_z"]
+    );
+    assert_eq!(
+        manifest
+            .emit_commands
+            .iter()
+            .map(|command| command.knot.as_str())
+            .collect::<Vec<_>>(),
+        ["command_a_early", "command_a_late", "command_z"]
+    );
+}

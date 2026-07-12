@@ -1,6 +1,6 @@
 use wyrd::{
-    from_count, pattern, weave, CalcOp, CompareOp, ComposeError, FlagPriority, KnotKind, LevelWire,
-    SignalDomain, TimerMode, Weave, ONE, ZERO,
+    from_count, pattern, weave, CalcOp, CompareOp, ComposeError, FlagPriority, KnotKind, Level,
+    LevelWire, SignalDomain, TimerMode, Weave, ONE, ZERO,
 };
 
 #[test]
@@ -186,6 +186,35 @@ fn composer_helpers_cover_cookbook_operations_and_pattern_inclusion() {
         .iter()
         .any(|knot| knot.kind == KnotKind::timer(TimerMode::FedCountdown, 2)));
     assert!(weave.threads().len() > 30);
+}
+
+#[test]
+fn composer_optional_wires_and_count_threshold_are_validated() {
+    let weave = Weave::compose("optional-wires", |composer| {
+        let count = composer.count_input("count")?;
+        let threshold = composer.threshold("threshold", &count, from_count(2), ZERO, true)?;
+        let random = composer.random::<Level>("random", false, None, None, None)?;
+
+        composer.signal_out("threshold-out", "threshold", &threshold.out)?;
+        composer.signal_out("random-out", "random", &random)
+    })
+    .expect("optional random ports are valid when its gate is not required");
+
+    assert!(weave.knots().iter().any(|knot| knot.id == "threshold"));
+    assert!(weave.knots().iter().any(|knot| knot.id == "random"));
+}
+
+#[test]
+fn composer_propagates_threshold_build_errors() {
+    let error = Weave::compose("duplicate-threshold", |composer| {
+        let count = composer.count_input("count")?;
+        composer.threshold("threshold", &count, from_count(2), ZERO, false)?;
+        composer.threshold("threshold", &count, from_count(2), ZERO, false)?;
+        Ok(())
+    })
+    .expect_err("the second threshold keeps the builder's duplicate-id error");
+
+    assert!(matches!(error, ComposeError::Build(_)));
 }
 
 #[test]

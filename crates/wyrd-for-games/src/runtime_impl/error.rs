@@ -570,5 +570,106 @@ mod tests {
         assert!(cookbook_errors
             .iter()
             .all(|error| Error::source(error).is_some()));
+
+        let endpoints = [
+            (RecipeEndpoint::SignalIn, "SignalIn"),
+            (RecipeEndpoint::SignalOut, "SignalOut"),
+            (RecipeEndpoint::EmitCommand, "EmitCommand"),
+            (RecipeEndpoint::Knot, "knot"),
+            (RecipeEndpoint::Port, "port"),
+        ];
+        assert!(endpoints
+            .iter()
+            .all(|(endpoint, label)| endpoint.to_string() == *label));
+
+        let resolve_errors = [
+            RecipeResolveError::Missing {
+                endpoint: RecipeEndpoint::SignalOut,
+                name: String::from("door.open"),
+            },
+            RecipeResolveError::Invalid {
+                endpoint: RecipeEndpoint::Port,
+                name: String::from("door.in"),
+                reason: "the port has the wrong domain",
+            },
+        ];
+        assert_eq!(
+            resolve_errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            [
+                "required SignalOut endpoint 'door.open' is missing",
+                "required port endpoint 'door.in' is invalid: the port has the wrong domain",
+            ]
+        );
+        assert!(resolve_errors
+            .iter()
+            .all(|error| Error::source(error).is_none()));
+
+        let recipe_errors = [
+            RecipeError::from(BuildError::ForeignHandle),
+            RecipeError::from(bind_errors[0].clone()),
+            RecipeError::from(resolve_errors[0].clone()),
+        ];
+        assert_eq!(
+            recipe_errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            [
+                "cannot build recipe: handle belongs to a different weave builder",
+                "cannot bind recipe: cannot bind weave 'invalid': weave 'empty' has no knots",
+                "cannot resolve recipe ports: required SignalOut endpoint 'door.open' is missing",
+            ]
+        );
+        assert!(recipe_errors
+            .iter()
+            .all(|error| Error::source(error).is_some()));
+
+        let scenario_errors = [
+            ScenarioError::from(recipe_errors[0].clone()),
+            ScenarioError::from(HandleError::ForeignRuntime { handle: "sense" }),
+            ScenarioError::MissingSignal {
+                path: String::from("door.open"),
+                tick: 4,
+            },
+            ScenarioError::UnexpectedSignal {
+                path: String::from("door.open"),
+                expected: crate::ONE,
+                actual: crate::ZERO,
+                tick: 5,
+            },
+            ScenarioError::ExpectedTruthy {
+                path: String::from("door.open"),
+                actual: crate::ZERO,
+                tick: 6,
+            },
+            ScenarioError::UnexpectedEmits {
+                command: String::from("chime"),
+                expected: 2,
+                actual: 1,
+                tick: 7,
+            },
+        ];
+        let diagnostics: Vec<String> = scenario_errors.iter().map(ToString::to_string).collect();
+        assert!(diagnostics[0].starts_with("cannot start scenario: cannot build recipe"));
+        assert!(diagnostics[1].starts_with("scenario handle error: sense"));
+        assert!(diagnostics[2].contains("no sample in scenario frame 4"));
+        assert!(diagnostics[3].contains("was") && diagnostics[3].contains("expected"));
+        assert!(diagnostics[4].contains("was falsey"));
+        assert!(diagnostics[5].contains("fired 1 times, expected 2"));
+        assert!(Error::source(&scenario_errors[0]).is_some());
+        assert!(Error::source(&scenario_errors[1]).is_some());
+        assert!(scenario_errors[2..]
+            .iter()
+            .all(|error| Error::source(error).is_none()));
+
+        let scenario_cookbook = CookbookError::from(scenario_errors[0].clone());
+        assert_eq!(
+            scenario_cookbook.to_string(),
+            "cookbook scenario failed: cannot start scenario: cannot build recipe: handle belongs to a different weave builder"
+        );
+        assert!(Error::source(&scenario_cookbook).is_some());
     }
 }

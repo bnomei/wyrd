@@ -94,7 +94,7 @@ pub fn tick_senses(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::{KnotKind, SignalDomain, ZERO};
+    use crate::foundation::{from_count, KnotKind, SignalDomain, ZERO};
 
     fn runtime_with_zero_output() -> Runtime {
         let mut builder = Weave::builder("strict-signal-out").unwrap();
@@ -139,5 +139,41 @@ mod tests {
         rt.begin_frame(HostTime { tick: 1 });
 
         let _ = signal_out_value(&rt, "known.output");
+    }
+
+    #[test]
+    fn manual_and_scripted_tick_helpers_drive_the_same_runtime() {
+        let mut rt = runtime_with_zero_output();
+        sample_loom(&mut rt, 3, &[]).expect("an empty manual sample is valid");
+        assert_eq!(signal_out_value(&rt, "known.output"), ZERO);
+
+        let mut host = ScriptedHost::new();
+        tick_senses(&mut host, &mut rt, &[]).expect("an empty scripted sample is valid");
+        assert_eq!(host.tick, 1);
+        assert_eq!(signal_out_value(&rt, "known.output"), ZERO);
+    }
+
+    #[test]
+    fn sample_loom_preserves_typed_write_failures() {
+        let mut builder = Weave::builder("strict-sense").unwrap();
+        let sense = builder
+            .knot("sense", KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
+        let output = builder
+            .knot(
+                "output",
+                KnotKind::signal_out("known.output", SignalDomain::Bool),
+            )
+            .unwrap();
+        let from = builder.output(&sense, "out").unwrap();
+        let to = builder.input(&output, "in").unwrap();
+        builder.connect(from, to).unwrap();
+        let mut rt = bind_default(&builder.build().unwrap()).unwrap();
+        let sense = rt.sense_id("sense").unwrap();
+
+        assert!(matches!(
+            sample_loom(&mut rt, 0, &[(sense, from_count(2))]),
+            Err(HandleError::DomainValue { .. })
+        ));
     }
 }

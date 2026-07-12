@@ -83,3 +83,28 @@ fn scenario_value_errors_name_the_path_and_frame() {
             if path == "lamp" && expected == ONE && actual == ZERO
     ));
 }
+
+#[test]
+fn scenario_reports_truthy_and_emit_expectation_failures() {
+    let falsey = Scenario::<ButtonRecipe>::run(|scenario| {
+        scenario.frame(|frame| frame.set(|ports| ports.button, ZERO))?;
+        scenario.expect_truthy(|ports| ports.lamp)
+    })
+    .expect_err("zero lamp is falsey");
+    assert!(matches!(
+        falsey,
+        ScenarioError::ExpectedTruthy { path, actual, tick: 0 }
+            if path == "lamp" && actual == ZERO
+    ));
+
+    let emits = Scenario::<ButtonRecipe>::run(|scenario| {
+        scenario.frame(|frame| frame.set(|ports| ports.button, ONE))?;
+        scenario.expect_emits(|ports| ports.ping, 2)
+    })
+    .expect_err("one edge emits once, not twice");
+    assert!(matches!(
+        emits,
+        ScenarioError::UnexpectedEmits { command, expected: 2, actual: 1, tick: 0 }
+            if command == "ping"
+    ));
+}
