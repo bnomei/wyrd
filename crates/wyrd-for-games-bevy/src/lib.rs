@@ -759,6 +759,27 @@ mod tests {
     }
 
     #[test]
+    fn recipe_instance_is_safe_while_pending_and_plugin_new_binds_it() {
+        let pending = WyrdRecipeInstance::<AndDoorRecipe>::default();
+        let mut world = WyrdWorld::default();
+        assert!(pending.get(&world).is_none());
+        assert!(pending.ports().is_none());
+
+        let pending = WyrdRecipeInstance::<AndDoorRecipe>::default();
+        assert!(pending.get_mut(&mut world).is_none());
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins((WyrdPlugin, WyrdRecipePlugin::<AndDoorRecipe>::new()));
+        app.update();
+
+        assert!(app
+            .world()
+            .resource::<WyrdRecipeInstance<AndDoorRecipe>>()
+            .is_ready());
+    }
+
+    #[test]
     fn recipe_plugin_retains_contextual_bind_errors_without_inserting_runtime() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
