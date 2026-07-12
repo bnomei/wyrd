@@ -59,6 +59,11 @@ jobs:
           cargo test -p wyrd-for-games \
             --no-default-features \
             --features "${{ matrix.features }},serde-ron,serde-json"
+      - name: Test schema (${{ matrix.signal }})
+        run: |
+          cargo test -p wyrd-for-games \
+            --no-default-features \
+            --features "${{ matrix.features }},schema"
 
   bevy-f32:
     name: bevy (signal-f32 only)

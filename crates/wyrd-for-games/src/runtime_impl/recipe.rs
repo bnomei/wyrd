@@ -8,8 +8,12 @@ use crate::foundation::{KnotKind, NumericPath, SignalDomain};
 use crate::runtime_impl::error::{RecipeError, RecipeResolveError};
 use crate::runtime_impl::{BindOpts, PortWriter, Runtime};
 
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "schema")]
+use std::borrow::ToOwned;
 
 /// A reusable graph with statically named, runtime-resolved ports.
 ///
@@ -87,6 +91,7 @@ impl<R: Recipe> RecipeInstance<R> {
 /// Deterministic, tooling-facing summary of a validated recipe topology.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct RecipeManifest {
     /// Validated weave id.
     pub weave_id: String,
@@ -151,6 +156,7 @@ impl RecipeManifest {
 /// A named host-writable `SignalIn` endpoint in a [`RecipeManifest`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct SignalInManifest {
     /// Author knot id used to resolve the [`crate::SenseId`].
     pub knot: String,
@@ -161,6 +167,7 @@ pub struct SignalInManifest {
 /// A named host-applied `SignalOut` endpoint in a [`RecipeManifest`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct SignalOutManifest {
     /// Author knot id associated with this output path.
     pub knot: String,
@@ -173,6 +180,7 @@ pub struct SignalOutManifest {
 /// A named host-applied `EmitCommand` endpoint in a [`RecipeManifest`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct EmitCommandManifest {
     /// Author knot id associated with this command.
     pub knot: String,

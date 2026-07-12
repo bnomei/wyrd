@@ -13,12 +13,17 @@ use crate::foundation::{ports_of, PortDir};
 
 use crate::{KnotDef, PortRefDef, ThreadDef, ValidationError, WeaveDef};
 
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "schema")]
+use std::borrow::ToOwned;
 
 /// Named export of an inner knot port for parent-weave wiring.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PatternExportDef {
     /// Export name exposed to the parent weave (`in(export)` / `out(export)`).
     pub name: String,
@@ -39,6 +44,7 @@ impl PatternExportDef {
 /// Editable pattern definition; convert with [`Pattern::try_from`].
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PatternDef {
     /// Pattern catalog id (non-empty, no `/`).
     pub id: String,

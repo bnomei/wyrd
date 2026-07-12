@@ -11,12 +11,17 @@ use crate::foundation::{KnotKind, NumericPath};
 
 use crate::ValidationError;
 
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "schema")]
+use std::borrow::ToOwned;
 
 /// Serializable author reference to a named knot port.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct PortRefDef {
     /// Author knot id (must exist in the same weave or pattern inner graph).
     pub knot: String,
@@ -37,6 +42,7 @@ impl PortRefDef {
 /// Serializable knot definition.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct KnotDef {
     /// Unique author id within the weave (non-empty, no `/` in pattern inners).
     pub id: String,
@@ -47,6 +53,7 @@ pub struct KnotDef {
 /// Serializable directed connection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ThreadDef {
     /// Source port (must be an output on the referenced knot).
     pub from: PortRefDef,
@@ -57,6 +64,7 @@ pub struct ThreadDef {
 /// Editable and serializable graph definition. Convert it to [`Weave`] before execution.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct WeaveDef {
     /// Author weave id (also mixed into `Random` PRNG seed at bind).
     pub id: String,

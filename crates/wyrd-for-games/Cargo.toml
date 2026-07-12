@@ -25,6 +25,9 @@ alloc = ["no-std-compat/alloc"]
 serde = ["dep:serde"]
 serde-ron = ["serde", "dep:ron", "std"]
 serde-json = ["serde", "dep:serde_json", "std"]
+# Tooling-only schema support. It intentionally selects `std` and `serde`, so
+# alloc/no_std consumers do not resolve schemars or its JSON dependencies.
+schema = ["std", "serde", "dep:schemars"]
 
 [dependencies]
 no-std-compat = { workspace = true, features = ["alloc"] }
@@ -32,6 +35,7 @@ libm = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 ron = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
 
 [dev-dependencies]
 trybuild = "=1.0.117"

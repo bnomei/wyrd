@@ -6,8 +6,12 @@
 
 use crate::foundation::signal::Signal;
 
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "schema")]
+use std::{borrow::ToOwned, boxed::Box, vec};
 
 /// Which numeric wire path this weave was authored for.
 ///
@@ -15,6 +19,7 @@ use serde::{Deserialize, Serialize};
 /// `signal-i32`); validate rejects a mismatch.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum NumericPath {
     /// `f32` wire representation (`signal-f32` builds).
     #[cfg_attr(feature = "serde", serde(rename = "f32"))]
@@ -30,6 +35,7 @@ pub enum NumericPath {
 /// representation selected by `signal-f32` or `signal-i32`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum SignalDomain {
     /// Exact false/true values (`ZERO`/`ONE`).
@@ -64,6 +70,7 @@ impl NumericPath {
 /// Comparison operator for [`KnotKind::Compare`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum CompareOp {
     /// `lhs` equals `rhs`.
     Eq,
@@ -92,6 +99,7 @@ impl CompareOp {
 /// Timer behavior for [`KnotKind::Timer`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum TimerMode {
     /// Countdown reloaded while the `feed` port stays truthy.
     FedCountdown,
@@ -102,6 +110,7 @@ pub enum TimerMode {
 /// Binary arithmetic for [`KnotKind::Calc`] (prefer over path-local `signal_ops`).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum CalcOp {
     /// Saturating add of `a` and `b`.
     Add,
@@ -116,6 +125,7 @@ pub enum CalcOp {
 /// Simultaneous set/reset priority for [`KnotKind::Flag`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum FlagPriority {
     /// Simultaneous set and reset clears the latch.
     ResetWins,
@@ -129,6 +139,7 @@ pub enum FlagPriority {
 /// variants. Adding a kind requires catalog ports plus runtime eval.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub enum KnotKind {
     /// Fixed authored value seeded on `out` before topo eval.
     Constant {

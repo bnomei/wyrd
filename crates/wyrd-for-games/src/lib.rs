@@ -50,6 +50,12 @@ pub mod graph {
     pub use crate::runtime_impl::{
         EmitCommandManifest, RecipeManifest, SignalInManifest, SignalOutManifest,
     };
+    /// JSON Schema traits and macros for recipe tooling.
+    ///
+    /// Available only with the opt-in `schema` feature, which also enables
+    /// `std` and `serde` while preserving default and no_std dependencies.
+    #[cfg(feature = "schema")]
+    pub use schemars::{schema_for, JsonSchema};
 }
 
 /// Runtime binding, host integration, output collection, and cookbook recipes.
@@ -77,6 +83,11 @@ pub use authoring::{
     PortRefDef, ThreadDef, ThresholdWires, ValidateReport, ValidationError, Weave, WeaveBuilder,
     WeaveDef, Wire, WireDomain,
 };
+
+/// JSON Schema traits and macros for serializable graph and recipe types.
+/// Enable the opt-in `schema` feature before importing these exports.
+#[cfg(feature = "schema")]
+pub use schemars::{schema_for, JsonSchema};
 
 #[cfg(feature = "serde-ron")]
 pub use authoring::{from_ron, to_ron, RonCodecError};

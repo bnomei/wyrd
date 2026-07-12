@@ -4,6 +4,7 @@ use core::fmt;
 
 use crate::authoring::{BuildError, ValidationError};
 use crate::foundation::{PortSlot, SignalDomain};
+use std::boxed::Box;
 use std::string::String;
 
 use crate::runtime_impl::handles::{CmdId, HostPathId, KnotHandle, SenseId};
@@ -245,7 +246,7 @@ pub enum RecipeError {
     /// The recipe could not construct its validated weave.
     Build(BuildError),
     /// The recipe's weave could not bind into a runtime.
-    Bind(BindError),
+    Bind(Box<BindError>),
     /// A required typed endpoint could not be resolved from the bound runtime.
     Resolve(RecipeResolveError),
 }
@@ -258,7 +259,7 @@ impl From<BuildError> for RecipeError {
 
 impl From<BindError> for RecipeError {
     fn from(value: BindError) -> Self {
-        Self::Bind(value)
+        Self::Bind(Box::new(value))
     }
 }
 
@@ -283,7 +284,7 @@ impl std::error::Error for RecipeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Build(source) => Some(source),
-            Self::Bind(source) => Some(source),
+            Self::Bind(source) => Some(source.as_ref()),
             Self::Resolve(source) => Some(source),
         }
     }
