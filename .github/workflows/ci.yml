@@ -18,6 +18,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Lint workspace
@@ -39,6 +43,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Test wyrd-for-games (${{ matrix.signal }})
         run: |
           cargo test -p wyrd-for-games \
@@ -71,6 +79,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.95
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Test wyrd-for-games-bevy
         run: cargo test -p wyrd-for-games-bevy
       - name: Build and_door example
@@ -85,6 +97,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.75
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Check wyrd-for-games no_std
         run: |
           cargo check -p wyrd-for-games \
@@ -148,6 +164,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.95
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Inspect published wyrd-for-games files
         run: cargo package -p wyrd-for-games --locked --list
       - name: Inspect published wyrd-for-games-bevy files

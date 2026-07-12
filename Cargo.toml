@@ -30,3 +30,9 @@ schemars = { version = "0.8.22", default-features = false, features = ["derive"]
 [profile.release]
 lto = true
 codegen-units = 1
+
+# Preserve useful backtraces while substantially reducing the debug-info
+# footprint of normal development and test artifacts. Incremental compilation
+# remains enabled through Cargo's dev-profile default.
+[profile.dev]
+debug = "line-tables-only"

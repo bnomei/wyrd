@@ -1,0 +1,34 @@
+#:schema https://www.schemastore.org/prek.json
+
+# Keep commits fast and read-only. The explicit Justfile tiers and CI remain
+# responsible for broader feature, coverage, MSRV, and publish validation.
+default_install_hook_types = ["pre-commit", "pre-push"]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "cargo-fmt"
+name = "cargo fmt"
+entry = "cargo fmt --all -- --check"
+language = "system"
+pass_filenames = false
+files = "\\.rs$"
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "staged-diff"
+name = "staged diff is clean"
+entry = "git diff --check --cached"
+language = "system"
+pass_filenames = false
+stages = ["pre-commit"]
+
+[[repos.hooks]]
+id = "quality"
+name = "local Rust quality gate"
+entry = "just quality"
+language = "system"
+pass_filenames = false
+files = "(^|/)(Cargo\\.toml|Cargo\\.lock|.*\\.rs)$"
+stages = ["pre-push"]
