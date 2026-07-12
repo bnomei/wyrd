@@ -116,41 +116,43 @@ macro_rules! __pattern_expand {
             }
 
             $( let $knot = $crate::__weave_author_id!($knot $(as $alias)?); )*
-            let __id: ::std::string::String = ($id).into();
+            let __id: $crate::__private::String = ($id).into();
+            let mut __inner_id = __id.clone();
+            __inner_id.push_str(".inner");
             let __numeric = $numeric;
             Ok(<$crate::Pattern as ::core::convert::TryFrom<$crate::PatternDef>>::try_from(
                 $crate::PatternDef {
                     id: __id.clone(),
                     inner: $crate::WeaveDef {
-                        id: ::std::format!("{__id}.inner"),
+                        id: __inner_id,
                         numeric: __numeric,
-                        knots: ::std::vec![
+                        knots: $crate::__private::Vec::from([
                             $( $crate::KnotDef {
                                 id: $knot.into(),
                                 kind: $kind,
                             }, )*
-                        ],
-                        threads: ::std::vec![
+                        ]),
+                        threads: $crate::__private::Vec::from([
                             $( $crate::ThreadDef {
                                 from: $crate::PortRefDef::new($from, ::core::stringify!($from_port)),
                                 to: $crate::PortRefDef::new($to, ::core::stringify!($to_port)),
                             }, )*
-                        ],
+                        ]),
                     },
-                    inputs: ::std::vec![
+                    inputs: $crate::__private::Vec::from([
                         $( $crate::PatternExportDef::new(
                             ::core::stringify!($input_name),
                             $input_knot,
                             ::core::stringify!($input_port),
                         ), )*
-                    ],
-                    outputs: ::std::vec![
+                    ]),
+                    outputs: $crate::__private::Vec::from([
                         $( $crate::PatternExportDef::new(
                             ::core::stringify!($output_name),
                             $output_knot,
                             ::core::stringify!($output_port),
                         ), )*
-                    ],
+                    ]),
                 },
             )?)
         })()

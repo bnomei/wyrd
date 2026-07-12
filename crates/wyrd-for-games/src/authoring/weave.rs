@@ -83,6 +83,21 @@ impl Weave {
         crate::WeaveBuilder::new(id)
     }
 
+    /// Compose a generated graph through a scoped typed [`crate::Composer`].
+    ///
+    /// Common helpers use [`crate::BoolWire`], [`crate::LevelWire`], and
+    /// [`crate::CountWire`] so fixed-domain mistakes cannot be expressed. The
+    /// closure may use `knot`/`input`/`output`/`thread` for any catalog entry;
+    /// all lowering and final validation remains owned by `WeaveBuilder`.
+    pub fn compose(
+        id: impl Into<String>,
+        compose: impl FnOnce(&mut crate::Composer) -> Result<(), crate::BuildError>,
+    ) -> Result<Self, crate::ComposeError> {
+        let mut composer = crate::Composer::new(id)?;
+        compose(&mut composer)?;
+        Ok(composer.build()?)
+    }
+
     /// Author weave id (also mixed into Random PRNG seed at bind).
     pub fn id(&self) -> &str {
         &self.id

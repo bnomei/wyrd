@@ -8,6 +8,7 @@
 //! with validate-on-decode.
 
 pub(crate) mod builder;
+pub(crate) mod composer;
 pub(crate) mod error;
 mod macros;
 pub(crate) mod pattern;
@@ -21,6 +22,10 @@ pub(crate) mod serde_ron;
 pub(crate) mod serde_json_codec;
 
 pub use builder::{slot_of, InputPort, KnotHandle, OutputPort, PatternInstance, WeaveBuilder};
+pub use composer::{
+    Bool, BoolWire, ComposeError, Composer, Count, CountWire, Level, LevelWire, NumericWireDomain,
+    ThresholdWires, Wire, WireDomain,
+};
 pub use error::{BuildError, ValidationError};
 pub use pattern::{Pattern, PatternDef, PatternExportDef};
 pub use validate::{validate, validate_report, Budget, BudgetWarning, ValidateReport};

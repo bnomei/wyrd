@@ -10,6 +10,16 @@
 extern crate alloc;
 extern crate no_std_compat as std;
 
+/// Allocation types used by exported declarative authoring macros.
+///
+/// This is public only so macro expansions remain portable to `no_std + alloc`
+/// callers; it is not part of the supported hand-written API.
+#[doc(hidden)]
+pub mod __private {
+    pub use crate::std::string::String;
+    pub use crate::std::vec::Vec;
+}
+
 mod authoring;
 mod foundation;
 mod runtime_impl;
@@ -31,9 +41,11 @@ pub mod graph {
     #[cfg(feature = "serde-ron")]
     pub use crate::authoring::{from_ron, to_ron, RonCodecError};
     pub use crate::authoring::{
-        slot_of, validate, validate_report, Budget, BudgetWarning, BuildError, InputPort, KnotDef,
-        KnotHandle, OutputPort, Pattern, PatternDef, PatternExportDef, PatternInstance, PortRefDef,
-        ThreadDef, ValidateReport, ValidationError, Weave, WeaveBuilder, WeaveDef,
+        slot_of, validate, validate_report, Bool, BoolWire, Budget, BudgetWarning, BuildError,
+        ComposeError, Composer, Count, CountWire, InputPort, KnotDef, KnotHandle, Level, LevelWire,
+        NumericWireDomain, OutputPort, Pattern, PatternDef, PatternExportDef, PatternInstance,
+        PortRefDef, ThreadDef, ThresholdWires, ValidateReport, ValidationError, Weave,
+        WeaveBuilder, WeaveDef, Wire, WireDomain,
     };
     pub use crate::runtime_impl::{
         EmitCommandManifest, RecipeManifest, SignalInManifest, SignalOutManifest,
@@ -59,9 +71,11 @@ pub use foundation::{
 };
 
 pub use authoring::{
-    slot_of, validate, validate_report, Budget, BudgetWarning, BuildError, InputPort, KnotDef,
-    OutputPort, Pattern, PatternDef, PatternExportDef, PatternInstance, PortRefDef, ThreadDef,
-    ValidateReport, ValidationError, Weave, WeaveBuilder, WeaveDef,
+    slot_of, validate, validate_report, Bool, BoolWire, Budget, BudgetWarning, BuildError,
+    ComposeError, Composer, Count, CountWire, InputPort, KnotDef, Level, LevelWire,
+    NumericWireDomain, OutputPort, Pattern, PatternDef, PatternExportDef, PatternInstance,
+    PortRefDef, ThreadDef, ThresholdWires, ValidateReport, ValidationError, Weave, WeaveBuilder,
+    WeaveDef, Wire, WireDomain,
 };
 
 #[cfg(feature = "serde-ron")]
