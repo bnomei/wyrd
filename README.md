@@ -74,7 +74,7 @@ This writes the following dependency entry:
 
 ```toml
 [dependencies]
-wyrd = { package = "wyrd-for-games", version = "0.2.0" }
+wyrd = { package = "wyrd-for-games", version = "0.3.0" }
 ```
 
 To verify a checkout with a small end-to-end test:
@@ -174,12 +174,27 @@ wyrd-for-games → wyrd-for-games-bevy
 
 ## Author graphs
 
-Use `weave!` for static graphs. It supports explicit author IDs, numeric-path selection, pattern
-instances, and knot-to-pattern connections while expanding through the same checked builder API.
+Choose the authoring surface by how much topology is known up front:
 
-Use `WeaveBuilder` when code generates topology dynamically. Its owner-aware `KnotHandle`,
-`InputPort`, and `OutputPort` values reject cross-builder and reversed connections before final
-validation.
+- Use `weave!` for a fixed, readable graph. It supports explicit author IDs, numeric-path
+  selection, pattern instances, and knot-to-pattern connections while lowering through the same
+  checked builder API.
+- Use `pattern!` when that fixed topology is a reusable fragment with named inputs and outputs.
+  It lowers to the same validated `Pattern` model, so a pattern can be included by a weave or
+  builder without a second runtime representation.
+- Implement `Recipe` when a graph is reusable by a host. Its associated `Ports` type resolves the
+  recipe's `SenseId`, `HostPathId`, and `CmdId` handles once after bind; `RecipeInstance` keeps
+  them tied to the runtime that created them.
+- Use `Scenario::<MyRecipe>::run` for deterministic, closure-scoped recipe frames and typed
+  assertions. It is a test and example helper; applications can still drive `Runtime` directly.
+- Use `Weave::compose` for generated topology. `Composer` has Bool, Level, and Count wire helpers
+  for common operations, while `knot`, `input`, `output`, and `thread` retain the complete
+  `WeaveBuilder` catalog as an escape hatch.
+
+`Recipe::manifest` derives a deterministic endpoint summary from the validated weave. With the
+optional `schema` feature, the serializable graph and recipe manifest types also implement
+`schemars::JsonSchema`; this feature enables `std` and `serde` and is intentionally absent from
+the default and `no_std` dependency sets.
 
 Use `WeaveDef` and `PatternDef` for editable or serialized data. Converting a definition into an
 immutable `Weave` or `Pattern` performs structural validation. The optional RON and JSON codecs
@@ -199,8 +214,8 @@ Add both published packages under their library target names:
 
 ```toml
 [dependencies]
-wyrd = { package = "wyrd-for-games", version = "0.2.0" }
-wyrd_bevy = { package = "wyrd-for-games-bevy", version = "0.2.0" }
+wyrd = { package = "wyrd-for-games", version = "0.3.0" }
+wyrd_bevy = { package = "wyrd-for-games-bevy", version = "0.3.0" }
 ```
 
 Use the adapter through `wyrd_bevy` alongside the engine-neutral `wyrd` API.
@@ -256,6 +271,7 @@ Enable exactly one of `signal-f32` and `signal-i32`.
 | `serde` | `wyrd-for-games` | Serde derives for author definitions |
 | `serde-ron` | `wyrd-for-games` | RON load/save with validation on load |
 | `serde-json` | `wyrd-for-games` | JSON load/save with validation on load |
+| `schema` | `wyrd-for-games` | Opt-in `std` + `serde` JSON Schema support for graph and recipe manifests |
 | `bevy_log` | `wyrd-for-games-bevy` | Forwards Bevy's `bevy_log` feature |
 
 `wyrd-for-games-bevy` always uses `signal-f32`. Use `wyrd-for-games` directly for `signal-i32`
@@ -270,7 +286,7 @@ path and the allocator supplied by the host application:
 
 ```toml
 [dependencies]
-wyrd = { package = "wyrd-for-games", version = "0.2.0", default-features = false, features = ["alloc", "signal-i32"] }
+wyrd = { package = "wyrd-for-games", version = "0.3.0", default-features = false, features = ["alloc", "signal-i32"] }
 ```
 
 Bind a Weave when loading a room or scene, resolve its dense sense/path handles

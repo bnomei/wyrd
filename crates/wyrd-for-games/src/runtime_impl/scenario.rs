@@ -37,7 +37,7 @@ impl<R: Recipe> Scenario<R> {
 
     /// Configure typed input writes and loom one deterministic frame.
     ///
-    /// `write` receives a [`Frame`] whose selectors are always evaluated
+    /// `write` receives a frame value whose selectors are always evaluated
     /// against this scenario's ports. Selectors are function pointers rather
     /// than arbitrary closures, preventing captured handles from another
     /// recipe instance from entering the frame.

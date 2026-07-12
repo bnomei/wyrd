@@ -2,10 +2,26 @@
 
 ## Unreleased
 
+## 0.3.0
+
 ### Breaking changes
 
 - Add Bool, Level, and Count signal domains with graph-time compatibility validation; use explicit
   conversion knots to cross domains.
+
+### Added
+
+- Add declarative `weave!` recipe topology across the cookbook and Bevy door example, plus
+  `pattern!` for reusable validated fragments with named inputs and outputs.
+- Add `Recipe`, `RecipeInstance`, and contextual port-resolution errors so generic hosts resolve
+  typed runtime handles once rather than carrying endpoint strings through their tick loop.
+- Add closure-scoped `Scenario` frames and assertions for deterministic recipe examples and tests.
+- Add `Weave::compose` and `Composer`: Bool, Level, and Count typed wires for generated topology,
+  with full-catalog `WeaveBuilder` escape hatches.
+- Add deterministic `RecipeManifest` endpoint summaries and the opt-in `schema` feature for
+  `schemars::JsonSchema`; default and `no_std` builds do not include schema dependencies.
+- Add `WyrdRecipePlugin<R>` and `WyrdRecipeInstance<R>` for generic Bevy recipe binding while
+  retaining game-owned Sample and Apply systems.
 
 ### Changed
 

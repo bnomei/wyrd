@@ -7,6 +7,14 @@ Thin Bevy adapter for Wyrd. Core stays engine-neutral; this crate only:
 3. Runs `begin_frame` + `loom` in an ordered `SystemSet`
 4. Leaves **sample** and **apply** to the host game
 
+Install the core and adapter under their library target names:
+
+```toml
+[dependencies]
+wyrd = { package = "wyrd-for-games", version = "0.3.0" }
+wyrd_bevy = { package = "wyrd-for-games-bevy", version = "0.3.0" }
+```
+
 `Runtime::bind` consumes the validated `Weave`; the adapter does not retain a
 second graph that could drift from runtime state. Never store `Entity` as a
 Thread endpoint. Resolve `SenseId` / `HostPathId` at setup.

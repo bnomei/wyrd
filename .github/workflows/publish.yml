@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Validate package contents or publish version 0.2.0.
+        description: Validate package contents or publish version 0.3.0.
         required: true
         default: dry-run
         type: choice
@@ -50,16 +50,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.95
       - name: Publish wyrd-for-games
         run: cargo publish -p wyrd-for-games --locked
-      - name: Wait for wyrd-for-games 0.2.0 on crates.io
+      - name: Wait for wyrd-for-games 0.3.0 on crates.io
         run: |
           for attempt in {1..30}; do
             if curl --fail --silent --show-error \
-              https://crates.io/api/v1/crates/wyrd-for-games/0.2.0 >/dev/null; then
+              https://crates.io/api/v1/crates/wyrd-for-games/0.3.0 >/dev/null; then
               exit 0
             fi
             sleep 10
           done
-          echo "wyrd-for-games 0.2.0 did not become available on crates.io in five minutes."
+          echo "wyrd-for-games 0.3.0 did not become available on crates.io in five minutes."
           exit 1
       - name: Dry-run publish wyrd-for-games-bevy
         run: cargo publish -p wyrd-for-games-bevy --locked --dry-run
