@@ -10,10 +10,11 @@
 use bevy::prelude::*;
 use wyrd::core::{KnotKind, SignalDomain};
 use wyrd::graph::Weave;
-use wyrd::{weave, BuildError};
+use wyrd::runtime::{Recipe, RecipeResolveError, Runtime};
+use wyrd::{weave, BuildError, HostPathId, SenseId};
 use wyrd_bevy::{
-    apply_signal_bool, set_sense_bool, AndDoorBinding, Door, WyrdInstance, WyrdPlugin, WyrdSet,
-    WyrdSignalConfirm, WyrdWorld,
+    apply_signal_bool, set_sense_bool, Door, WyrdPlugin, WyrdRecipeInstance, WyrdRecipePlugin,
+    WyrdSet, WyrdSignalConfirm, WyrdWorld,
 };
 
 fn main() {
@@ -23,7 +24,7 @@ fn main() {
                 std::time::Duration::from_millis(1),
             )),
         )
-        .add_plugins(WyrdPlugin)
+        .add_plugins((WyrdPlugin, WyrdRecipePlugin::<AndDoorRecipe>::default()))
         .insert_resource(PlateState {
             a: false,
             b: false,
@@ -44,24 +45,35 @@ struct PlateState {
     frame: u32,
 }
 
-fn setup(mut world: ResMut<WyrdWorld>, mut commands: Commands) {
-    let weave = and_door_weave().expect("valid static weave");
-    let inst = WyrdInstance::new("and_door", weave).expect("bind weave");
-    let plate_a = inst.sense_id("plate_a").expect("plate_a");
-    let plate_b = inst.sense_id("plate_b").expect("plate_b");
-    let door_path = inst.path_id("door.open").expect("door.open");
-    let instance = world.insert(inst);
-    let binding = AndDoorBinding {
-        plate_a,
-        plate_b,
-        door_path,
-        instance,
-    };
-    commands.insert_resource(binding);
+fn setup(mut commands: Commands) {
     commands.spawn(Door { open: false });
     eprintln!(
         "wyrd-for-games-bevy and_door: host Door component; frames 1–2 A only, 3–4 both plates"
     );
+}
+
+struct AndDoorRecipe;
+
+struct AndDoorPorts {
+    plate_a: SenseId,
+    plate_b: SenseId,
+    door_path: HostPathId,
+}
+
+impl Recipe for AndDoorRecipe {
+    type Ports = AndDoorPorts;
+
+    fn weave() -> Result<Weave, BuildError> {
+        and_door_weave()
+    }
+
+    fn resolve_ports(runtime: &Runtime) -> Result<Self::Ports, RecipeResolveError> {
+        Ok(AndDoorPorts {
+            plate_a: runtime.required_sense("plate_a")?,
+            plate_b: runtime.required_sense("plate_b")?,
+            door_path: runtime.required_path("door.open")?,
+        })
+    }
 }
 
 fn and_door_weave() -> Result<Weave, BuildError> {
@@ -83,33 +95,33 @@ fn and_door_weave() -> Result<Weave, BuildError> {
 
 fn drive_plates(
     mut plates: ResMut<PlateState>,
-    binding: Res<AndDoorBinding>,
+    recipe: Res<WyrdRecipeInstance<AndDoorRecipe>>,
     mut world: ResMut<WyrdWorld>,
 ) {
     plates.frame = plates.frame.wrapping_add(1);
     plates.a = plates.frame >= 1;
     plates.b = plates.frame >= 3;
 
-    let Some(inst) = world.get_mut(binding.instance) else {
+    let Some((ports, inst)) = recipe.get_mut(&mut world) else {
         return;
     };
-    set_sense_bool(inst, binding.plate_a, plates.a).expect("bound plate_a handle");
-    set_sense_bool(inst, binding.plate_b, plates.b).expect("bound plate_b handle");
+    set_sense_bool(inst, ports.plate_a, plates.a).expect("bound plate_a handle");
+    set_sense_bool(inst, ports.plate_b, plates.b).expect("bound plate_b handle");
 }
 
 fn apply_door(
-    binding: Res<AndDoorBinding>,
+    recipe: Res<WyrdRecipeInstance<AndDoorRecipe>>,
     world: Res<WyrdWorld>,
     mut q: Query<&mut Door>,
     mut confirms: MessageWriter<WyrdSignalConfirm>,
 ) {
-    let Some(inst) = world.get(binding.instance) else {
+    let Some((ports, inst)) = recipe.get(&world) else {
         return;
     };
     for mut door in &mut q {
-        if apply_signal_bool(inst, binding.door_path, &mut door.open).expect("bound door path") {
+        if apply_signal_bool(inst, ports.door_path, &mut door.open).expect("bound door path") {
             confirms.write(WyrdSignalConfirm {
-                path: binding.door_path,
+                path: ports.door_path,
                 truthy: door.open,
             });
             eprintln!("host applied Door.open = {}", door.open);

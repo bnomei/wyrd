@@ -8,10 +8,14 @@
 #![allow(clippy::result_large_err)] // Preserve contextual public BindError payloads.
 
 use bevy::prelude::*;
+use core::any::type_name;
+use core::marker::PhantomData;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use wyrd::core::{HostTime, ONE, ZERO};
 use wyrd::graph::Weave;
-use wyrd::runtime::{BindError, HandleError, HostPathId, Outbox, Runtime, SenseId};
+use wyrd::runtime::{
+    BindError, HandleError, HostPathId, Outbox, Recipe, RecipeError, Runtime, SenseId,
+};
 
 /// Ordered host integration sets. Sample → Loom → Apply.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -35,11 +39,19 @@ impl WyrdInstance {
     /// Bind `weave` with default opts under a host-visible label.
     pub fn new(label: impl Into<String>, weave: Weave) -> Result<Self, BindError> {
         let runtime = Runtime::bind(weave, Default::default())?;
-        Ok(Self {
+        Ok(Self::from_runtime(label, runtime))
+    }
+
+    /// Store an already-bound runtime under a host-visible label.
+    ///
+    /// [`WyrdRecipePlugin`] uses this after [`Recipe::bind`] has resolved its
+    /// typed ports. Hosts can use it when they own binding separately.
+    pub fn from_runtime(label: impl Into<String>, runtime: Runtime) -> Self {
+        Self {
             label: label.into(),
             runtime,
             tick: 0,
-        })
+        }
     }
 
     /// Host-visible instance label (not a weave id).
@@ -87,6 +99,164 @@ pub struct WyrdInstanceId {
     owner: usize,
     index: usize,
     generation: u64,
+}
+
+/// The Bevy resource installed for one typed [`Recipe`].
+///
+/// It is initially pending and is populated during startup by
+/// [`WyrdRecipePlugin`]. A bind or port-resolution failure is retained in the
+/// resource, rather than panicking or leaving a half-bound runtime in
+/// [`WyrdWorld`]. The generational instance id is always checked by
+/// [`WyrdWorld`], so removal safely makes [`Self::get`] and [`Self::get_mut`]
+/// return `None`.
+#[derive(Resource)]
+pub struct WyrdRecipeInstance<R: Recipe> {
+    state: WyrdRecipeState<R>,
+}
+
+enum WyrdRecipeState<R: Recipe> {
+    Pending,
+    Ready {
+        instance: WyrdInstanceId,
+        ports: R::Ports,
+    },
+    Failed(RecipeError),
+}
+
+impl<R: Recipe> Default for WyrdRecipeInstance<R> {
+    fn default() -> Self {
+        Self {
+            state: WyrdRecipeState::Pending,
+        }
+    }
+}
+
+impl<R: Recipe> WyrdRecipeInstance<R> {
+    /// Returns the generational WyrdWorld handle after successful startup.
+    pub fn instance(&self) -> Option<WyrdInstanceId> {
+        match self.state {
+            WyrdRecipeState::Ready { instance, .. } => Some(instance),
+            WyrdRecipeState::Pending | WyrdRecipeState::Failed(_) => None,
+        }
+    }
+
+    /// Returns this recipe's typed ports after successful startup.
+    pub fn ports(&self) -> Option<&R::Ports> {
+        match &self.state {
+            WyrdRecipeState::Ready { ports, .. } => Some(ports),
+            WyrdRecipeState::Pending | WyrdRecipeState::Failed(_) => None,
+        }
+    }
+
+    /// Returns the contextual construction or port-resolution failure, if any.
+    pub fn error(&self) -> Option<&RecipeError> {
+        match &self.state {
+            WyrdRecipeState::Failed(error) => Some(error),
+            WyrdRecipeState::Pending | WyrdRecipeState::Ready { .. } => None,
+        }
+    }
+
+    /// Whether startup has bound the recipe and resolved its typed ports.
+    pub fn is_ready(&self) -> bool {
+        matches!(self.state, WyrdRecipeState::Ready { .. })
+    }
+
+    /// Borrow the typed ports with their currently live Wyrd instance.
+    ///
+    /// This returns `None` while startup is pending, after a failed bind, or
+    /// after the host has removed the generational instance from [`WyrdWorld`].
+    pub fn get<'a>(&'a self, world: &'a WyrdWorld) -> Option<(&'a R::Ports, &'a WyrdInstance)> {
+        let WyrdRecipeState::Ready { instance, ports } = &self.state else {
+            return None;
+        };
+        world.get(*instance).map(|runtime| (ports, runtime))
+    }
+
+    /// Mutably borrow the typed ports with their currently live Wyrd instance.
+    ///
+    /// As with [`Self::get`], stale or removed instance handles are safe and
+    /// yield `None` instead of a dangling runtime reference.
+    pub fn get_mut<'a>(
+        &'a self,
+        world: &'a mut WyrdWorld,
+    ) -> Option<(&'a R::Ports, &'a mut WyrdInstance)> {
+        let WyrdRecipeState::Ready { instance, ports } = &self.state else {
+            return None;
+        };
+        world.get_mut(*instance).map(|runtime| (ports, runtime))
+    }
+
+    fn set_ready(&mut self, instance: WyrdInstanceId, ports: R::Ports) {
+        self.state = WyrdRecipeState::Ready { instance, ports };
+    }
+
+    fn set_error(&mut self, error: RecipeError) {
+        self.state = WyrdRecipeState::Failed(error);
+    }
+}
+
+/// Startup plugin that binds one [`Recipe`] into [`WyrdWorld`].
+///
+/// Add it next to [`WyrdPlugin`]:
+///
+/// ```no_run
+/// # use wyrd_bevy::{WyrdPlugin, WyrdRecipePlugin};
+/// # use wyrd::runtime::Recipe;
+/// # struct GameRecipe;
+/// # impl Recipe for GameRecipe {
+/// #     type Ports = ();
+/// #     fn weave() -> Result<wyrd::graph::Weave, wyrd::BuildError> { todo!() }
+/// #     fn resolve_ports(_: &wyrd::Runtime) -> Result<Self::Ports, wyrd::RecipeResolveError> { Ok(()) }
+/// # }
+/// # let mut app = bevy::prelude::App::new();
+/// app.add_plugins((WyrdPlugin, WyrdRecipePlugin::<GameRecipe>::default()));
+/// ```
+///
+/// Game systems continue to own [`WyrdSet::Sample`] and [`WyrdSet::Apply`].
+/// They read [`WyrdRecipeInstance`] for typed ports, then use
+/// [`WyrdRecipeInstance::get`] or
+/// [`WyrdRecipeInstance::get_mut`] against [`WyrdWorld`] to safely access the
+/// bound runtime.
+pub struct WyrdRecipePlugin<R: Recipe>(PhantomData<fn() -> R>);
+
+impl<R: Recipe> Default for WyrdRecipePlugin<R> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<R: Recipe> WyrdRecipePlugin<R> {
+    /// Construct the generic typed-recipe plugin.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<R> Plugin for WyrdRecipePlugin<R>
+where
+    R: Recipe + Send + Sync + 'static,
+    R::Ports: Send + Sync + 'static,
+{
+    fn build(&self, app: &mut App) {
+        app.init_resource::<WyrdWorld>()
+            .init_resource::<WyrdRecipeInstance<R>>()
+            .add_systems(Startup, bind_recipe::<R>);
+    }
+}
+
+fn bind_recipe<R>(mut recipe: ResMut<WyrdRecipeInstance<R>>, mut world: ResMut<WyrdWorld>)
+where
+    R: Recipe + Send + Sync + 'static,
+    R::Ports: Send + Sync + 'static,
+{
+    match R::bind() {
+        Ok(instance) => {
+            let (runtime, ports) = instance.into_parts();
+            let id = world.insert(WyrdInstance::from_runtime(type_name::<R>(), runtime));
+            recipe.set_ready(id, ports);
+        }
+        Err(error) => recipe.set_error(error),
+    }
 }
 
 struct WyrdInstanceSlot {
@@ -381,6 +551,44 @@ mod tests {
         b.build().unwrap()
     }
 
+    struct AndDoorRecipe;
+
+    struct AndDoorPorts {
+        plate_a: SenseId,
+        plate_b: SenseId,
+        door_path: HostPathId,
+    }
+
+    impl Recipe for AndDoorRecipe {
+        type Ports = AndDoorPorts;
+
+        fn weave() -> Result<Weave, wyrd::BuildError> {
+            Ok(and_door_weave())
+        }
+
+        fn resolve_ports(runtime: &Runtime) -> Result<Self::Ports, wyrd::RecipeResolveError> {
+            Ok(AndDoorPorts {
+                plate_a: runtime.required_sense("plate_a")?,
+                plate_b: runtime.required_sense("plate_b")?,
+                door_path: runtime.required_path("door.open")?,
+            })
+        }
+    }
+
+    struct MissingPortRecipe;
+
+    impl Recipe for MissingPortRecipe {
+        type Ports = SenseId;
+
+        fn weave() -> Result<Weave, wyrd::BuildError> {
+            Ok(and_door_weave())
+        }
+
+        fn resolve_ports(runtime: &Runtime) -> Result<Self::Ports, wyrd::RecipeResolveError> {
+            runtime.required_sense("missing_plate")
+        }
+    }
+
     #[derive(Resource, Default)]
     struct DoorOpen(bool);
 
@@ -494,6 +702,104 @@ mod tests {
         let removed_tick = removed.tick();
         app.update();
         assert_eq!(removed.tick(), removed_tick);
+    }
+
+    #[test]
+    fn recipe_plugin_binds_typed_ports_and_keeps_host_sample_apply_explicit() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins((WyrdPlugin, WyrdRecipePlugin::<AndDoorRecipe>::default()));
+
+        // Startup binds exactly once, resolving the recipe ports before host
+        // systems choose how to sample and apply them.
+        app.update();
+        {
+            let recipe = app.world().resource::<WyrdRecipeInstance<AndDoorRecipe>>();
+            assert!(recipe.is_ready());
+            assert!(recipe.error().is_none());
+            assert!(recipe.instance().is_some());
+            let ports = recipe.ports().expect("typed ports after startup");
+            assert_eq!(
+                ports.plate_a,
+                app.world()
+                    .resource::<WyrdWorld>()
+                    .get(recipe.instance().unwrap())
+                    .unwrap()
+                    .sense_id("plate_a")
+                    .unwrap()
+            );
+            assert_eq!(
+                ports.plate_b,
+                app.world()
+                    .resource::<WyrdWorld>()
+                    .get(recipe.instance().unwrap())
+                    .unwrap()
+                    .sense_id("plate_b")
+                    .unwrap()
+            );
+        }
+
+        {
+            let world = app.world_mut();
+            world.resource_scope(|world, mut wyrd_world: Mut<WyrdWorld>| {
+                let recipe = world.resource::<WyrdRecipeInstance<AndDoorRecipe>>();
+                let (ports, instance) = recipe
+                    .get_mut(&mut wyrd_world)
+                    .expect("live recipe instance");
+                set_sense_bool(instance, ports.plate_a, true).unwrap();
+                set_sense_bool(instance, ports.plate_b, true).unwrap();
+            });
+        }
+        app.update();
+
+        let recipe = app.world().resource::<WyrdRecipeInstance<AndDoorRecipe>>();
+        let world = app.world().resource::<WyrdWorld>();
+        let (ports, instance) = recipe.get(world).expect("live recipe instance");
+        assert!(signal_truthy(instance, ports.door_path).unwrap());
+    }
+
+    #[test]
+    fn recipe_plugin_retains_contextual_bind_errors_without_inserting_runtime() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(WyrdRecipePlugin::<MissingPortRecipe>::default());
+
+        app.update();
+
+        let recipe = app
+            .world()
+            .resource::<WyrdRecipeInstance<MissingPortRecipe>>();
+        assert!(!recipe.is_ready());
+        assert!(recipe.instance().is_none());
+        assert!(recipe.ports().is_none());
+        assert!(matches!(
+            recipe.error(),
+            Some(RecipeError::Resolve(wyrd::RecipeResolveError::Missing { name, .. }))
+                if name == "missing_plate"
+        ));
+        assert!(app.world().resource::<WyrdWorld>().is_empty());
+    }
+
+    #[test]
+    fn recipe_plugin_rejects_removed_instance_without_losing_typed_ports() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(WyrdRecipePlugin::<AndDoorRecipe>::default());
+        app.update();
+
+        let instance = app
+            .world()
+            .resource::<WyrdRecipeInstance<AndDoorRecipe>>()
+            .instance()
+            .expect("bound recipe instance");
+        app.world_mut()
+            .resource_mut::<WyrdWorld>()
+            .remove(instance)
+            .expect("remove live recipe instance");
+
+        let recipe = app.world().resource::<WyrdRecipeInstance<AndDoorRecipe>>();
+        assert!(recipe.ports().is_some());
+        assert!(recipe.get(app.world().resource::<WyrdWorld>()).is_none());
     }
 
     #[derive(Resource, Default)]
