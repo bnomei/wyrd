@@ -295,10 +295,10 @@ pub(crate) fn runtime_fingerprint_for(
         hash.bytes(command.as_bytes());
         hash.u8(0xff);
     }
-    hash.u8(match crate::foundation::NumericPath::compiled() {
-        crate::foundation::NumericPath::F32 => 1,
-        crate::foundation::NumericPath::I32Q16 => 2,
-    });
+    #[cfg(feature = "signal-f32")]
+    hash.u8(1);
+    #[cfg(feature = "signal-i32")]
+    hash.u8(2);
     hash.u16(max_emits_per_tick);
     hash.u64(seed_mix);
     match bind_seed {
@@ -556,4 +556,131 @@ fn signal_hash(hash: &mut Fnv1a, value: Signal) {
     hash.u64(u64::from(value.to_bits()));
     #[cfg(feature = "signal-i32")]
     hash.bytes(&value.to_le_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::foundation::{HostTime, KnotKind, SignalDomain, ONE};
+    use crate::{BindOpts, Weave};
+
+    fn outbox_runtime() -> Runtime {
+        let mut builder = Weave::builder("snapshot-shapes").unwrap();
+        let source = builder
+            .knot("source", KnotKind::constant(ONE, SignalDomain::Bool))
+            .unwrap();
+        let output = builder
+            .knot(
+                "output",
+                KnotKind::signal_out("snapshot.value", SignalDomain::Bool),
+            )
+            .unwrap();
+        let emit = builder
+            .knot("emit", KnotKind::emit_command("snapshot.command"))
+            .unwrap();
+        for (target, port) in [(&output, "in"), (&emit, "trigger")] {
+            let from = builder.output(&source, "out").unwrap();
+            let to = builder.input(target, port).unwrap();
+            builder.connect(from, to).unwrap();
+        }
+        let mut runtime = Runtime::bind(
+            builder.build().unwrap(),
+            BindOpts {
+                max_emits_per_tick: 1,
+                ..BindOpts::default()
+            },
+        )
+        .unwrap();
+        runtime.begin_frame(HostTime { tick: 0 });
+        runtime.loom();
+        runtime
+    }
+
+    #[test]
+    fn restore_rejects_version_shapes_and_owner_free_indices() {
+        let mut runtime = outbox_runtime();
+        assert_eq!(
+            Runtime::state_format_version(),
+            RUNTIME_STATE_FORMAT_VERSION
+        );
+
+        let mut state = runtime.snapshot();
+        state.version = 0;
+        assert!(matches!(
+            runtime.restore(&state),
+            Err(RestoreError::UnsupportedVersion { .. })
+        ));
+
+        let mut state = runtime.snapshot();
+        state.data.sense_values.pop();
+        assert!(matches!(
+            runtime.restore(&state),
+            Err(RestoreError::ShapeMismatch {
+                field: "sense_values",
+                ..
+            })
+        ));
+
+        let mut state = runtime.snapshot();
+        state.data.on_start_done.pop();
+        assert!(matches!(
+            runtime.restore(&state),
+            Err(RestoreError::ShapeMismatch {
+                field: "on_start_done",
+                ..
+            })
+        ));
+
+        let mut state = runtime.snapshot();
+        state.data.out_signals.push(state.data.out_signals[0]);
+        assert!(matches!(
+            runtime.restore(&state),
+            Err(RestoreError::ShapeMismatch {
+                field: "out_signals",
+                ..
+            })
+        ));
+
+        let mut state = runtime.snapshot();
+        state.data.out_emits.push(state.data.out_emits[0]);
+        assert!(matches!(
+            runtime.restore(&state),
+            Err(RestoreError::ShapeMismatch {
+                field: "out_emits",
+                ..
+            })
+        ));
+
+        let mut state = runtime.snapshot();
+        state.data.out_signals[0].path_index = u16::MAX;
+        assert!(matches!(
+            runtime.restore(&state),
+            Err(RestoreError::InvalidHandleIndex {
+                field: "out_signals.path_index",
+                ..
+            })
+        ));
+
+        let mut state = runtime.snapshot();
+        state.data.out_emits[0].command_index = u16::MAX;
+        assert!(matches!(
+            runtime.restore(&state),
+            Err(RestoreError::InvalidHandleIndex {
+                field: "out_emits.command_index",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn restore_rebuilds_valid_signal_and_emit_handles() {
+        let source = outbox_runtime();
+        let state = source.snapshot();
+        let mut destination = outbox_runtime();
+        destination.restore(&state).unwrap();
+        let signal = destination.outbox().signals()[0];
+        let emit = destination.outbox().emits()[0];
+        assert_eq!(destination.path_name(signal.path), Ok("snapshot.value"));
+        assert_eq!(destination.cmd_name(emit.cmd), Ok("snapshot.command"));
+    }
 }
