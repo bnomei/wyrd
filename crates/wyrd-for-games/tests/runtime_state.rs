@@ -66,6 +66,20 @@ fn thread_order_weave(reverse: bool) -> Weave {
     builder.build().unwrap()
 }
 
+fn small_weave() -> Weave {
+    let mut builder = Weave::builder("small-snapshot").unwrap();
+    let input = builder
+        .knot("input", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let output = builder
+        .knot("output", KnotKind::signal_out("value", SignalDomain::Bool))
+        .unwrap();
+    let from = builder.output(&input, "out").unwrap();
+    let to = builder.input(&output, "in").unwrap();
+    builder.connect(from, to).unwrap();
+    builder.build().unwrap()
+}
+
 fn tick(runtime: &mut Runtime, tick: u64, input: Signal) {
     runtime.begin_frame(HostTime { tick });
     let sense = runtime.sense_id("input").unwrap();
@@ -164,6 +178,57 @@ fn restore_continues_stateful_graph_exactly() {
         tick(&mut restored, tick_number, value);
         assert_eq!(outbox_values(&restored), outbox_values(&uninterrupted));
     }
+}
+
+#[test]
+fn refreshed_snapshot_continues_like_a_fresh_snapshot() {
+    let graph = weave("snapshot-refresh");
+    let mut source = Runtime::bind(graph.clone(), BindOpts::default()).unwrap();
+    tick(&mut source, 0, ONE);
+    tick(&mut source, 1, ZERO);
+    let fresh = source.snapshot();
+    let mut refreshed = Runtime::bind(small_weave(), BindOpts::default())
+        .unwrap()
+        .snapshot();
+    source.snapshot_into(&mut refreshed);
+
+    assert_eq!(fresh.format_version(), refreshed.format_version());
+    assert_eq!(fresh.fingerprint(), refreshed.fingerprint());
+    let mut from_fresh = Runtime::bind(graph.clone(), BindOpts::default()).unwrap();
+    let mut from_refreshed = Runtime::bind(graph, BindOpts::default()).unwrap();
+    from_fresh.restore(&fresh).unwrap();
+    from_refreshed.restore(&refreshed).unwrap();
+    for (tick_number, value) in [(2, ZERO), (3, ONE), (4, ZERO)] {
+        tick(&mut from_fresh, tick_number, value);
+        tick(&mut from_refreshed, tick_number, value);
+        assert_eq!(outbox_values(&from_fresh), outbox_values(&from_refreshed));
+    }
+}
+
+#[test]
+fn refresh_overwrites_incompatible_larger_state_without_stale_tails() {
+    let large_graph = weave("snapshot-large");
+    let mut large = Runtime::bind(large_graph.clone(), BindOpts::default()).unwrap();
+    tick(&mut large, 0, ONE);
+    tick(&mut large, 1, ZERO);
+    tick(&mut large, 2, ZERO);
+    assert!(!large.outbox().emits().is_empty());
+    let mut state = large.snapshot();
+
+    let small_graph = small_weave();
+    let mut small = Runtime::bind(small_graph.clone(), BindOpts::default()).unwrap();
+    tick(&mut small, 9, ONE);
+    assert!(small.outbox().emits().is_empty());
+    small.snapshot_into(&mut state);
+
+    assert!(matches!(
+        large.restore(&state),
+        Err(RestoreError::FingerprintMismatch { .. })
+    ));
+    let mut restored = Runtime::bind(small_graph, BindOpts::default()).unwrap();
+    restored.restore(&state).unwrap();
+    assert_eq!(outbox_values(&restored), outbox_values(&small));
+    assert!(restored.outbox().emits().is_empty());
 }
 
 #[test]

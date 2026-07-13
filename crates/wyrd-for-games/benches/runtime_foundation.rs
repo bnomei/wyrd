@@ -176,6 +176,20 @@ fn state_snapshot_fresh_not_64(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn state_snapshot_reused_not_64(bencher: Bencher) {
+    let (_weave, mut rt) = chain_not(64);
+    rt.begin_frame(HostTime { tick: 0 });
+    rt.loom();
+    let mut state = rt.snapshot();
+    rt.snapshot_into(&mut state);
+    assert_eq!(state.fingerprint(), rt.runtime_fingerprint());
+    bencher.counter(ItemsCount::new(1u64)).bench_local(|| {
+        rt.snapshot_into(&mut state);
+        black_box(&state);
+    });
+}
+
+#[divan::bench]
 fn state_snapshot_fresh_delay_128x4(bencher: Bencher) {
     let (_weave, mut rt) = parallel_delays(128, 4);
     assert_eq!(rt.delay_buf_len(), 512);

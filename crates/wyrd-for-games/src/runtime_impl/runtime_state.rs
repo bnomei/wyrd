@@ -71,41 +71,68 @@ impl RuntimeState {
 impl Runtime {
     /// Snapshot every mutable value needed for deterministic continuation.
     pub fn snapshot(&self) -> RuntimeState {
-        RuntimeState {
+        let mut state = RuntimeState {
             version: RUNTIME_STATE_FORMAT_VERSION,
             fingerprint: self.runtime_fingerprint(),
             data: RuntimeStateData {
-                sense_values: self.sense_values.clone(),
-                port_vals: self.port_vals.clone(),
-                prev_in: self.prev_in.clone(),
-                prev_dec: self.prev_dec.clone(),
-                counter: self.counter.clone(),
-                flag: self.flag.clone(),
-                timer_left: self.timer_left.clone(),
-                on_start_done: self.on_start_done.clone(),
-                delay_buf: self.delay_buf.clone(),
-                delay_head: self.delay_head.clone(),
-                out_signals: self
-                    .out_signals
-                    .iter()
-                    .map(|sample| SignalOutState {
-                        path_index: sample.path.index,
-                        value: sample.value,
-                    })
-                    .collect(),
-                out_emits: self
-                    .out_emits
-                    .iter()
-                    .map(|emit| EmitState {
-                        command_index: emit.cmd.index,
-                        payload: emit.payload,
-                    })
-                    .collect(),
-                dropped_emits: self.dropped_emits,
-                tick: self.tick,
-                rng: self.rng,
+                sense_values: Vec::new(),
+                port_vals: Vec::new(),
+                prev_in: Vec::new(),
+                prev_dec: Vec::new(),
+                counter: Vec::new(),
+                flag: Vec::new(),
+                timer_left: Vec::new(),
+                on_start_done: Vec::new(),
+                delay_buf: Vec::new(),
+                delay_head: Vec::new(),
+                out_signals: Vec::new(),
+                out_emits: Vec::new(),
+                dropped_emits: 0,
+                tick: 0,
+                rng: 0,
             },
-        }
+        };
+        self.snapshot_into(&mut state);
+        state
+    }
+
+    /// Refresh an existing snapshot while reusing its owned buffer capacity.
+    ///
+    /// Every field is overwritten, so `state` may come from an incompatible
+    /// runtime. Reuse is best-effort: buffers allocate when their retained
+    /// capacity is too small and may retain a previous high-water capacity.
+    pub fn snapshot_into(&self, state: &mut RuntimeState) {
+        state.version = RUNTIME_STATE_FORMAT_VERSION;
+        state.fingerprint = self.runtime_fingerprint();
+        state.data.sense_values.clone_from(&self.sense_values);
+        state.data.port_vals.clone_from(&self.port_vals);
+        state.data.prev_in.clone_from(&self.prev_in);
+        state.data.prev_dec.clone_from(&self.prev_dec);
+        state.data.counter.clone_from(&self.counter);
+        state.data.flag.clone_from(&self.flag);
+        state.data.timer_left.clone_from(&self.timer_left);
+        state.data.on_start_done.clone_from(&self.on_start_done);
+        state.data.delay_buf.clone_from(&self.delay_buf);
+        state.data.delay_head.clone_from(&self.delay_head);
+        state.data.out_signals.clear();
+        state
+            .data
+            .out_signals
+            .extend(self.out_signals.iter().map(|sample| SignalOutState {
+                path_index: sample.path.index,
+                value: sample.value,
+            }));
+        state.data.out_emits.clear();
+        state
+            .data
+            .out_emits
+            .extend(self.out_emits.iter().map(|emit| EmitState {
+                command_index: emit.cmd.index,
+                payload: emit.payload,
+            }));
+        state.data.dropped_emits = self.dropped_emits;
+        state.data.tick = self.tick;
+        state.data.rng = self.rng;
     }
 
     /// Restore a compatible snapshot without changing runtime-local handles.
