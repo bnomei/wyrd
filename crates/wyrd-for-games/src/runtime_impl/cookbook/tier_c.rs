@@ -346,7 +346,7 @@ pub fn c11_composer_weave() -> core::result::Result<Weave, BuildError> {
     // `Weave::compose` distinguishes build and final validation errors. The
     // tutorial's static inputs are valid, so surface either source through the
     // cookbook's existing BuildError contract only after its construction.
-    match Weave::compose("c11-composer", |composer| {
+    map_compose_result(Weave::compose("c11-composer", |composer| {
         let button = composer.bool_input("button")?;
         let level = composer.level_input("level")?;
         let count = composer.count_input("count")?;
@@ -359,7 +359,13 @@ pub fn c11_composer_weave() -> core::result::Result<Weave, BuildError> {
         composer.signal_out("ready-out", "composer.ready", &ready)?;
         composer.signal_out("level-out", "composer.level", &level)?;
         composer.signal_out("count-ready-out", "composer.count_ready", &count_ready)
-    }) {
+    }))
+}
+
+fn map_compose_result(
+    result: core::result::Result<Weave, crate::ComposeError>,
+) -> core::result::Result<Weave, BuildError> {
+    match result {
         Ok(weave) => Ok(weave),
         Err(crate::ComposeError::Build(error)) => Err(error),
         Err(crate::ComposeError::Validation(error)) => Err(BuildError::Validation(error)),
@@ -397,6 +403,7 @@ pub fn run_c11_typed_composer() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::string::String;
 
     fn assert_duplicate_knot_rejected(weave: &Weave, id: &str) {
         let kind = weave
@@ -428,5 +435,20 @@ mod tests {
     #[test]
     fn c11_composer_recipe_runs_through_typed_ports() {
         run_c11_typed_composer().unwrap();
+    }
+
+    #[test]
+    fn c11_maps_both_composer_error_layers() {
+        assert_eq!(
+            map_compose_result(Err(crate::ComposeError::Build(BuildError::ForeignHandle))),
+            Err(BuildError::ForeignHandle)
+        );
+        let validation = crate::ValidationError::EmptyWeave {
+            weave_id: String::from("empty"),
+        };
+        assert_eq!(
+            map_compose_result(Err(crate::ComposeError::Validation(validation.clone()))),
+            Err(BuildError::Validation(validation))
+        );
     }
 }
