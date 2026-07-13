@@ -574,6 +574,11 @@ pub fn stateful_kit() -> (Weave, Runtime) {
 
 /// Shared gate → n EmitCommand (raise max_emits_per_tick).
 pub fn emit_storm(n: usize) -> (Weave, Runtime) {
+    bind_emit_storm(n, (n as u16).saturating_add(1).max(8))
+}
+
+/// Shared gate → n EmitCommand authored graph, before bind policy is applied.
+pub fn emit_storm_weave(n: usize) -> Weave {
     let mut b = Weave::builder("em").unwrap();
     let gate = b
         .knot("g", KnotKind::signal_in(SignalDomain::Bool))
@@ -587,7 +592,12 @@ pub fn emit_storm(n: usize) -> (Weave, Runtime) {
         let to = b.input(&emit, "trigger").unwrap();
         b.connect(from, to).unwrap();
     }
-    let weave = b.build().unwrap();
+    b.build().unwrap()
+}
+
+/// Bind an Emit storm with an explicit retained-per-frame cap.
+pub fn bind_emit_storm(n: usize, cap: u16) -> (Weave, Runtime) {
+    let weave = emit_storm_weave(n);
     let mut budget = deep_budget();
     budget.max_fan_out = (n as u16).saturating_add(4).max(16);
     budget.soft_fan_out = budget.max_fan_out;
@@ -595,11 +605,255 @@ pub fn emit_storm(n: usize) -> (Weave, Runtime) {
         weave.clone(),
         BindOpts {
             budget,
-            max_emits_per_tick: (n as u16).saturating_add(1).max(8),
+            max_emits_per_tick: cap,
             ..BindOpts::default()
         },
     )
     .unwrap();
+    (weave, rt)
+}
+
+/// Count Map pairs whose general affine transform and inverse keep midpoint work live.
+pub fn map_general_cycle(pairs: usize) -> (Weave, Runtime) {
+    let mut b = Weave::builder("map-general-cycle").unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Count))
+        .unwrap();
+    for i in 0..pairs {
+        for (suffix, in_min, in_max, out_min, out_max) in
+            [("f", 0, 10, -37, 997), ("r", -37, 997, 0, 10)]
+        {
+            let next = b
+                .knot(
+                    format!("m{i}{suffix}"),
+                    KnotKind::Map {
+                        domain: SignalDomain::Count,
+                        in_min: from_count(in_min),
+                        in_max: from_count(in_max),
+                        out_min: from_count(out_min),
+                        out_max: from_count(out_max),
+                    },
+                )
+                .unwrap();
+            let from = b.output(&prev, "out").unwrap();
+            let to = b.input(&next, "in").unwrap();
+            b.connect(from, to).unwrap();
+            prev = next;
+        }
+    }
+    let out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
+    let from = b.output(&prev, "out").unwrap();
+    let to = b.input(&out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let rt = bind_scaled(&weave, |_| {});
+    (weave, rt)
+}
+
+/// Count Mul-by-three / Div-by-three pairs that return to the same non-identity value.
+pub fn mul_div_cycle(pairs: usize) -> (Weave, Runtime) {
+    let mut b = Weave::builder("mul-div-cycle").unwrap();
+    let mut prev = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Count))
+        .unwrap();
+    let three = b
+        .knot(
+            "three",
+            KnotKind::constant(from_count(3), SignalDomain::Count),
+        )
+        .unwrap();
+    for i in 0..pairs {
+        for (suffix, op) in [("mul", CalcOp::Mul), ("div", CalcOp::Div)] {
+            let next = b
+                .knot(
+                    format!("{suffix}{i}"),
+                    KnotKind::Calc {
+                        domain: SignalDomain::Count,
+                        op,
+                    },
+                )
+                .unwrap();
+            let from = b.output(&prev, "out").unwrap();
+            let to = b.input(&next, "a").unwrap();
+            b.connect(from, to).unwrap();
+            let from = b.output(&three, "out").unwrap();
+            let to = b.input(&next, "b").unwrap();
+            b.connect(from, to).unwrap();
+            prev = next;
+        }
+    }
+    let out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
+    let from = b.output(&prev, "out").unwrap();
+    let to = b.input(&out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let rt = bind_scaled(&weave, |budget| {
+        budget.max_fan_out = (pairs.saturating_mul(2) as u16).saturating_add(1);
+        budget.soft_fan_out = budget.max_fan_out;
+    });
+    (weave, rt)
+}
+
+fn bind_parallel(weave: &Weave, fan_out: usize) -> Runtime {
+    bind_scaled(weave, |budget| {
+        budget.max_fan_out = (fan_out as u16).saturating_add(1);
+        budget.soft_fan_out = budget.max_fan_out;
+    })
+}
+
+/// One Count sense fans into independent midpoint Digitize knots.
+pub fn parallel_digitize(n: usize) -> (Weave, Runtime) {
+    let mut b = Weave::builder("parallel-digitize").unwrap();
+    let input = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Count))
+        .unwrap();
+    let mut last = None;
+    for i in 0..n {
+        let knot = b
+            .knot(
+                format!("d{i}"),
+                KnotKind::Digitize {
+                    domain: SignalDomain::Count,
+                    steps: 8,
+                    in_min: from_count(0),
+                    in_max: from_count(70),
+                    out_min: from_count(0),
+                    out_max: from_count(70),
+                },
+            )
+            .unwrap();
+        let from = b.output(&input, "out").unwrap();
+        let to = b.input(&knot, "in").unwrap();
+        b.connect(from, to).unwrap();
+        last = Some(knot);
+    }
+    let out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
+    let from = b.output(&last.unwrap(), "out").unwrap();
+    let to = b.input(&out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let rt = bind_parallel(&weave, n);
+    (weave, rt)
+}
+
+/// One Count sense fans into independent non-perfect-square Sqrt knots.
+pub fn parallel_sqrt(n: usize) -> (Weave, Runtime) {
+    let mut b = Weave::builder("parallel-sqrt").unwrap();
+    let input = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Count))
+        .unwrap();
+    let mut last = None;
+    for i in 0..n {
+        let knot = b
+            .knot(format!("s{i}"), KnotKind::sqrt(SignalDomain::Count))
+            .unwrap();
+        let from = b.output(&input, "out").unwrap();
+        let to = b.input(&knot, "in").unwrap();
+        b.connect(from, to).unwrap();
+        last = Some(knot);
+    }
+    let out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Count))
+        .unwrap();
+    let from = b.output(&last.unwrap(), "out").unwrap();
+    let to = b.input(&out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let rt = bind_parallel(&weave, n);
+    (weave, rt)
+}
+
+/// One Bool sense fans into independent Delay rings, isolating ring length from depth.
+pub fn parallel_delays(n: usize, ticks: u16) -> (Weave, Runtime) {
+    let mut b = Weave::builder("parallel-delays").unwrap();
+    let input = b
+        .knot("in", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let mut last = None;
+    for i in 0..n {
+        let knot = b.knot(format!("d{i}"), KnotKind::Delay { ticks }).unwrap();
+        let from = b.output(&input, "out").unwrap();
+        let to = b.input(&knot, "in").unwrap();
+        b.connect(from, to).unwrap();
+        last = Some(knot);
+    }
+    let out = b
+        .knot("out", KnotKind::signal_out("y", SignalDomain::Bool))
+        .unwrap();
+    let from = b.output(&last.unwrap(), "out").unwrap();
+    let to = b.input(&out, "in").unwrap();
+    b.connect(from, to).unwrap();
+    let weave = b.build().unwrap();
+    let rt = bind_parallel(&weave, n);
+    (weave, rt)
+}
+
+/// Disconnected host senses used to isolate checked write throughput.
+pub fn sense_bank(n: usize) -> (Weave, Runtime) {
+    let mut b = Weave::builder("sense-bank").unwrap();
+    for i in 0..n {
+        let domain = match i % 3 {
+            0 => SignalDomain::Bool,
+            1 => SignalDomain::Level,
+            _ => SignalDomain::Count,
+        };
+        b.knot(format!("s{i}"), KnotKind::signal_in(domain))
+            .unwrap();
+    }
+    let weave = b.build().unwrap();
+    let rt = bind_deep(&weave);
+    (weave, rt)
+}
+
+/// Fixed-size graph varying the share of Sense tags versus evaluated Counter tags.
+pub fn sense_density(total: usize, senses: usize) -> (Weave, Runtime) {
+    assert!(senses <= total);
+    let mut b = Weave::builder("sense-density").unwrap();
+    for i in 0..senses {
+        b.knot(format!("s{i}"), KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
+    }
+    for i in senses..total {
+        b.knot(format!("c{i}"), KnotKind::counter()).unwrap();
+    }
+    let weave = b.build().unwrap();
+    let rt = bind_deep(&weave);
+    (weave, rt)
+}
+
+/// Independent lanes provide a stable low/high activity workload without changing topology.
+pub fn activity_lanes(lanes: usize, depth: usize) -> (Weave, Runtime) {
+    let mut b = Weave::builder("activity-lanes").unwrap();
+    for lane in 0..lanes {
+        let input = b
+            .knot(format!("s{lane}"), KnotKind::signal_in(SignalDomain::Bool))
+            .unwrap();
+        let mut prev = input;
+        for level in 0..depth {
+            let next = b.knot(format!("n{lane}_{level}"), KnotKind::not()).unwrap();
+            let from = b.output(&prev, "out").unwrap();
+            let to = b.input(&next, "in").unwrap();
+            b.connect(from, to).unwrap();
+            prev = next;
+        }
+        let out = b
+            .knot(
+                format!("o{lane}"),
+                KnotKind::signal_out(format!("y{lane}"), SignalDomain::Bool),
+            )
+            .unwrap();
+        let from = b.output(&prev, "out").unwrap();
+        let to = b.input(&out, "in").unwrap();
+        b.connect(from, to).unwrap();
+    }
+    let weave = b.build().unwrap();
+    let rt = bind_deep(&weave);
     (weave, rt)
 }
 

@@ -68,3 +68,8 @@ harness = false
 name = "settle_iso"
 path = "benches/settle_iso.rs"
 harness = false
+
+[[bench]]
+name = "runtime_foundation"
+path = "benches/runtime_foundation.rs"
+harness = false
