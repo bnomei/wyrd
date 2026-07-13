@@ -9,6 +9,58 @@ use std::string::String;
 
 use crate::runtime_impl::handles::{CmdId, HostPathId, KnotHandle, SenseId};
 
+/// Failure while restoring an opaque [`RuntimeState`](crate::RuntimeState).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RestoreError {
+    /// The snapshot uses a format this runtime cannot read.
+    UnsupportedVersion { found: u32, supported: u32 },
+    /// The snapshot belongs to an incompatible immutable executable graph.
+    FingerprintMismatch { expected: u64, found: u64 },
+    /// A mutable snapshot buffer does not fit this runtime's bound shape.
+    ShapeMismatch {
+        field: &'static str,
+        expected: usize,
+        found: usize,
+    },
+    /// An owner-free outbox id cannot be rebuilt for this runtime.
+    InvalidHandleIndex {
+        field: &'static str,
+        index: u16,
+        len: usize,
+    },
+}
+
+impl fmt::Display for RestoreError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedVersion { found, supported } => write!(
+                f,
+                "runtime snapshot format version {found} is unsupported (expected {supported})"
+            ),
+            Self::FingerprintMismatch { expected, found } => write!(
+                f,
+                "runtime snapshot fingerprint {found:016x} does not match {expected:016x}"
+            ),
+            Self::ShapeMismatch {
+                field,
+                expected,
+                found,
+            } => write!(
+                f,
+                "runtime snapshot field '{field}' has length {found}, expected {expected}"
+            ),
+            Self::InvalidHandleIndex { field, index, len } => write!(
+                f,
+                "runtime snapshot field '{field}' has invalid index {index} for length {len}"
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RestoreError {}
+
 /// Failure while turning an authored [`crate::authoring::Weave`] into a runtime.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]

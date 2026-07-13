@@ -75,8 +75,8 @@ pub struct Runtime {
     /// KnotId → author name
     #[allow(dead_code)]
     id_to_name: Vec<String>,
-    path_names: Vec<String>,
-    cmd_names: Vec<String>,
+    pub(crate) path_names: Vec<String>,
+    pub(crate) cmd_names: Vec<String>,
     /// Threads: (from_knot, from_slot, to_knot, to_slot) — retained for debug; loom uses `inbound`.
     #[allow(dead_code)]
     pub(crate) threads: Vec<(KnotId, PortSlot, KnotId, PortSlot)>,
@@ -111,15 +111,18 @@ pub struct Runtime {
     pub(crate) delay_off: Vec<u16>,
     pub(crate) delay_len: Vec<u16>,
     pub(crate) delay_head: Vec<u16>,
-    out_signals: Vec<SignalOutSample>,
-    out_emits: Vec<Emit>,
-    dropped_emits: usize,
-    max_emits_per_tick: u16,
-    tick: u64,
+    pub(crate) out_signals: Vec<SignalOutSample>,
+    pub(crate) out_emits: Vec<Emit>,
+    pub(crate) dropped_emits: usize,
+    pub(crate) max_emits_per_tick: u16,
+    pub(crate) tick: u64,
     /// Deterministic xorshift state for Random knots (never zero).
     pub(crate) rng: u64,
     /// `fnv1a64(weave.id)` mixed into seeds at bind and [`Self::reseed`].
-    seed_mix: u64,
+    pub(crate) seed_mix: u64,
+    /// The bind-time seed policy belongs to snapshot compatibility, unlike the
+    /// evolving PRNG state which belongs to the snapshot payload.
+    pub(crate) bind_seed: Option<Seed>,
 }
 
 const MAX_PORTS: usize = 8;
@@ -494,6 +497,7 @@ impl Runtime {
             tick: 0,
             rng,
             seed_mix,
+            bind_seed: opts.seed,
         })
     }
 

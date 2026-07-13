@@ -18,12 +18,13 @@ pub(crate) mod kind_tag;
 pub(crate) mod loom;
 pub(crate) mod outbox;
 pub(crate) mod recipe;
+pub(crate) mod runtime_state;
 pub(crate) mod scenario;
 
 pub use bind::{BindOpts, Runtime};
 pub use error::{
     BindError, CookbookError, HandleError, RecipeEndpoint, RecipeError, RecipeResolveError,
-    ScenarioError,
+    RestoreError, ScenarioError,
 };
 pub use handles::{CmdId, HostPathId, KnotHandle, SenseId};
 pub use host::{
@@ -34,4 +35,5 @@ pub use recipe::{
     EmitCommandManifest, Recipe, RecipeInstance, RecipeManifest, SignalInManifest,
     SignalOutManifest,
 };
+pub use runtime_state::{RuntimeState, RUNTIME_STATE_FORMAT_VERSION};
 pub use scenario::Scenario;
