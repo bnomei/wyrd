@@ -456,7 +456,7 @@ impl Runtime {
         }
 
         let out_signals = Vec::with_capacity(act_signals);
-        let out_emits = Vec::with_capacity(act_emits);
+        let out_emits = Vec::with_capacity(act_emits.min(usize::from(opts.max_emits_per_tick)));
 
         let base = opts.seed.unwrap_or(Seed(0xC0FF_EE00_D15C_AFEDu64));
         let seed_mix = fnv1a64(weave.id().as_bytes());
@@ -1018,6 +1018,38 @@ mod tests {
 
         assert_eq!(rt.dropped_emits, usize::MAX);
         assert!(rt.out_emits.is_empty());
+    }
+
+    #[test]
+    fn emit_outbox_reservation_respects_the_runtime_cap() {
+        let mut b = Weave::builder("emit-reservation").unwrap();
+        let trigger = b
+            .knot("trigger", KnotKind::constant(ONE, SignalDomain::Bool))
+            .unwrap();
+        for i in 0..4 {
+            let emit = b
+                .knot(
+                    alloc::format!("emit-{i}"),
+                    KnotKind::emit_command(alloc::format!("command-{i}")),
+                )
+                .unwrap();
+            let from = b.output(&trigger, "out").unwrap();
+            let to = b.input(&emit, "trigger").unwrap();
+            b.connect(from, to).unwrap();
+        }
+        let weave = b.build().unwrap();
+
+        for (cap, expected) in [(0, 0), (2, 2), (4, 4), (8, 4)] {
+            let rt = Runtime::bind(
+                weave.clone(),
+                BindOpts {
+                    max_emits_per_tick: cap,
+                    ..BindOpts::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(rt.out_emits.capacity(), expected);
+        }
     }
 
     #[test]
