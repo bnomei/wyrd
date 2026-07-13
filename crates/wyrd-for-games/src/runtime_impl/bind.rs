@@ -74,9 +74,6 @@ pub struct Runtime {
     name_to_id: BTreeMap<String, KnotId>,
     pub(crate) path_names: Vec<String>,
     pub(crate) cmd_names: Vec<String>,
-    /// Threads: (from_knot, from_slot, to_knot, to_slot) — retained for debug; loom uses `inbound`.
-    #[allow(dead_code)]
-    pub(crate) threads: Vec<(KnotId, PortSlot, KnotId, PortSlot)>,
     /// CSR inbound: edges in `inbound_edges[inbound_off[ki]..inbound_off[ki+1]]`.
     /// Each edge is (from_knot, from_slot, to_slot).
     pub(crate) inbound_off: Vec<u32>,
@@ -464,7 +461,6 @@ impl Runtime {
             name_to_id,
             path_names,
             cmd_names,
-            threads,
             inbound_off,
             inbound_edges,
             clear_port_idx,
