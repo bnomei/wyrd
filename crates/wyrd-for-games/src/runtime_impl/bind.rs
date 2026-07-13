@@ -83,9 +83,6 @@ pub struct Runtime {
     pub(crate) inbound_edges: Vec<(KnotId, PortSlot, PortSlot)>,
     /// Absolute `port_vals` indices of In ports to zero each loom (flat, bind-sized).
     pub(crate) clear_port_idx: Vec<usize>,
-    /// Per-knot input slots (retained for diagnostics; clear uses `clear_port_idx`).
-    #[allow(dead_code)]
-    pub(crate) input_slots: Vec<Vec<PortSlot>>,
     pub(crate) topo: Vec<KnotId>,
     /// Bind-time kind dispatch tags (one per knot; no per-tick from_kind).
     pub(crate) kind_tags: Vec<crate::runtime_impl::kind_tag::KindTag>,
@@ -360,7 +357,6 @@ impl Runtime {
             inbound_off.push(inbound_edges.len() as u32);
         }
 
-        let mut input_slots: Vec<Vec<PortSlot>> = Vec::with_capacity(n);
         let mut clear_port_idx = Vec::new();
         let mut act_signals = 0usize;
         let mut act_emits = 0usize;
@@ -371,10 +367,8 @@ impl Runtime {
             .collect();
         for (ki, k) in knots.iter().enumerate() {
             let kid = dense_knot_id(ki, &weave_id)?;
-            let mut slots = Vec::new();
             for p in ports_of(&k.kind) {
                 if p.dir == PortDir::In {
-                    slots.push(p.slot);
                     // Only unwired Ins are zeroed each loom; wired Ins are gathered.
                     let wired = inbound_lists[ki].iter().any(|&(_, _, ts)| ts == p.slot);
                     if !wired {
@@ -382,7 +376,6 @@ impl Runtime {
                     }
                 }
             }
-            input_slots.push(slots);
             match &k.kind {
                 KnotKind::Constant { value, .. } => {
                     sense_seeds.push(SenseSeed::Constant { kid, value: *value });
@@ -475,7 +468,6 @@ impl Runtime {
             inbound_off,
             inbound_edges,
             clear_port_idx,
-            input_slots,
             topo,
             kind_tags,
             sense_seeds,
