@@ -72,9 +72,6 @@ pub struct Runtime {
     pub(crate) knots: Vec<ResolvedKnot>,
     /// Author name → KnotId
     name_to_id: BTreeMap<String, KnotId>,
-    /// KnotId → author name
-    #[allow(dead_code)]
-    id_to_name: Vec<String>,
     pub(crate) path_names: Vec<String>,
     pub(crate) cmd_names: Vec<String>,
     /// Threads: (from_knot, from_slot, to_knot, to_slot) — retained for debug; loom uses `inbound`.
@@ -274,7 +271,6 @@ impl Runtime {
         reserve_owner(owner, &weave_id)?;
 
         let mut name_to_id = BTreeMap::new();
-        let mut id_to_name = Vec::new();
         let mut path_index: BTreeMap<String, HostPathId> = BTreeMap::new();
         let mut cmd_index: BTreeMap<String, CmdId> = BTreeMap::new();
 
@@ -282,7 +278,6 @@ impl Runtime {
         for (i, k) in weave.knots().iter().enumerate() {
             let id = dense_knot_id(i, &weave_id)?;
             name_to_id.insert(k.id.clone(), id);
-            id_to_name.push(k.id.clone());
 
             let (path, cmd) = match &k.kind {
                 KnotKind::SignalOut { path, .. } => (
@@ -474,7 +469,6 @@ impl Runtime {
             owner,
             knots,
             name_to_id,
-            id_to_name,
             path_names,
             cmd_names,
             threads,
