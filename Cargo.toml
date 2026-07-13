@@ -8,6 +8,10 @@ default-members = [
     "crates/wyrd-for-games",
     "crates/wyrd-for-games-bevy",
 ]
+# The Moirai bridge is a Wyrd-owned integration harness with sibling path
+# dependencies.  It intentionally has its own workspace and is never part of
+# the publishable Wyrd release graph.
+exclude = ["integrations/wyrd-moirai"]
 
 [workspace.package]
 version = "0.3.0"

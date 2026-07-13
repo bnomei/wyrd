@@ -1,0 +1,16 @@
+[package]
+name = "wyrd-moirai"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.75"
+publish = false
+description = "Wyrd-owned Moirai integration adapter"
+
+[workspace]
+
+[features]
+default = []
+
+[dependencies]
+moirai = { path = "../../../encosy", default-features = false }
+wyrd = { package = "wyrd-for-games", path = "../../crates/wyrd-for-games", default-features = false, features = ["alloc", "signal-f32"] }
