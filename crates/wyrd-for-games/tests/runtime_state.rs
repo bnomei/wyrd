@@ -5,6 +5,10 @@ use wyrd::{
 };
 
 fn weave(id: &str) -> Weave {
+    weave_named(id, "value", "pulse")
+}
+
+fn weave_named(id: &str, output_path: &str, command_name: &str) -> Weave {
     let mut builder = Weave::builder(id).unwrap();
     let input = builder
         .knot("input", KnotKind::signal_in(SignalDomain::Bool))
@@ -12,10 +16,13 @@ fn weave(id: &str) -> Weave {
     let delay = builder.knot("delay", KnotKind::Delay { ticks: 2 }).unwrap();
     let counter = builder.knot("counter", KnotKind::counter()).unwrap();
     let output = builder
-        .knot("output", KnotKind::signal_out("value", SignalDomain::Count))
+        .knot(
+            "output",
+            KnotKind::signal_out(output_path, SignalDomain::Count),
+        )
         .unwrap();
     let emit = builder
-        .knot("emit", KnotKind::emit_command("pulse"))
+        .knot("emit", KnotKind::emit_command(command_name))
         .unwrap();
 
     let from = builder.output(&input, "out").unwrap();
@@ -33,6 +40,32 @@ fn weave(id: &str) -> Weave {
     builder.build().unwrap()
 }
 
+fn thread_order_weave(reverse: bool) -> Weave {
+    let mut builder = Weave::builder("thread-order").unwrap();
+    let a = builder
+        .knot("a", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let b = builder
+        .knot("b", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let out_a = builder
+        .knot("out-a", KnotKind::signal_out("a", SignalDomain::Bool))
+        .unwrap();
+    let out_b = builder
+        .knot("out-b", KnotKind::signal_out("b", SignalDomain::Bool))
+        .unwrap();
+    let mut pairs = [(a, out_a), (b, out_b)];
+    if reverse {
+        pairs.reverse();
+    }
+    for (from_knot, to_knot) in pairs {
+        let from = builder.output(&from_knot, "out").unwrap();
+        let to = builder.input(&to_knot, "in").unwrap();
+        builder.connect(from, to).unwrap();
+    }
+    builder.build().unwrap()
+}
+
 fn tick(runtime: &mut Runtime, tick: u64, input: Signal) {
     runtime.begin_frame(HostTime { tick });
     let sense = runtime.sense_id("input").unwrap();
@@ -47,6 +80,72 @@ fn outbox_values(runtime: &Runtime) -> (Vec<Signal>, Vec<Signal>, usize) {
         outbox.emits().iter().map(|emit| emit.payload).collect(),
         outbox.dropped_emits(),
     )
+}
+
+#[test]
+fn fingerprint_golden_value() {
+    let runtime = Runtime::bind(
+        weave("fingerprint-golden"),
+        BindOpts {
+            seed: Some(wyrd::Seed(0x1234_5678_9abc_def0)),
+            max_emits_per_tick: 3,
+            ..BindOpts::default()
+        },
+    )
+    .unwrap();
+    #[cfg(feature = "signal-f32")]
+    assert_eq!(runtime.runtime_fingerprint(), 0xba41_d82a_0da5_ffc5);
+    #[cfg(feature = "signal-i32")]
+    assert_eq!(runtime.runtime_fingerprint(), 0x6443_77c6_4014_b512);
+}
+
+#[test]
+fn fingerprint_covers_bind_policy_and_immutable_graph_identity() {
+    let base = Runtime::bind(weave("fingerprint-fields"), BindOpts::default())
+        .unwrap()
+        .runtime_fingerprint();
+    let changed_cap = Runtime::bind(
+        weave("fingerprint-fields"),
+        BindOpts {
+            max_emits_per_tick: 7,
+            ..BindOpts::default()
+        },
+    )
+    .unwrap()
+    .runtime_fingerprint();
+    let changed_seed = Runtime::bind(
+        weave("fingerprint-fields"),
+        BindOpts {
+            seed: Some(wyrd::Seed(9)),
+            ..BindOpts::default()
+        },
+    )
+    .unwrap()
+    .runtime_fingerprint();
+    let changed_path = Runtime::bind(
+        weave_named("fingerprint-fields", "other-value", "pulse"),
+        BindOpts::default(),
+    )
+    .unwrap()
+    .runtime_fingerprint();
+    let changed_command = Runtime::bind(
+        weave_named("fingerprint-fields", "value", "other-pulse"),
+        BindOpts::default(),
+    )
+    .unwrap()
+    .runtime_fingerprint();
+
+    for changed in [changed_cap, changed_seed, changed_path, changed_command] {
+        assert_ne!(base, changed);
+    }
+    assert_ne!(
+        Runtime::bind(thread_order_weave(false), BindOpts::default())
+            .unwrap()
+            .runtime_fingerprint(),
+        Runtime::bind(thread_order_weave(true), BindOpts::default())
+            .unwrap()
+            .runtime_fingerprint(),
+    );
 }
 
 #[test]

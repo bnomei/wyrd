@@ -4,8 +4,10 @@
 //! own save representation once they decide on a stable storage format.
 
 use crate::foundation::Signal;
-use crate::runtime_impl::bind::Runtime;
+use crate::foundation::{KnotId, PortSlot, Seed};
+use crate::runtime_impl::bind::{ResolvedKnot, Runtime};
 use crate::runtime_impl::error::RestoreError;
+use std::string::String;
 use std::vec::Vec;
 
 /// Current in-memory snapshot format version.
@@ -175,44 +177,8 @@ impl Runtime {
     }
 
     /// Deterministic immutable compatibility fingerprint for this runtime.
-    pub fn runtime_fingerprint(&self) -> u64 {
-        let mut hash = Fnv1a::new();
-        hash.bytes(b"wyrd-runtime-state-v1");
-        hash.usize(self.knots.len());
-        for knot in &self.knots {
-            fingerprint_knot(&mut hash, &knot.kind);
-        }
-        hash.usize(self.threads.len());
-        for &(from, from_slot, to, to_slot) in &self.threads {
-            hash.u16(from.get());
-            hash.u8(from_slot.get());
-            hash.u16(to.get());
-            hash.u8(to_slot.get());
-        }
-        hash.usize(self.path_names.len());
-        for path in &self.path_names {
-            hash.bytes(path.as_bytes());
-            hash.u8(0xff);
-        }
-        hash.usize(self.cmd_names.len());
-        for command in &self.cmd_names {
-            hash.bytes(command.as_bytes());
-            hash.u8(0xff);
-        }
-        hash.u8(match crate::foundation::NumericPath::compiled() {
-            crate::foundation::NumericPath::F32 => 1,
-            crate::foundation::NumericPath::I32Q16 => 2,
-        });
-        hash.u16(self.max_emits_per_tick);
-        hash.u64(self.seed_mix);
-        match self.bind_seed {
-            Some(seed) => {
-                hash.u8(1);
-                hash.u64(seed.0);
-            }
-            None => hash.u8(0),
-        }
-        hash.finish()
+    pub const fn runtime_fingerprint(&self) -> u64 {
+        self.state_fingerprint
     }
 
     fn validate_snapshot_shapes(&self, data: &RuntimeStateData) -> Result<(), RestoreError> {
@@ -268,6 +234,54 @@ impl Runtime {
         }
         Ok(())
     }
+}
+
+pub(crate) fn runtime_fingerprint_for(
+    knots: &[ResolvedKnot],
+    threads: &[(KnotId, PortSlot, KnotId, PortSlot)],
+    path_names: &[String],
+    cmd_names: &[String],
+    max_emits_per_tick: u16,
+    seed_mix: u64,
+    bind_seed: Option<Seed>,
+) -> u64 {
+    let mut hash = Fnv1a::new();
+    hash.bytes(b"wyrd-runtime-state-v1");
+    hash.usize(knots.len());
+    for knot in knots {
+        fingerprint_knot(&mut hash, &knot.kind);
+    }
+    hash.usize(threads.len());
+    for &(from, from_slot, to, to_slot) in threads {
+        hash.u16(from.get());
+        hash.u8(from_slot.get());
+        hash.u16(to.get());
+        hash.u8(to_slot.get());
+    }
+    hash.usize(path_names.len());
+    for path in path_names {
+        hash.bytes(path.as_bytes());
+        hash.u8(0xff);
+    }
+    hash.usize(cmd_names.len());
+    for command in cmd_names {
+        hash.bytes(command.as_bytes());
+        hash.u8(0xff);
+    }
+    hash.u8(match crate::foundation::NumericPath::compiled() {
+        crate::foundation::NumericPath::F32 => 1,
+        crate::foundation::NumericPath::I32Q16 => 2,
+    });
+    hash.u16(max_emits_per_tick);
+    hash.u64(seed_mix);
+    match bind_seed {
+        Some(seed) => {
+            hash.u8(1);
+            hash.u64(seed.0);
+        }
+        None => hash.u8(0),
+    }
+    hash.finish()
 }
 
 fn check_len(field: &'static str, expected: usize, found: usize) -> Result<(), RestoreError> {

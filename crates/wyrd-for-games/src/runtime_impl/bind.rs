@@ -120,9 +120,8 @@ pub struct Runtime {
     pub(crate) rng: u64,
     /// `fnv1a64(weave.id)` mixed into seeds at bind and [`Self::reseed`].
     pub(crate) seed_mix: u64,
-    /// The bind-time seed policy belongs to snapshot compatibility, unlike the
-    /// evolving PRNG state which belongs to the snapshot payload.
-    pub(crate) bind_seed: Option<Seed>,
+    /// Immutable graph and bind-policy fingerprint, computed once at bind.
+    pub(crate) state_fingerprint: u64,
 }
 
 const MAX_PORTS: usize = 8;
@@ -461,6 +460,15 @@ impl Runtime {
         let base = opts.seed.unwrap_or(Seed(0xC0FF_EE00_D15C_AFEDu64));
         let seed_mix = fnv1a64(weave.id().as_bytes());
         let rng = (base.0 ^ seed_mix) | 1;
+        let state_fingerprint = crate::runtime_impl::runtime_state::runtime_fingerprint_for(
+            &knots,
+            &threads,
+            &path_names,
+            &cmd_names,
+            opts.max_emits_per_tick,
+            seed_mix,
+            opts.seed,
+        );
 
         Ok(Runtime {
             owner,
@@ -497,7 +505,7 @@ impl Runtime {
             tick: 0,
             rng,
             seed_mix,
-            bind_seed: opts.seed,
+            state_fingerprint,
         })
     }
 
