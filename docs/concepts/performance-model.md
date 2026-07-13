@@ -92,6 +92,11 @@ plus a headless Bevy Sample → Loom → Apply benchmark. CodSpeed tracks the wo
 feature benchmark build; correctness CI covers the integer and `no_std` paths, but that is not an
 i32 performance measurement.
 
+Benchmark throughput counters report top-level timed operations: loom calls, host updates, binds,
+or pattern expansions. They do not report knot count. Benchmark names call out identity, endpoint,
+first-loom, and steady-state cases so those controls are not mistaken for representative arithmetic
+workloads. Bind rows separate pre-cloned bind cost from cloning and clone-plus-bind load cost.
+
 When a game is slow, measure host sampling and application beside `loom()`. A graph may be cheap
 while a spatial query, animation update, or command allocation dominates the actual frame.
 

@@ -23,8 +23,12 @@ pub fn deep_budget() -> Budget {
 }
 
 pub fn bind_deep(weave: &Weave) -> Runtime {
+    bind_deep_owned(weave.clone())
+}
+
+pub fn bind_deep_owned(weave: Weave) -> Runtime {
     Runtime::bind(
-        weave.clone(),
+        weave,
         BindOpts {
             budget: deep_budget(),
             ..BindOpts::default()
@@ -492,7 +496,8 @@ pub fn chain_delays(n: usize, ticks: u16) -> (Weave, Runtime) {
 
 /// Puzzle-kit weave: Counter, Flag, PulseHold, FedCountdown + Rising edge.
 ///
-/// Senses: `start` (edge into rising/flag/pulse), `feed` (fed timer + flag reset).
+/// Senses: `start` (edge into rising/flag/pulse), `feed` (fed timer + flag reset),
+/// and benchmark-only `reset` (counter reset, allowing repeatable cycles).
 /// Outs: `count`, `flag`, `pulse`, `fed`.
 pub fn stateful_kit() -> (Weave, Runtime) {
     let mut b = Weave::builder("kit").unwrap();
@@ -501,6 +506,9 @@ pub fn stateful_kit() -> (Weave, Runtime) {
         .unwrap();
     let k_feed = b
         .knot("feed", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let k_reset = b
+        .knot("reset", KnotKind::signal_in(SignalDomain::Bool))
         .unwrap();
     let k_rise = b.knot("rise", KnotKind::rising_from_zero()).unwrap();
     let k_cnt = b.knot("cnt", KnotKind::counter()).unwrap();
@@ -531,6 +539,9 @@ pub fn stateful_kit() -> (Weave, Runtime) {
     b.connect(from, to).unwrap();
     let from = b.output(&k_rise, "out").unwrap();
     let to = b.input(&k_cnt, "inc").unwrap();
+    b.connect(from, to).unwrap();
+    let from = b.output(&k_reset, "out").unwrap();
+    let to = b.input(&k_cnt, "reset").unwrap();
     b.connect(from, to).unwrap();
     let from = b.output(&k_start, "out").unwrap();
     let to = b.input(&k_flg, "set").unwrap();

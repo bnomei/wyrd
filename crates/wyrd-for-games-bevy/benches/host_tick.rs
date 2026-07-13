@@ -104,8 +104,13 @@ fn bevy_door_tick_both(bencher: Bencher) {
     app.world_mut().resource_mut::<PlateState>().a = true;
     app.world_mut().resource_mut::<PlateState>().b = true;
     app.update();
-    let knots = 4u64;
-    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
+    assert!(app
+        .world_mut()
+        .query::<&Door>()
+        .single(app.world())
+        .map(|d| d.open)
+        .unwrap_or(false));
+    bencher.counter(ItemsCount::new(1u64)).bench_local(|| {
         app.world_mut().resource_mut::<PlateState>().a = true;
         app.world_mut().resource_mut::<PlateState>().b = true;
         app.update();
@@ -119,31 +124,28 @@ fn bevy_door_tick_both(bencher: Bencher) {
     });
 }
 
-/// Alternating plate patterns over updates (sample churn).
+/// A complete closed/open/closed plate cycle over four Bevy updates.
 #[divan::bench]
-fn bevy_door_tick_scripted(bencher: Bencher) {
+fn bevy_door_scripted_cycle(bencher: Bencher) {
     let mut app = setup_app();
     app.update();
-    let mut phase = 0u8;
-    let knots = 4u64;
-    bencher.counter(ItemsCount::new(knots)).bench_local(|| {
-        let (a, b) = match phase % 4 {
-            0 => (false, false),
-            1 => (true, false),
-            2 => (true, true),
-            _ => (false, true),
-        };
-        phase = phase.wrapping_add(1);
-        app.world_mut().resource_mut::<PlateState>().a = a;
-        app.world_mut().resource_mut::<PlateState>().b = b;
-        app.update();
-        let open = app
-            .world_mut()
-            .query::<&Door>()
-            .single(app.world())
-            .map(|d| d.open)
-            .unwrap_or(false);
-        black_box(open);
+    bencher.counter(ItemsCount::new(4u64)).bench_local(|| {
+        let mut observed = [false; 4];
+        for (slot, (a, b)) in
+            observed
+                .iter_mut()
+                .zip([(false, false), (true, false), (true, true), (false, true)])
+        {
+            app.world_mut().insert_resource(PlateState { a, b });
+            app.update();
+            *slot = app
+                .world_mut()
+                .query::<&Door>()
+                .single(app.world())
+                .map(|d| d.open)
+                .unwrap_or(false);
+        }
+        black_box(observed);
     });
 }
 
