@@ -527,6 +527,40 @@ mod tests {
 
     #[test]
     fn every_runtime_error_variant_has_a_stable_diagnostic_and_source_chain() {
+        let restore_errors = [
+            RestoreError::UnsupportedVersion {
+                found: 0,
+                supported: 1,
+            },
+            RestoreError::FingerprintMismatch {
+                expected: 1,
+                found: 2,
+            },
+            RestoreError::ShapeMismatch {
+                field: "counter",
+                expected: 3,
+                found: 4,
+            },
+            RestoreError::InvalidHandleIndex {
+                field: "out_emits.command_index",
+                index: 5,
+                len: 6,
+            },
+        ];
+        let diagnostics: Vec<String> = restore_errors.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            diagnostics,
+            [
+                "runtime snapshot format version 0 is unsupported (expected 1)",
+                "runtime snapshot fingerprint 0000000000000002 does not match 0000000000000001",
+                "runtime snapshot field 'counter' has length 4, expected 3",
+                "runtime snapshot field 'out_emits.command_index' has invalid index 5 for length 6",
+            ]
+        );
+        assert!(restore_errors
+            .iter()
+            .all(|error| Error::source(error).is_none()));
+
         let validation = ValidationError::EmptyWeave {
             weave_id: String::from("empty"),
         };
