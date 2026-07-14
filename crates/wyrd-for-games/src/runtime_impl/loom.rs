@@ -60,6 +60,7 @@ impl Runtime {
             self.gather_inputs(kid);
             self.eval_knot(kid);
         }
+        self.phase = 2;
     }
 
     /// Copy inbound edge values into this knot's In ports.
