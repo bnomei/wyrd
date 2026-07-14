@@ -161,21 +161,33 @@ impl std::error::Error for BindRestoreError {}
 /// Failure while applying a named authored runtime preset.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-#[allow(missing_docs)]
 pub enum PresetError {
     /// The weave could not be bound.
     Bind(Box<BindError>),
     /// More than one entry targeted the same authored knot.
-    Duplicate { knot: String },
+    Duplicate {
+        /// Authored knot name listed more than once in the preset.
+        knot: String,
+    },
     /// An entry named no knot in this weave.
-    Missing { knot: String },
+    Missing {
+        /// Authored knot name absent from the bound weave.
+        knot: String,
+    },
     /// An entry targeted an incompatible knot kind.
     WrongKind {
+        /// Authored knot name that does not match the expected kind.
         knot: String,
+        /// Expected knot kind label (for example `"Flag"` or `"Counter"`).
         expected: &'static str,
     },
     /// A SignalIn entry violated its declared signal domain.
-    InvalidSignal { knot: String, domain: SignalDomain },
+    InvalidSignal {
+        /// Authored SignalIn knot name carrying the invalid value.
+        knot: String,
+        /// Declared signal domain that rejected the preset value.
+        domain: SignalDomain,
+    },
 }
 
 impl fmt::Display for PresetError {

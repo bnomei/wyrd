@@ -1,4 +1,8 @@
 //! RON load/save for weaves with validate-on-decode (`serde-ron` feature).
+//!
+//! The wire schema is [`WeaveDef`], matching the JSON codec. Parsing never
+//! produces an executable runtime — [`from_ron`] always runs full validation
+//! before returning an immutable [`Weave`].
 
 use core::fmt;
 

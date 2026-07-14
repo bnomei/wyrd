@@ -3,9 +3,16 @@
 //! This crate deliberately has a separate workspace root and sibling path
 //! dependencies. It is a non-publishable integration seam: `wyrd-for-games`
 //! remains engine-neutral and never depends on Moirai.
+//!
+//! Frame order: Sample → Loom → Apply. The host tick advances only after a
+//! successful Apply callback; Sample and Loom failures leave it unchanged.
+//! [`HostError`] strings propagate through Moirai faults without panicking.
+//! [`MoiraiDriver::restore`] assigns tick only after Wyrd validates the full
+//! runtime snapshot.
 
 #![no_std]
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 extern crate alloc;
 
@@ -164,6 +171,7 @@ impl<R: Recipe, H: MoiraiHost<R>> MoiraiDriver<R, H> {
     fn apply(&mut self, world: &mut World) -> Result<(), HostError> {
         self.host
             .apply(world, &self.ports, self.runtime.outbox(), self.tick)?;
+        // Tick advances only after a successful host apply; sample/loom failures leave it unchanged.
         self.tick = self.tick.wrapping_add(1);
         Ok(())
     }

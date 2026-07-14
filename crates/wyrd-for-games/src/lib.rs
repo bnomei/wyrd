@@ -43,8 +43,13 @@ mod runtime_impl;
 
 pub mod examples;
 
-/// Shared signal, id, port, and knot-catalog vocabulary.
 pub mod core {
+    //! Shared signal, id, port, and knot-catalog vocabulary.
+    //!
+    //! This layer exposes types and helpers only — no weave authoring, bind, or
+    //! settle. Pick exactly one compile-time numeric path (`signal-f32` or
+    //! `signal-i32`) before building graphs or runtimes.
+
     pub use crate::foundation::signal_ops;
     pub use crate::foundation::{
         from_count, from_level, is_truthy, port_domain, port_slot, ports_of, CalcOp, CompareOp,
@@ -53,8 +58,14 @@ pub mod core {
     };
 }
 
-/// Weave authoring, validation, patterns, and serialization codecs.
 pub mod graph {
+    //! Weave authoring, validation, patterns, and serialization codecs.
+    //!
+    //! Author immutable [`Weave`] graphs with open string ids, validate structure
+    //! and budgets, then hand the weave to [`runtime::Runtime::bind`]. Optional
+    //! `serde-ron`, `serde-json`, and `schema` features add load/save and JSON
+    //! Schema tooling with validate-on-decode.
+
     #[cfg(feature = "serde-json")]
     pub use crate::authoring::{from_json, to_json, JsonCodecError};
     #[cfg(feature = "serde-ron")]
@@ -77,8 +88,14 @@ pub mod graph {
     pub use schemars::{schema_for, JsonSchema};
 }
 
-/// Runtime binding, host integration, and output collection.
 pub mod runtime {
+    //! Runtime binding, host integration, and output collection.
+    //!
+    //! Lifecycle: bind a validated weave, sample host senses each frame, settle
+    //! once with [`Runtime::loom`], apply [`Outbox`] effects, and optionally
+    //! snapshot or restore continuation state. The hot path uses dense handles
+    //! only — no engine types or string lookups after bind.
+
     pub use crate::runtime_impl::{
         append_commands, outbox_to_commands, tick_once, BindError, BindOpts, BindRestoreError,
         CmdId, Emit, HandleError, Host, HostCommand, HostPathId, KnotHandle, NullHost, Outbox,

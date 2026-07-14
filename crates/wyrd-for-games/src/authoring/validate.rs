@@ -542,6 +542,9 @@ fn invalid_signal_parameter(
     }
 }
 
+// Union-find domain inference: Variable ports on one knot must unify, and each
+// thread unions its source and sink. Compare knots with rhs_const relax the
+// required rhs port before this pass runs.
 fn validate_domains(
     def: &WeaveDef,
     index: &BTreeMap<&str, usize>,

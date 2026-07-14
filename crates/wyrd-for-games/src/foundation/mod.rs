@@ -18,8 +18,8 @@ pub use signal::{from_count, from_level, is_truthy, Signal, ONE, ZERO};
 /// Path-local arithmetic on [`Signal`] (prefer `Calc` knots inside Weaves).
 ///
 /// These ops implement the dual numeric path (f32 mul/div vs i32 Q16). Graphs
-/// should express math with `KnotKind::Calc` so bind can specialize; host and
-/// test code may call these helpers directly.
+/// should express math with `KnotKind::Calc` so bind can specialize dispatch;
+/// host and test code may call these helpers when topology is not involved.
 pub mod signal_ops {
     pub use super::signal::{div, mul, sat_add, sat_sub};
 }

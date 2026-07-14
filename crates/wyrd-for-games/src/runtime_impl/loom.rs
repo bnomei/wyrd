@@ -60,6 +60,7 @@ impl Runtime {
             self.gather_inputs(kid);
             self.eval_knot(kid);
         }
+        // Phase 2 marks a completed loom pass; restore rejects checkpoints captured mid-settle.
         self.phase = 2;
     }
 

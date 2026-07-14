@@ -255,6 +255,10 @@ impl Runtime {
 
     /// Internal bind entrypoint with explicit preinterned names for capacity
     /// validation. Normal binding always starts with empty tables.
+    ///
+    /// Bind phases: intern host paths/commands → build CSR inbound edges and
+    /// topo order → patch kind-dispatch tags → size delay rings and sense seeds
+    /// → compute the immutable state fingerprint.
     fn bind_validated_with_preinterned_names(
         weave: Weave,
         opts: BindOpts,
@@ -706,7 +710,7 @@ impl Runtime {
         Ok(())
     }
 
-    /// Alias for checked get (bind-unit tests + OOB safety).
+    /// Dense-id alias for [`Self::get_port_checked`] (tooling and bind-shape tests).
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn get_port(&self, knot: KnotId, slot: PortSlot) -> Result<Signal, HandleError> {
@@ -714,7 +718,7 @@ impl Runtime {
         self.get_port_checked(handle, slot)
     }
 
-    /// Alias for checked set (bind-unit tests + OOB safety).
+    /// Dense-id alias for [`Self::set_port_checked`] (tooling and bind-shape tests).
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn set_port(
@@ -736,16 +740,22 @@ impl Runtime {
     }
 
     /// Number of bind-time kind tags (equals knot count after successful bind).
+    ///
+    /// Bind-shape introspection for tests and tooling — not used on the settle hot path.
     pub fn kind_tag_count(&self) -> usize {
         self.kind_tags.len()
     }
 
     /// Flat clear-index count (all In ports across the weave).
+    ///
+    /// Bind-shape introspection for tests and tooling — not used on the settle hot path.
     pub fn clear_port_index_count(&self) -> usize {
         self.clear_port_idx.len()
     }
 
     /// CSR inbound edge count.
+    ///
+    /// Bind-shape introspection for tests and tooling — not used on the settle hot path.
     pub fn inbound_edge_count(&self) -> usize {
         self.inbound_edges.len()
     }

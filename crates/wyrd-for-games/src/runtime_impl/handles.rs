@@ -1,4 +1,9 @@
 //! Runtime-owned public handles around compact internal indices.
+//!
+//! Each handle carries an owner token from bind. Cross-runtime use returns
+//! [`HandleError::ForeignRuntime`](super::error::HandleError::ForeignRuntime)
+//! at the outbox and port-writer boundary instead of reading another instance's
+//! dense storage.
 
 macro_rules! runtime_handle {
     ($name:ident, $doc:literal) => {

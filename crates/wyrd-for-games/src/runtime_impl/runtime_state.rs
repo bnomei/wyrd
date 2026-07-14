@@ -1,4 +1,9 @@
 //! Opaque, durable continuation checkpoints for [`Runtime`](super::Runtime).
+//!
+//! Capture a snapshot after loom settles and the host has applied the outbox,
+//! before the next [`Runtime::begin_frame`]. Checkpoints store mutable knot
+//! state and host-fed senses only — outbox effects are never replayed by
+//! [`Runtime::restore`].
 
 use crate::foundation::Signal;
 use crate::foundation::{KnotId, NumericPath, PortSlot, Seed};
@@ -12,7 +17,6 @@ use std::vec::Vec;
 /// RON checkpoint codec error.
 #[cfg(feature = "serde-ron")]
 #[derive(Debug)]
-#[allow(missing_docs)]
 pub enum RuntimeStateRonCodecError {
     /// RON parsing failed.
     Parse(ron::error::SpannedError),
@@ -37,7 +41,6 @@ impl std::error::Error for RuntimeStateRonCodecError {}
 /// JSON checkpoint codec error.
 #[cfg(feature = "serde-json")]
 #[derive(Debug)]
-#[allow(missing_docs)]
 pub enum RuntimeStateJsonCodecError {
     /// JSON parsing failed.
     Parse(serde_json::Error),
@@ -183,31 +186,67 @@ impl RuntimePreset {
 
 /// Owned, authored-name state entry for checkpoint auditing.
 #[derive(Clone, Debug, PartialEq)]
-#[allow(missing_docs)]
 pub enum RuntimeStateEntry {
     /// A held SignalIn value.
-    Sense { knot: String, value: Signal },
+    Sense {
+        /// Authored SignalIn knot name.
+        knot: String,
+        /// Domain-checked held value.
+        value: Signal,
+    },
     /// A Flag latch.
-    Flag { knot: String, value: bool },
+    Flag {
+        /// Authored Flag knot name.
+        knot: String,
+        /// Current latch state.
+        value: bool,
+    },
     /// A Counter or Random cached sample backing state.
-    Counter { knot: String, value: i32 },
+    Counter {
+        /// Authored Counter or Random knot name.
+        knot: String,
+        /// Whole-number backing value.
+        value: i32,
+    },
     /// Timer remaining loom ticks.
-    Timer { knot: String, remaining: u16 },
+    Timer {
+        /// Authored Timer knot name.
+        knot: String,
+        /// Remaining loom ticks before expiry.
+        remaining: u16,
+    },
     /// Delay-ring metadata and contents in logical output order.
     Delay {
+        /// Authored Delay knot name.
         knot: String,
+        /// Immutable ring length fixed at bind.
         len: u16,
+        /// Current ring head index.
         head: u16,
+        /// Ring contents in logical output order.
         values: Vec<Signal>,
     },
     /// Edge detector history.
-    Edge { knot: String, previous: Signal },
+    Edge {
+        /// Authored edge-detector knot name.
+        knot: String,
+        /// Previous input sample used for rising/falling detection.
+        previous: Signal,
+    },
     /// OnStart completion state.
-    OnStart { knot: String, completed: bool },
+    OnStart {
+        /// Authored OnStart knot name.
+        knot: String,
+        /// Whether the one-shot pulse has already fired.
+        completed: bool,
+    },
     /// Random cached sample; the stream position remains opaque.
     Random {
+        /// Authored Random knot name.
         knot: String,
+        /// Last emitted random sample.
         last_sample: Signal,
+        /// Whether the xorshift stream position is intentionally omitted.
         stream_is_opaque: bool,
     },
 }
