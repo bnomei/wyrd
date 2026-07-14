@@ -22,8 +22,8 @@ pub(crate) mod scenario;
 
 pub use bind::{BindOpts, Runtime};
 pub use error::{
-    BindError, HandleError, RecipeEndpoint, RecipeError, RecipeResolveError, RestoreError,
-    ScenarioError,
+    BindError, BindRestoreError, HandleError, PresetError, RecipeEndpoint, RecipeError,
+    RecipeResolveError, RestoreError, ScenarioError,
 };
 pub use handles::{CmdId, HostPathId, KnotHandle, SenseId};
 pub use host::{
@@ -34,5 +34,14 @@ pub use recipe::{
     EmitCommandManifest, Recipe, RecipeInstance, RecipeManifest, SignalInManifest,
     SignalOutManifest,
 };
-pub use runtime_state::{RuntimeState, RUNTIME_STATE_FORMAT_VERSION};
+#[cfg(feature = "serde-json")]
+pub use runtime_state::{
+    runtime_state_from_json, runtime_state_to_json, RuntimeStateJsonCodecError,
+};
+#[cfg(feature = "serde-ron")]
+pub use runtime_state::{runtime_state_from_ron, runtime_state_to_ron, RuntimeStateRonCodecError};
+pub use runtime_state::{
+    RuntimePreset, RuntimePresetEntry, RuntimeState, RuntimeStateEntry, RuntimeStateReport,
+    RUNTIME_STATE_FORMAT_VERSION,
+};
 pub use scenario::Scenario;

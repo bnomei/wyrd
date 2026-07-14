@@ -4,11 +4,25 @@
 //! sample host senses and settle it once per frame. Use [`core`], [`graph`],
 //! and [`runtime`] when an explicit layer namespace is clearer.
 //!
+//! The crate root re-exports the common authoring and runtime vocabulary. The
+//! layer modules provide the same contracts grouped by intent. Implementation
+//! modules stay private so downstream code cannot depend on bind tables or
+//! runtime storage details:
+//!
+//! ```compile_fail
+//! use wyrd::runtime_impl::Runtime;
+//! ```
+//!
+//! ```compile_fail
+//! use wyrd::authoring::WeaveBuilder;
+//! ```
+//!
 //! Start with the ordered, executable [`examples`], beginning at
 //! [`examples::tier_a::a01_hello_invert`].
 
 #![no_std]
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 extern crate alloc;
 extern crate no_std_compat as std;
@@ -66,11 +80,12 @@ pub mod graph {
 /// Runtime binding, host integration, and output collection.
 pub mod runtime {
     pub use crate::runtime_impl::{
-        append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, Emit,
-        HandleError, Host, HostCommand, HostPathId, KnotHandle, NullHost, Outbox, PortWriter,
-        Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeResolveError, RestoreError,
-        Runtime, RuntimeState, Scenario, ScenarioError, ScriptedHost, SenseId, SignalOutSample,
-        RUNTIME_STATE_FORMAT_VERSION,
+        append_commands, outbox_to_commands, tick_once, BindError, BindOpts, BindRestoreError,
+        CmdId, Emit, HandleError, Host, HostCommand, HostPathId, KnotHandle, NullHost, Outbox,
+        PortWriter, PresetError, Recipe, RecipeEndpoint, RecipeError, RecipeInstance,
+        RecipeResolveError, RestoreError, Runtime, RuntimePreset, RuntimePresetEntry, RuntimeState,
+        RuntimeStateEntry, RuntimeStateReport, Scenario, ScenarioError, ScriptedHost, SenseId,
+        SignalOutSample, RUNTIME_STATE_FORMAT_VERSION,
     };
 }
 
@@ -96,14 +111,21 @@ pub use schemars::{schema_for, JsonSchema};
 
 #[cfg(feature = "serde-ron")]
 pub use authoring::{from_ron, to_ron, RonCodecError};
+#[cfg(feature = "serde-ron")]
+pub use runtime_impl::{runtime_state_from_ron, runtime_state_to_ron, RuntimeStateRonCodecError};
 
 #[cfg(feature = "serde-json")]
 pub use authoring::{from_json, to_json, JsonCodecError};
+#[cfg(feature = "serde-json")]
+pub use runtime_impl::{
+    runtime_state_from_json, runtime_state_to_json, RuntimeStateJsonCodecError,
+};
 
 pub use runtime_impl::{
-    append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, Emit,
-    EmitCommandManifest, HandleError, Host, HostCommand, HostPathId, NullHost, Outbox, PortWriter,
-    Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeManifest, RecipeResolveError,
-    RestoreError, Runtime, RuntimeState, Scenario, ScenarioError, ScriptedHost, SenseId,
+    append_commands, outbox_to_commands, tick_once, BindError, BindOpts, BindRestoreError, CmdId,
+    Emit, EmitCommandManifest, HandleError, Host, HostCommand, HostPathId, NullHost, Outbox,
+    PortWriter, PresetError, Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeManifest,
+    RecipeResolveError, RestoreError, Runtime, RuntimePreset, RuntimePresetEntry, RuntimeState,
+    RuntimeStateEntry, RuntimeStateReport, Scenario, ScenarioError, ScriptedHost, SenseId,
     SignalInManifest, SignalOutManifest, SignalOutSample, RUNTIME_STATE_FORMAT_VERSION,
 };

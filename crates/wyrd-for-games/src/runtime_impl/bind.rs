@@ -71,7 +71,7 @@ pub struct Runtime {
     pub(crate) owner: usize,
     pub(crate) knots: Vec<ResolvedKnot>,
     /// Author name → KnotId
-    name_to_id: BTreeMap<String, KnotId>,
+    pub(crate) name_to_id: BTreeMap<String, KnotId>,
     pub(crate) path_names: Vec<String>,
     pub(crate) cmd_names: Vec<String>,
     /// CSR inbound: edges in `inbound_edges[inbound_off[ki]..inbound_off[ki+1]]`.
@@ -107,6 +107,7 @@ pub struct Runtime {
     pub(crate) dropped_emits: usize,
     pub(crate) max_emits_per_tick: u16,
     pub(crate) tick: u64,
+    pub(crate) phase: u8,
     /// Deterministic xorshift state for Random knots (never zero).
     pub(crate) rng: u64,
     /// `fnv1a64(weave.id)` mixed into seeds at bind and [`Self::reseed`].
@@ -485,6 +486,7 @@ impl Runtime {
             dropped_emits: 0,
             max_emits_per_tick: opts.max_emits_per_tick,
             tick: 0,
+            phase: 0,
             rng,
             seed_mix,
             state_fingerprint,
@@ -614,6 +616,7 @@ impl Runtime {
     /// Start a frame: set tick and clear acts and dropped-emit telemetry.
     pub fn begin_frame(&mut self, time: HostTime) {
         self.tick = time.tick;
+        self.phase = 1;
         self.out_signals.clear();
         self.out_emits.clear();
         self.dropped_emits = 0;

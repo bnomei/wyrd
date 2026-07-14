@@ -12,6 +12,12 @@ Wyrd is a Rust library for composing game behavior as validated signal graphs. Y
 `Weave`, bind it once into dense runtime state, sample host inputs, settle the graph, and apply
 its outputs back to your game.
 
+**Status:** Wyrd 0.4 is a pre-1.0 release line. CI gates the engine-neutral crate, Bevy adapter,
+feature matrix, public Rustdoc, and package manifest; the publish workflow creates and cross-checks
+the exact package artifacts. Minor 0.x releases may make breaking public-API
+changes; patch releases preserve the public Rust API unless the changelog calls out a required
+correction.
+
 **Engine-neutral** · **`no_std` + `alloc`** · **`f32` or Q16 `i32` signals** · **Bevy 0.19 adapter**
 
 ## When Wyrd fits
@@ -74,7 +80,7 @@ This writes the following dependency entry:
 
 ```toml
 [dependencies]
-wyrd = { package = "wyrd-for-games", version = "0.3.0" }
+wyrd = { package = "wyrd-for-games", version = "0.4.0" }
 ```
 
 To verify a checkout with a small end-to-end test:
@@ -171,7 +177,7 @@ the Bevy adapter.
 The dependency direction stays one-way:
 
 ```text
-wyrd-for-games → wyrd-for-games-bevy
+wyrd-for-games-bevy → wyrd-for-games
 ```
 
 ## Author graphs
@@ -218,8 +224,8 @@ Add both published packages under their library target names:
 
 ```toml
 [dependencies]
-wyrd = { package = "wyrd-for-games", version = "0.3.0" }
-wyrd_bevy = { package = "wyrd-for-games-bevy", version = "0.3.0" }
+wyrd = { package = "wyrd-for-games", version = "0.4.0" }
+wyrd_bevy = { package = "wyrd-for-games-bevy", version = "0.4.0" }
 ```
 
 Use the adapter through `wyrd_bevy` alongside the engine-neutral `wyrd` API.
@@ -283,6 +289,21 @@ hosts.
 
 CI verifies both numeric paths, codecs, runtime `no_std` builds, and Bevy.
 
+## Stability and saved state
+
+The public Rust API follows [Cargo's SemVer compatibility rules](https://doc.rust-lang.org/cargo/reference/semver.html).
+Before a release, CI compares the current API with the latest published packages and builds the
+configured docs.rs feature surfaces. The publish workflow creates and verifies both package
+artifacts before publishing in dependency order.
+
+`WeaveDef` and `PatternDef` are validated authoring formats, but their serialized representation is
+not yet a cross-minor compatibility promise. [`RuntimeState`](crates/wyrd-for-games/src/runtime_impl/runtime_state.rs)
+is opaque in Rust but has a versioned optional-Serde checkpoint format. Capture it only after graph
+evaluation and host apply, before the next frame; outbox effects are never restored. A restore checks its
+format version, executable fingerprint, and buffer shape before mutating a runtime. Wrap game
+progress in a host-owned save format and use `RuntimeState` only when both runtimes use the same
+bound executable contract.
+
 ## Playdate / constrained hosts
 
 Use `wyrd-for-games` directly rather than the Bevy adapter, selecting the integer signal
@@ -290,7 +311,7 @@ path and the allocator supplied by the host application:
 
 ```toml
 [dependencies]
-wyrd = { package = "wyrd-for-games", version = "0.3.0", default-features = false, features = ["alloc", "signal-i32"] }
+wyrd = { package = "wyrd-for-games", version = "0.4.0", default-features = false, features = ["alloc", "signal-i32"] }
 ```
 
 Bind a Weave when loading a room or scene, resolve its dense sense/path handles

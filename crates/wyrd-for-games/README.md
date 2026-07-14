@@ -67,6 +67,28 @@ Steady-state loom does not allocate topology: inbound edges and slots are
 precomputed during bind. Keep active Weaves scoped to a room or puzzle island
 and bind them on load, not once per frame.
 
+## Stability and continuation snapshots
+
+Wyrd 0.4 is pre-1.0. Minor 0.x releases may make breaking public-API changes;
+patch releases preserve the public Rust API unless the changelog calls out a
+required correction.
+
+`Runtime::snapshot` captures the mutable state needed to continue one bound
+runtime deterministically. `Runtime::restore` validates the snapshot format,
+numeric path, executable fingerprint, and buffer shape before changing
+the runtime. Use `Runtime::snapshot_into` when repeated captures should reuse
+owned buffers.
+
+`RuntimeState` is opaque in Rust but serializable through the optional `serde`
+feature as Wyrd's versioned checkpoint contract. Capture it after `loom` and
+after the host has applied that frame's outbox, before the next `begin_frame`;
+outbox effects are intentionally not saved or replayed. Games own their wider
+save schema and host effects. Use `Runtime::bind_restored` to load into a fresh
+runtime and `RuntimePreset` / `bind_with_preset` for authored named Flag,
+Counter, and SignalIn starting values. Persist game progress in a host-owned format. Use a runtime snapshot only
+with the same bound executable contract; do not assume compatibility across
+minor releases or different Weaves.
+
 ## Tiered examples
 
 The [`wyrd::examples`](https://docs.rs/wyrd-for-games/latest/wyrd/examples/) module provides Tier A

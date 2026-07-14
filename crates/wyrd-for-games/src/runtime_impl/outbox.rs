@@ -90,7 +90,7 @@ impl PortWriter<'_> {
 }
 
 #[inline]
-fn domain_value_is_valid(domain: SignalDomain, value: Signal) -> bool {
+pub(crate) fn domain_value_is_valid(domain: SignalDomain, value: Signal) -> bool {
     match domain {
         SignalDomain::Bool => value == ZERO || value == ONE,
         SignalDomain::Level => {

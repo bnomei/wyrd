@@ -1,7 +1,8 @@
 //! Runtime snapshot continuation and compatibility contracts.
 
 use wyrd::{
-    BindOpts, HostTime, KnotKind, RestoreError, Runtime, Signal, SignalDomain, Weave, ONE, ZERO,
+    BindOpts, HostTime, KnotKind, RestoreError, Runtime, RuntimePreset, RuntimePresetEntry, Signal,
+    SignalDomain, Weave, ONE, ZERO,
 };
 
 fn weave(id: &str) -> Weave {
@@ -108,9 +109,9 @@ fn fingerprint_golden_value() {
     )
     .unwrap();
     #[cfg(feature = "signal-f32")]
-    assert_eq!(runtime.runtime_fingerprint(), 0xba41_d82a_0da5_ffc5);
+    assert_eq!(runtime.runtime_fingerprint(), 0xddad_f76c_11e4_dd56);
     #[cfg(feature = "signal-i32")]
-    assert_eq!(runtime.runtime_fingerprint(), 0x6443_77c6_4014_b512);
+    assert_eq!(runtime.runtime_fingerprint(), 0xbf4d_e68c_0afa_1017);
 }
 
 #[test]
@@ -149,9 +150,13 @@ fn fingerprint_covers_bind_policy_and_immutable_graph_identity() {
     .unwrap()
     .runtime_fingerprint();
 
-    for changed in [changed_cap, changed_seed, changed_path, changed_command] {
+    for changed in [changed_cap, changed_path, changed_command] {
         assert_ne!(base, changed);
     }
+    assert_eq!(
+        base, changed_seed,
+        "a restored RNG stream makes bind seed irrelevant"
+    );
     assert_ne!(
         Runtime::bind(thread_order_weave(false), BindOpts::default())
             .unwrap()
@@ -227,7 +232,7 @@ fn refresh_overwrites_incompatible_larger_state_without_stale_tails() {
     ));
     let mut restored = Runtime::bind(small_graph, BindOpts::default()).unwrap();
     restored.restore(&state).unwrap();
-    assert_eq!(outbox_values(&restored), outbox_values(&small));
+    assert_eq!(outbox_values(&restored), (Vec::new(), Vec::new(), 0));
     assert!(restored.outbox().emits().is_empty());
 }
 
@@ -241,13 +246,8 @@ fn snapshot_crosses_owner_boundary_but_rebuilds_local_handles() {
 
     let mut destination = Runtime::bind(graph, BindOpts::default()).unwrap();
     destination.restore(&state).unwrap();
-    assert_eq!(outbox_values(&destination), outbox_values(&source));
-    for sample in destination.outbox().signals() {
-        assert_eq!(destination.path_name(sample.path).unwrap(), "value");
-    }
-    for emit in destination.outbox().emits() {
-        assert_eq!(destination.cmd_name(emit.cmd).unwrap(), "pulse");
-    }
+    assert!(destination.outbox().signals().is_empty());
+    assert!(destination.outbox().emits().is_empty());
 }
 
 #[test]
@@ -276,4 +276,60 @@ fn incompatible_bind_options_reject_without_mutation() {
     assert_eq!(before.fingerprint(), after.fingerprint());
     tick(&mut target, 1, ZERO);
     assert_eq!(outbox_values(&target).0, vec![ZERO]);
+}
+
+#[test]
+fn fresh_restore_does_not_replay_outbox_and_reports_named_state() {
+    let graph = weave("fresh-restore");
+    let mut source = Runtime::bind(graph.clone(), BindOpts::default()).unwrap();
+    tick(&mut source, 0, ONE);
+    let state = source.snapshot();
+    let restored = Runtime::bind_restored(graph, BindOpts::default(), &state).unwrap();
+    assert!(restored.outbox().signals().is_empty());
+    assert!(restored.outbox().emits().is_empty());
+    assert!(restored.inspect_state().entries.iter().any(
+        |entry| matches!(entry, wyrd::RuntimeStateEntry::Sense { knot, .. } if knot == "input")
+    ));
+}
+
+#[test]
+fn preset_uses_authored_names_and_is_atomic() {
+    let mut builder = Weave::builder("preset").unwrap();
+    let flag = builder
+        .knot("gate", KnotKind::flag(wyrd::FlagPriority::SetWins, false))
+        .unwrap();
+    let counter = builder.knot("score", KnotKind::counter()).unwrap();
+    let sense = builder
+        .knot("input", KnotKind::signal_in(SignalDomain::Bool))
+        .unwrap();
+    let _ = (flag, counter, sense);
+    let weave = builder.build().unwrap();
+    let mut preset = RuntimePreset::new();
+    preset.push(RuntimePresetEntry::Flag {
+        knot: "gate".into(),
+        value: true,
+    });
+    preset.push(RuntimePresetEntry::Counter {
+        knot: "score".into(),
+        value: 7,
+    });
+    preset.push(RuntimePresetEntry::Sense {
+        knot: "input".into(),
+        value: ONE,
+    });
+    let runtime = Runtime::bind_with_preset(weave, BindOpts::default(), &preset).unwrap();
+    let report = runtime.inspect_state();
+    assert!(report.entries.iter().any(|entry| matches!(entry, wyrd::RuntimeStateEntry::Flag { knot, value: true } if knot == "gate")));
+    assert!(report.entries.iter().any(|entry| matches!(entry, wyrd::RuntimeStateEntry::Counter { knot, value: 7 } if knot == "score")));
+}
+
+#[cfg(feature = "serde-json")]
+#[test]
+fn checkpoint_json_round_trip_restores_fresh_runtime() {
+    let graph = weave("json-checkpoint");
+    let mut source = Runtime::bind(graph.clone(), BindOpts::default()).unwrap();
+    tick(&mut source, 3, ONE);
+    let text = wyrd::runtime_state_to_json(&source.snapshot()).unwrap();
+    let state = wyrd::runtime_state_from_json(&text).unwrap();
+    Runtime::bind_restored(graph, BindOpts::default(), &state).unwrap();
 }

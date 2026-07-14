@@ -3,7 +3,7 @@
 use core::fmt;
 
 use crate::authoring::{BuildError, ValidationError};
-use crate::foundation::{PortSlot, SignalDomain};
+use crate::foundation::{NumericPath, PortSlot, SignalDomain};
 use std::boxed::Box;
 use std::string::String;
 
@@ -14,19 +14,76 @@ use crate::runtime_impl::handles::{CmdId, HostPathId, KnotHandle, SenseId};
 #[non_exhaustive]
 pub enum RestoreError {
     /// The snapshot uses a format this runtime cannot read.
-    UnsupportedVersion { found: u32, supported: u32 },
+    UnsupportedVersion {
+        /// Version carried by the rejected snapshot.
+        found: u32,
+        /// Version accepted by this runtime.
+        supported: u32,
+    },
     /// The snapshot belongs to an incompatible immutable executable graph.
-    FingerprintMismatch { expected: u64, found: u64 },
+    FingerprintMismatch {
+        /// Fingerprint of the currently bound executable runtime.
+        expected: u64,
+        /// Fingerprint carried by the rejected snapshot.
+        found: u64,
+    },
+    /// The checkpoint was produced by the other compile-time signal path.
+    NumericPathMismatch {
+        /// Numeric path required by the receiving runtime.
+        expected: NumericPath,
+        /// Numeric path carried by the checkpoint.
+        found: NumericPath,
+    },
+    /// The checkpoint was captured at a frame phase that cannot be restored.
+    InvalidPhase {
+        /// Opaque wire phase value.
+        found: u8,
+    },
+    /// A stored signal does not satisfy its declared runtime domain.
+    InvalidSignal {
+        /// Checkpoint field that contained the invalid value.
+        field: &'static str,
+        /// Dense knot slot whose semantic contract rejected it.
+        knot: usize,
+        /// Declared signal domain.
+        domain: SignalDomain,
+    },
+    /// A timer value is outside the duration authored for its knot.
+    InvalidTimer {
+        /// Dense timer knot slot.
+        knot: usize,
+        /// Stored remaining ticks.
+        remaining: u16,
+        /// Authored timer duration.
+        max: u16,
+    },
+    /// A delay head is outside its immutable ring extent.
+    InvalidDelayHead {
+        /// Dense delay knot slot.
+        knot: usize,
+        /// Stored ring head.
+        head: u16,
+        /// Immutable ring length.
+        len: u16,
+    },
+    /// The xorshift stream must never be zero.
+    InvalidRng,
     /// A mutable snapshot buffer does not fit this runtime's bound shape.
     ShapeMismatch {
+        /// Snapshot buffer whose length differs.
         field: &'static str,
+        /// Length required by the bound runtime.
         expected: usize,
+        /// Length carried by the rejected snapshot.
         found: usize,
     },
     /// An owner-free outbox id cannot be rebuilt for this runtime.
     InvalidHandleIndex {
+        /// Outbox field containing the invalid dense index.
         field: &'static str,
+        /// Owner-free dense index carried by the snapshot.
         index: u16,
+        /// Number of valid local handles in the bound runtime.
         len: usize,
     },
 }
@@ -42,6 +99,24 @@ impl fmt::Display for RestoreError {
                 f,
                 "runtime snapshot fingerprint {found:016x} does not match {expected:016x}"
             ),
+            Self::NumericPathMismatch { expected, found } => write!(
+                f,
+                "runtime checkpoint numeric path {found:?} does not match {expected:?}"
+            ),
+            Self::InvalidPhase { found } => write!(f, "runtime checkpoint phase {found} is invalid"),
+            Self::InvalidSignal { field, knot, domain } => write!(
+                f,
+                "runtime checkpoint field '{field}' has an invalid {domain:?} signal at knot {knot}"
+            ),
+            Self::InvalidTimer { knot, remaining, max } => write!(
+                f,
+                "runtime checkpoint timer at knot {knot} has {remaining} ticks remaining, maximum is {max}"
+            ),
+            Self::InvalidDelayHead { knot, head, len } => write!(
+                f,
+                "runtime checkpoint delay at knot {knot} has head {head}, length is {len}"
+            ),
+            Self::InvalidRng => f.write_str("runtime checkpoint has an invalid zero RNG state"),
             Self::ShapeMismatch {
                 field,
                 expected,
@@ -60,6 +135,68 @@ impl fmt::Display for RestoreError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for RestoreError {}
+
+/// Failure while binding a fresh runtime from a durable checkpoint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum BindRestoreError {
+    /// The weave could not be bound.
+    Bind(Box<BindError>),
+    /// The freshly bound runtime rejected the checkpoint.
+    Restore(RestoreError),
+}
+
+impl fmt::Display for BindRestoreError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bind(error) => write!(f, "cannot bind restored runtime: {error}"),
+            Self::Restore(error) => write!(f, "cannot restore runtime checkpoint: {error}"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BindRestoreError {}
+
+/// Failure while applying a named authored runtime preset.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+#[allow(missing_docs)]
+pub enum PresetError {
+    /// The weave could not be bound.
+    Bind(Box<BindError>),
+    /// More than one entry targeted the same authored knot.
+    Duplicate { knot: String },
+    /// An entry named no knot in this weave.
+    Missing { knot: String },
+    /// An entry targeted an incompatible knot kind.
+    WrongKind {
+        knot: String,
+        expected: &'static str,
+    },
+    /// A SignalIn entry violated its declared signal domain.
+    InvalidSignal { knot: String, domain: SignalDomain },
+}
+
+impl fmt::Display for PresetError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bind(error) => write!(f, "cannot bind preset runtime: {error}"),
+            Self::Duplicate { knot } => write!(f, "runtime preset names '{knot}' more than once"),
+            Self::Missing { knot } => write!(f, "runtime preset knot '{knot}' is missing"),
+            Self::WrongKind { knot, expected } => {
+                write!(f, "runtime preset knot '{knot}' is not a {expected}")
+            }
+            Self::InvalidSignal { knot, domain } => write!(
+                f,
+                "runtime preset signal '{knot}' is invalid for {domain:?}"
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PresetError {}
 
 /// Failure while turning an authored [`crate::authoring::Weave`] into a runtime.
 #[derive(Clone, Debug, PartialEq, Eq)]

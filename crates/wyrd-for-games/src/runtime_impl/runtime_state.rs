@@ -1,26 +1,97 @@
-//! Opaque, in-memory continuation snapshots for [`Runtime`](super::Runtime).
-//!
-//! This deliberately is not a codec. Hosts can wrap the opaque state in their
-//! own save representation once they decide on a stable storage format.
+//! Opaque, durable continuation checkpoints for [`Runtime`](super::Runtime).
 
 use crate::foundation::Signal;
-use crate::foundation::{KnotId, PortSlot, Seed};
+use crate::foundation::{KnotId, NumericPath, PortSlot, Seed};
 use crate::runtime_impl::bind::{ResolvedKnot, Runtime};
-use crate::runtime_impl::error::RestoreError;
+use crate::runtime_impl::error::{BindRestoreError, RestoreError};
+use std::boxed::Box;
+use std::collections::BTreeSet;
 use std::string::String;
 use std::vec::Vec;
 
+/// RON checkpoint codec error.
+#[cfg(feature = "serde-ron")]
+#[derive(Debug)]
+#[allow(missing_docs)]
+pub enum RuntimeStateRonCodecError {
+    /// RON parsing failed.
+    Parse(ron::error::SpannedError),
+    /// RON serialization failed.
+    Serialize(ron::Error),
+}
+
+#[cfg(feature = "serde-ron")]
+impl core::fmt::Display for RuntimeStateRonCodecError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Parse(error) => write!(f, "runtime checkpoint RON parse error: {error}"),
+            Self::Serialize(error) => {
+                write!(f, "runtime checkpoint RON serialization error: {error}")
+            }
+        }
+    }
+}
+#[cfg(feature = "serde-ron")]
+impl std::error::Error for RuntimeStateRonCodecError {}
+
+/// JSON checkpoint codec error.
+#[cfg(feature = "serde-json")]
+#[derive(Debug)]
+#[allow(missing_docs)]
+pub enum RuntimeStateJsonCodecError {
+    /// JSON parsing failed.
+    Parse(serde_json::Error),
+    /// JSON serialization failed.
+    Serialize(serde_json::Error),
+}
+#[cfg(feature = "serde-json")]
+impl core::fmt::Display for RuntimeStateJsonCodecError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Parse(error) => write!(f, "runtime checkpoint JSON parse error: {error}"),
+            Self::Serialize(error) => {
+                write!(f, "runtime checkpoint JSON serialization error: {error}")
+            }
+        }
+    }
+}
+#[cfg(feature = "serde-json")]
+impl std::error::Error for RuntimeStateJsonCodecError {}
+
+/// Serialize a checkpoint as pretty RON.
+#[cfg(feature = "serde-ron")]
+pub fn runtime_state_to_ron(state: &RuntimeState) -> Result<String, RuntimeStateRonCodecError> {
+    ron::ser::to_string_pretty(state, ron::ser::PrettyConfig::default())
+        .map_err(RuntimeStateRonCodecError::Serialize)
+}
+/// Deserialize a checkpoint from RON. Bind it with [`Runtime::bind_restored`] to validate topology and state.
+#[cfg(feature = "serde-ron")]
+pub fn runtime_state_from_ron(text: &str) -> Result<RuntimeState, RuntimeStateRonCodecError> {
+    ron::from_str(text).map_err(RuntimeStateRonCodecError::Parse)
+}
+/// Serialize a checkpoint as JSON.
+#[cfg(feature = "serde-json")]
+pub fn runtime_state_to_json(state: &RuntimeState) -> Result<String, RuntimeStateJsonCodecError> {
+    serde_json::to_string_pretty(state).map_err(RuntimeStateJsonCodecError::Serialize)
+}
+/// Deserialize a checkpoint from JSON. Bind it with [`Runtime::bind_restored`] to validate topology and state.
+#[cfg(feature = "serde-json")]
+pub fn runtime_state_from_json(text: &str) -> Result<RuntimeState, RuntimeStateJsonCodecError> {
+    serde_json::from_str(text).map_err(RuntimeStateJsonCodecError::Parse)
+}
+
 /// Current in-memory snapshot format version.
-pub const RUNTIME_STATE_FORMAT_VERSION: u32 = 1;
+pub const RUNTIME_STATE_FORMAT_VERSION: u32 = 2;
 
 /// Opaque cloneable continuation state produced by [`Runtime::snapshot`].
 ///
-/// The value is intentionally not a portable byte format. Its fingerprint
-/// ties it to the immutable executable graph and bind policy, while leaving
-/// runtime-local dense handle owners out of the persisted representation.
+/// The Rust layout is private, but its Serde representation is a versioned
+/// save contract. It contains no outbox effects: host-applied signals and
+/// commands are never replayed by a restore.
 #[derive(Clone, Debug)]
 pub struct RuntimeState {
     version: u32,
+    numeric_path: NumericPath,
     fingerprint: u64,
     data: RuntimeStateData,
 }
@@ -37,23 +108,9 @@ struct RuntimeStateData {
     on_start_done: Vec<bool>,
     delay_buf: Vec<Signal>,
     delay_head: Vec<u16>,
-    out_signals: Vec<SignalOutState>,
-    out_emits: Vec<EmitState>,
-    dropped_emits: usize,
     tick: u64,
+    phase: u8,
     rng: u64,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct SignalOutState {
-    path_index: u16,
-    value: Signal,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct EmitState {
-    command_index: u16,
-    payload: Signal,
 }
 
 impl RuntimeState {
@@ -66,13 +123,426 @@ impl RuntimeState {
     pub const fn fingerprint(&self) -> u64 {
         self.fingerprint
     }
+
+    /// Numeric representation selected when this checkpoint was captured.
+    pub const fn numeric_path(&self) -> NumericPath {
+        self.numeric_path
+    }
+}
+
+/// Authorable initial values addressed by stable knot names.
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct RuntimePreset {
+    entries: Vec<RuntimePresetEntry>,
+}
+
+/// One named semantic initial-state value in a [`RuntimePreset`].
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum RuntimePresetEntry {
+    /// Set a Flag latch before the first frame.
+    Flag {
+        /// Authored knot name.
+        knot: String,
+        /// Initial latch state.
+        value: bool,
+    },
+    /// Set a Counter before the first frame.
+    Counter {
+        /// Authored knot name.
+        knot: String,
+        /// Initial whole-number count.
+        value: i32,
+    },
+    /// Set a held SignalIn value before the first frame.
+    Sense {
+        /// Authored SignalIn knot name.
+        knot: String,
+        /// Domain-checked held value.
+        value: Signal,
+    },
+}
+
+impl RuntimePreset {
+    /// Create an empty semantic preset.
+    pub const fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+    /// Add one semantic entry. Duplicate names are rejected by [`Runtime::bind_with_preset`].
+    pub fn push(&mut self, entry: RuntimePresetEntry) {
+        self.entries.push(entry);
+    }
+    /// Read the authored entries without exposing mutable runtime storage.
+    pub fn entries(&self) -> &[RuntimePresetEntry] {
+        &self.entries
+    }
+}
+
+/// Owned, authored-name state entry for checkpoint auditing.
+#[derive(Clone, Debug, PartialEq)]
+#[allow(missing_docs)]
+pub enum RuntimeStateEntry {
+    /// A held SignalIn value.
+    Sense { knot: String, value: Signal },
+    /// A Flag latch.
+    Flag { knot: String, value: bool },
+    /// A Counter or Random cached sample backing state.
+    Counter { knot: String, value: i32 },
+    /// Timer remaining loom ticks.
+    Timer { knot: String, remaining: u16 },
+    /// Delay-ring metadata and contents in logical output order.
+    Delay {
+        knot: String,
+        len: u16,
+        head: u16,
+        values: Vec<Signal>,
+    },
+    /// Edge detector history.
+    Edge { knot: String, previous: Signal },
+    /// OnStart completion state.
+    OnStart { knot: String, completed: bool },
+    /// Random cached sample; the stream position remains opaque.
+    Random {
+        knot: String,
+        last_sample: Signal,
+        stream_is_opaque: bool,
+    },
+}
+
+/// Read-only semantic checkpoint report.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeStateReport {
+    /// Checkpoint format version.
+    pub version: u32,
+    /// Numeric signal path.
+    pub numeric_path: NumericPath,
+    /// Immutable runtime fingerprint.
+    pub fingerprint: u64,
+    /// Last frame tick.
+    pub tick: u64,
+    /// Named state entries in lexical knot-name order.
+    pub entries: Vec<RuntimeStateEntry>,
+}
+
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuntimeStateWire {
+    version: u32,
+    numeric_path: NumericPath,
+    fingerprint: u64,
+    sense_values: Vec<u32>,
+    port_vals: Vec<u32>,
+    prev_in: Vec<u32>,
+    prev_dec: Vec<u32>,
+    counter: Vec<i32>,
+    flag: Vec<bool>,
+    timer_left: Vec<u16>,
+    on_start_done: Vec<bool>,
+    delay_buf: Vec<u32>,
+    delay_head: Vec<u16>,
+    tick: u64,
+    phase: u8,
+    rng: u64,
+}
+
+#[cfg(feature = "serde")]
+fn signal_to_wire(value: Signal) -> u32 {
+    #[cfg(feature = "signal-f32")]
+    {
+        value.to_bits()
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        value as u32
+    }
+}
+
+#[cfg(feature = "serde")]
+fn signal_from_wire(value: u32) -> Signal {
+    #[cfg(feature = "signal-f32")]
+    {
+        f32::from_bits(value)
+    }
+    #[cfg(feature = "signal-i32")]
+    {
+        value as i32
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for RuntimeState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        RuntimeStateWire {
+            version: self.version,
+            numeric_path: self.numeric_path,
+            fingerprint: self.fingerprint,
+            sense_values: self
+                .data
+                .sense_values
+                .iter()
+                .copied()
+                .map(signal_to_wire)
+                .collect(),
+            port_vals: self
+                .data
+                .port_vals
+                .iter()
+                .copied()
+                .map(signal_to_wire)
+                .collect(),
+            prev_in: self
+                .data
+                .prev_in
+                .iter()
+                .copied()
+                .map(signal_to_wire)
+                .collect(),
+            prev_dec: self
+                .data
+                .prev_dec
+                .iter()
+                .copied()
+                .map(signal_to_wire)
+                .collect(),
+            counter: self.data.counter.clone(),
+            flag: self.data.flag.clone(),
+            timer_left: self.data.timer_left.clone(),
+            on_start_done: self.data.on_start_done.clone(),
+            delay_buf: self
+                .data
+                .delay_buf
+                .iter()
+                .copied()
+                .map(signal_to_wire)
+                .collect(),
+            delay_head: self.data.delay_head.clone(),
+            tick: self.data.tick,
+            phase: self.data.phase,
+            rng: self.data.rng,
+        }
+        .serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for RuntimeState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = RuntimeStateWire::deserialize(deserializer)?;
+        Ok(Self {
+            version: wire.version,
+            numeric_path: wire.numeric_path,
+            fingerprint: wire.fingerprint,
+            data: RuntimeStateData {
+                sense_values: wire
+                    .sense_values
+                    .into_iter()
+                    .map(signal_from_wire)
+                    .collect(),
+                port_vals: wire.port_vals.into_iter().map(signal_from_wire).collect(),
+                prev_in: wire.prev_in.into_iter().map(signal_from_wire).collect(),
+                prev_dec: wire.prev_dec.into_iter().map(signal_from_wire).collect(),
+                counter: wire.counter,
+                flag: wire.flag,
+                timer_left: wire.timer_left,
+                on_start_done: wire.on_start_done,
+                delay_buf: wire.delay_buf.into_iter().map(signal_from_wire).collect(),
+                delay_head: wire.delay_head,
+                tick: wire.tick,
+                phase: wire.phase,
+                rng: wire.rng,
+            },
+        })
+    }
 }
 
 impl Runtime {
+    /// Bind a runtime then apply every named preset entry atomically.
+    pub fn bind_with_preset(
+        weave: crate::authoring::Weave,
+        opts: crate::runtime_impl::bind::BindOpts,
+        preset: &RuntimePreset,
+    ) -> Result<Self, crate::runtime_impl::error::PresetError> {
+        use crate::runtime_impl::error::PresetError;
+        let mut runtime =
+            Self::bind(weave, opts).map_err(|error| PresetError::Bind(Box::new(error)))?;
+        let mut names = BTreeSet::new();
+        for entry in &preset.entries {
+            let name = match entry {
+                RuntimePresetEntry::Flag { knot, .. }
+                | RuntimePresetEntry::Counter { knot, .. }
+                | RuntimePresetEntry::Sense { knot, .. } => knot,
+            };
+            if !names.insert(name) {
+                return Err(PresetError::Duplicate { knot: name.clone() });
+            }
+            let Some(id) = runtime.name_to_id.get(name).copied() else {
+                return Err(PresetError::Missing { knot: name.clone() });
+            };
+            match entry {
+                RuntimePresetEntry::Flag { .. }
+                    if matches!(
+                        runtime.knots[usize::from(id)].kind,
+                        crate::foundation::KnotKind::Flag { .. }
+                    ) => {}
+                RuntimePresetEntry::Counter { .. }
+                    if matches!(
+                        runtime.knots[usize::from(id)].kind,
+                        crate::foundation::KnotKind::Counter
+                    ) => {}
+                RuntimePresetEntry::Sense { value, .. } => {
+                    match runtime.knots[usize::from(id)].kind {
+                        crate::foundation::KnotKind::SignalIn { domain }
+                            if crate::runtime_impl::outbox::domain_value_is_valid(
+                                domain, *value,
+                            ) => {}
+                        crate::foundation::KnotKind::SignalIn { domain } => {
+                            return Err(PresetError::InvalidSignal {
+                                knot: name.clone(),
+                                domain,
+                            })
+                        }
+                        _ => {
+                            return Err(PresetError::WrongKind {
+                                knot: name.clone(),
+                                expected: "SignalIn",
+                            })
+                        }
+                    }
+                }
+                RuntimePresetEntry::Flag { .. } => {
+                    return Err(PresetError::WrongKind {
+                        knot: name.clone(),
+                        expected: "Flag",
+                    })
+                }
+                RuntimePresetEntry::Counter { .. } => {
+                    return Err(PresetError::WrongKind {
+                        knot: name.clone(),
+                        expected: "Counter",
+                    })
+                }
+            }
+        }
+        for entry in &preset.entries {
+            let name = match entry {
+                RuntimePresetEntry::Flag { knot, .. }
+                | RuntimePresetEntry::Counter { knot, .. }
+                | RuntimePresetEntry::Sense { knot, .. } => knot,
+            };
+            let id = runtime.name_to_id[name];
+            let index = usize::from(id);
+            match entry {
+                RuntimePresetEntry::Flag { value, .. } => runtime.flag[index] = *value,
+                RuntimePresetEntry::Counter { value, .. } => runtime.counter[index] = *value,
+                RuntimePresetEntry::Sense { value, .. } => runtime.sense_values[index] = *value,
+            }
+        }
+        Ok(runtime)
+    }
+
+    /// Inspect the current runtime through stable authored names.
+    pub fn inspect_state(&self) -> RuntimeStateReport {
+        self.inspect_data(
+            Self::state_format_version(),
+            NumericPath::compiled(),
+            self.runtime_fingerprint(),
+            &RuntimeStateData {
+                sense_values: self.sense_values.clone(),
+                port_vals: self.port_vals.clone(),
+                prev_in: self.prev_in.clone(),
+                prev_dec: self.prev_dec.clone(),
+                counter: self.counter.clone(),
+                flag: self.flag.clone(),
+                timer_left: self.timer_left.clone(),
+                on_start_done: self.on_start_done.clone(),
+                delay_buf: self.delay_buf.clone(),
+                delay_head: self.delay_head.clone(),
+                tick: self.tick,
+                phase: self.phase,
+                rng: self.rng,
+            },
+        )
+    }
+
+    /// Validate and inspect a checkpoint without mutating this runtime.
+    pub fn inspect_checkpoint(
+        &self,
+        state: &RuntimeState,
+    ) -> Result<RuntimeStateReport, RestoreError> {
+        self.validate_checkpoint(state)?;
+        Ok(self.inspect_data(
+            state.version,
+            state.numeric_path,
+            state.fingerprint,
+            &state.data,
+        ))
+    }
+    /// Bind a completely fresh runtime and atomically restore a checkpoint.
+    ///
+    /// This is the recommended disk-load path. The returned runtime has an
+    /// empty outbox: effects from the checkpoint frame were already applied by
+    /// the host before it was saved.
+    pub fn bind_restored(
+        weave: crate::authoring::Weave,
+        opts: crate::runtime_impl::bind::BindOpts,
+        state: &RuntimeState,
+    ) -> Result<Self, BindRestoreError> {
+        let mut runtime =
+            Self::bind(weave, opts).map_err(|error| BindRestoreError::Bind(Box::new(error)))?;
+        runtime.restore(state).map_err(BindRestoreError::Restore)?;
+        Ok(runtime)
+    }
+
     /// Snapshot every mutable value needed for deterministic continuation.
+    ///
+    /// Capture only after `loom` and host apply, before the next
+    /// [`Runtime::begin_frame`]. Outbox effects are deliberately excluded;
+    /// restore resumes stateful memory with an empty outbox.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wyrd::{weave, BindOpts, HostTime, KnotKind, Runtime, SignalDomain, ONE, ZERO};
+    ///
+    /// let weave = weave! {
+    ///     id: "snapshot.docs";
+    ///     knots {
+    ///         input = KnotKind::signal_in(SignalDomain::Bool);
+    ///         output = KnotKind::signal_out("snapshot.output", SignalDomain::Bool);
+    ///     }
+    ///     threads { input.out -> output.in; }
+    /// }?;
+    /// let mut runtime = Runtime::bind(weave.clone(), BindOpts::default())?;
+    /// let input = runtime.required_sense("input")?;
+    ///
+    /// runtime.begin_frame(HostTime { tick: 1 });
+    /// runtime.port_writer().set_sense(input, ONE)?;
+    /// runtime.loom();
+    /// let state = runtime.snapshot();
+    ///
+    /// runtime.begin_frame(HostTime { tick: 2 });
+    /// runtime.port_writer().set_sense(input, ZERO)?;
+    /// runtime.loom();
+    /// assert_eq!(runtime.outbox().signals()[0].value, ZERO);
+    ///
+    /// let restored = Runtime::bind_restored(weave, BindOpts::default(), &state)?;
+    /// assert!(restored.outbox().signals().is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn snapshot(&self) -> RuntimeState {
         let mut state = RuntimeState {
             version: RUNTIME_STATE_FORMAT_VERSION,
+            numeric_path: NumericPath::compiled(),
             fingerprint: self.runtime_fingerprint(),
             data: RuntimeStateData {
                 sense_values: Vec::new(),
@@ -85,10 +555,8 @@ impl Runtime {
                 on_start_done: Vec::new(),
                 delay_buf: Vec::new(),
                 delay_head: Vec::new(),
-                out_signals: Vec::new(),
-                out_emits: Vec::new(),
-                dropped_emits: 0,
                 tick: 0,
+                phase: 0,
                 rng: 0,
             },
         };
@@ -103,6 +571,7 @@ impl Runtime {
     /// capacity is too small and may retain a previous high-water capacity.
     pub fn snapshot_into(&self, state: &mut RuntimeState) {
         state.version = RUNTIME_STATE_FORMAT_VERSION;
+        state.numeric_path = NumericPath::compiled();
         state.fingerprint = self.runtime_fingerprint();
         state.data.sense_values.clone_from(&self.sense_values);
         state.data.port_vals.clone_from(&self.port_vals);
@@ -114,24 +583,8 @@ impl Runtime {
         state.data.on_start_done.clone_from(&self.on_start_done);
         state.data.delay_buf.clone_from(&self.delay_buf);
         state.data.delay_head.clone_from(&self.delay_head);
-        state.data.out_signals.clear();
-        state
-            .data
-            .out_signals
-            .extend(self.out_signals.iter().map(|sample| SignalOutState {
-                path_index: sample.path.index,
-                value: sample.value,
-            }));
-        state.data.out_emits.clear();
-        state
-            .data
-            .out_emits
-            .extend(self.out_emits.iter().map(|emit| EmitState {
-                command_index: emit.cmd.index,
-                payload: emit.payload,
-            }));
-        state.data.dropped_emits = self.dropped_emits;
         state.data.tick = self.tick;
+        state.data.phase = self.phase;
         state.data.rng = self.rng;
     }
 
@@ -139,11 +592,50 @@ impl Runtime {
     ///
     /// Every compatibility and shape check runs before any mutable runtime
     /// field is assigned, so a rejected restore leaves the runtime unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RestoreError`] when the format version, executable
+    /// fingerprint, buffer shape, or saved outbox handles are incompatible.
     pub fn restore(&mut self, state: &RuntimeState) -> Result<(), RestoreError> {
+        self.validate_checkpoint(state)?;
+        self.sense_values.clone_from(&state.data.sense_values);
+        self.port_vals.clone_from(&state.data.port_vals);
+        self.prev_in.clone_from(&state.data.prev_in);
+        self.prev_dec.clone_from(&state.data.prev_dec);
+        self.counter.clone_from(&state.data.counter);
+        self.flag.clone_from(&state.data.flag);
+        self.timer_left.clone_from(&state.data.timer_left);
+        self.on_start_done.clone_from(&state.data.on_start_done);
+        self.delay_buf.clone_from(&state.data.delay_buf);
+        self.delay_head.clone_from(&state.data.delay_head);
+        // Effects are deliberately ephemeral. A disk load starts with an
+        // empty outbox so a host never applies a prior frame twice.
+        self.out_signals.clear();
+        self.out_emits.clear();
+        self.dropped_emits = 0;
+        self.tick = state.data.tick;
+        self.phase = state.data.phase;
+        self.rng = state.data.rng;
+        Ok(())
+    }
+
+    fn validate_checkpoint(&self, state: &RuntimeState) -> Result<(), RestoreError> {
         if state.version != RUNTIME_STATE_FORMAT_VERSION {
             return Err(RestoreError::UnsupportedVersion {
                 found: state.version,
                 supported: RUNTIME_STATE_FORMAT_VERSION,
+            });
+        }
+        if state.numeric_path != NumericPath::compiled() {
+            return Err(RestoreError::NumericPathMismatch {
+                expected: NumericPath::compiled(),
+                found: state.numeric_path,
+            });
+        }
+        if state.data.phase != 2 {
+            return Err(RestoreError::InvalidPhase {
+                found: state.data.phase,
             });
         }
         let expected = self.runtime_fingerprint();
@@ -156,45 +648,26 @@ impl Runtime {
 
         self.validate_snapshot_shapes(&state.data)?;
 
-        self.sense_values.clone_from(&state.data.sense_values);
-        self.port_vals.clone_from(&state.data.port_vals);
-        self.prev_in.clone_from(&state.data.prev_in);
-        self.prev_dec.clone_from(&state.data.prev_dec);
-        self.counter.clone_from(&state.data.counter);
-        self.flag.clone_from(&state.data.flag);
-        self.timer_left.clone_from(&state.data.timer_left);
-        self.on_start_done.clone_from(&state.data.on_start_done);
-        self.delay_buf.clone_from(&state.data.delay_buf);
-        self.delay_head.clone_from(&state.data.delay_head);
-        self.out_signals.clear();
-        self.out_signals
-            .extend(state.data.out_signals.iter().map(|sample| {
-                crate::runtime_impl::outbox::SignalOutSample {
-                    path: crate::runtime_impl::handles::HostPathId::new(
-                        self.owner,
-                        sample.path_index,
-                    ),
-                    value: sample.value,
+        for (field, values) in [
+            ("port_vals", &state.data.port_vals),
+            ("prev_in", &state.data.prev_in),
+            ("prev_dec", &state.data.prev_dec),
+            ("delay_buf", &state.data.delay_buf),
+        ] {
+            for (knot, value) in values.iter().enumerate() {
+                #[cfg(feature = "signal-f32")]
+                if !value.is_finite() {
+                    return Err(RestoreError::InvalidSignal {
+                        field,
+                        knot,
+                        domain: crate::foundation::SignalDomain::Level,
+                    });
                 }
-            }));
-        self.out_emits.clear();
-        self.out_emits
-            .extend(
-                state
-                    .data
-                    .out_emits
-                    .iter()
-                    .map(|emit| crate::runtime_impl::outbox::Emit {
-                        cmd: crate::runtime_impl::handles::CmdId::new(
-                            self.owner,
-                            emit.command_index,
-                        ),
-                        payload: emit.payload,
-                    }),
-            );
-        self.dropped_emits = state.data.dropped_emits;
-        self.tick = state.data.tick;
-        self.rng = state.data.rng;
+                #[cfg(feature = "signal-i32")]
+                let _ = (field, knot, value);
+            }
+        }
+
         Ok(())
     }
 
@@ -227,39 +700,146 @@ impl Runtime {
         )?;
         check_len("delay_buf", self.delay_buf.len(), data.delay_buf.len())?;
         check_len("delay_head", self.delay_head.len(), data.delay_head.len())?;
-        if data.out_signals.len() > self.out_signals.capacity() {
-            return Err(RestoreError::ShapeMismatch {
-                field: "out_signals",
-                expected: self.out_signals.capacity(),
-                found: data.out_signals.len(),
-            });
+        if data.rng == 0 {
+            return Err(RestoreError::InvalidRng);
         }
-        if data.out_emits.len() > self.out_emits.capacity() {
-            return Err(RestoreError::ShapeMismatch {
-                field: "out_emits",
-                expected: self.out_emits.capacity(),
-                found: data.out_emits.len(),
-            });
-        }
-        for sample in &data.out_signals {
-            if usize::from(sample.path_index) >= self.path_names.len() {
-                return Err(RestoreError::InvalidHandleIndex {
-                    field: "out_signals.path_index",
-                    index: sample.path_index,
-                    len: self.path_names.len(),
-                });
+        for (knot, resolved) in self.knots.iter().enumerate() {
+            if let crate::foundation::KnotKind::Timer { ticks, .. } = resolved.kind {
+                let remaining = data.timer_left[knot];
+                if remaining > ticks {
+                    return Err(RestoreError::InvalidTimer {
+                        knot,
+                        remaining,
+                        max: ticks,
+                    });
+                }
             }
-        }
-        for emit in &data.out_emits {
-            if usize::from(emit.command_index) >= self.cmd_names.len() {
-                return Err(RestoreError::InvalidHandleIndex {
-                    field: "out_emits.command_index",
-                    index: emit.command_index,
-                    len: self.cmd_names.len(),
-                });
+            if let crate::foundation::KnotKind::Delay { ticks } = resolved.kind {
+                let head = data.delay_head[knot];
+                if ticks == 0 {
+                    if head != 0 {
+                        return Err(RestoreError::InvalidDelayHead {
+                            knot,
+                            head,
+                            len: ticks,
+                        });
+                    }
+                } else if head >= ticks {
+                    return Err(RestoreError::InvalidDelayHead {
+                        knot,
+                        head,
+                        len: ticks,
+                    });
+                }
+            }
+            if let crate::foundation::KnotKind::SignalIn { domain } = resolved.kind {
+                if !crate::runtime_impl::outbox::domain_value_is_valid(
+                    domain,
+                    data.sense_values[knot],
+                ) {
+                    return Err(RestoreError::InvalidSignal {
+                        field: "sense_values",
+                        knot,
+                        domain,
+                    });
+                }
+            }
+            if let crate::foundation::KnotKind::Random { domain, .. } = resolved.kind {
+                #[cfg(feature = "signal-f32")]
+                if !f32::from_bits(data.counter[knot] as u32).is_finite() {
+                    return Err(RestoreError::InvalidSignal {
+                        field: "counter.random_sample",
+                        knot,
+                        domain,
+                    });
+                }
+                #[cfg(feature = "signal-i32")]
+                let _ = domain;
             }
         }
         Ok(())
+    }
+
+    fn inspect_data(
+        &self,
+        version: u32,
+        numeric_path: NumericPath,
+        fingerprint: u64,
+        data: &RuntimeStateData,
+    ) -> RuntimeStateReport {
+        let mut entries = Vec::new();
+        for (name, id) in &self.name_to_id {
+            let i = usize::from(*id);
+            match self.knots[i].kind {
+                crate::foundation::KnotKind::SignalIn { .. } => {
+                    entries.push(RuntimeStateEntry::Sense {
+                        knot: name.clone(),
+                        value: data.sense_values[i],
+                    })
+                }
+                crate::foundation::KnotKind::Flag { .. } => entries.push(RuntimeStateEntry::Flag {
+                    knot: name.clone(),
+                    value: data.flag[i],
+                }),
+                crate::foundation::KnotKind::Counter => entries.push(RuntimeStateEntry::Counter {
+                    knot: name.clone(),
+                    value: data.counter[i],
+                }),
+                crate::foundation::KnotKind::Timer { .. } => {
+                    entries.push(RuntimeStateEntry::Timer {
+                        knot: name.clone(),
+                        remaining: data.timer_left[i],
+                    })
+                }
+                crate::foundation::KnotKind::Delay { ticks } => {
+                    let offset = usize::from(self.delay_off[i]);
+                    let len = usize::from(ticks);
+                    let head = usize::from(data.delay_head[i]);
+                    let values = if len == 0 {
+                        Vec::new()
+                    } else {
+                        (0..len)
+                            .map(|n| data.delay_buf[offset + ((head + n) % len)])
+                            .collect()
+                    };
+                    entries.push(RuntimeStateEntry::Delay {
+                        knot: name.clone(),
+                        len: ticks,
+                        head: data.delay_head[i],
+                        values,
+                    });
+                }
+                crate::foundation::KnotKind::OnStart => entries.push(RuntimeStateEntry::OnStart {
+                    knot: name.clone(),
+                    completed: data.on_start_done[i],
+                }),
+                crate::foundation::KnotKind::Random { .. } => {
+                    #[cfg(feature = "signal-f32")]
+                    let last_sample = f32::from_bits(data.counter[i] as u32);
+                    #[cfg(feature = "signal-i32")]
+                    let last_sample = data.counter[i];
+                    entries.push(RuntimeStateEntry::Random {
+                        knot: name.clone(),
+                        last_sample,
+                        stream_is_opaque: true,
+                    });
+                }
+                crate::foundation::KnotKind::RisingFromZero
+                | crate::foundation::KnotKind::FallingToZero
+                | crate::foundation::KnotKind::Change => entries.push(RuntimeStateEntry::Edge {
+                    knot: name.clone(),
+                    previous: data.prev_in[i],
+                }),
+                _ => {}
+            }
+        }
+        RuntimeStateReport {
+            version,
+            numeric_path,
+            fingerprint,
+            tick: data.tick,
+            entries,
+        }
     }
 }
 
@@ -270,7 +850,7 @@ pub(crate) fn runtime_fingerprint_for(
     cmd_names: &[String],
     max_emits_per_tick: u16,
     seed_mix: u64,
-    bind_seed: Option<Seed>,
+    _bind_seed: Option<Seed>,
 ) -> u64 {
     let mut hash = Fnv1a::new();
     hash.bytes(b"wyrd-runtime-state-v1");
@@ -301,13 +881,6 @@ pub(crate) fn runtime_fingerprint_for(
     hash.u8(2);
     hash.u16(max_emits_per_tick);
     hash.u64(seed_mix);
-    match bind_seed {
-        Some(seed) => {
-            hash.u8(1);
-            hash.u64(seed.0);
-        }
-        None => hash.u8(0),
-    }
     hash.finish()
 }
 
@@ -597,7 +1170,7 @@ mod tests {
     }
 
     #[test]
-    fn restore_rejects_version_shapes_and_owner_free_indices() {
+    fn restore_rejects_version_shapes_and_invalid_runtime_state() {
         let mut runtime = outbox_runtime();
         assert_eq!(
             Runtime::state_format_version(),
@@ -632,55 +1205,20 @@ mod tests {
         ));
 
         let mut state = runtime.snapshot();
-        state.data.out_signals.push(state.data.out_signals[0]);
+        state.data.rng = 0;
         assert!(matches!(
             runtime.restore(&state),
-            Err(RestoreError::ShapeMismatch {
-                field: "out_signals",
-                ..
-            })
-        ));
-
-        let mut state = runtime.snapshot();
-        state.data.out_emits.push(state.data.out_emits[0]);
-        assert!(matches!(
-            runtime.restore(&state),
-            Err(RestoreError::ShapeMismatch {
-                field: "out_emits",
-                ..
-            })
-        ));
-
-        let mut state = runtime.snapshot();
-        state.data.out_signals[0].path_index = u16::MAX;
-        assert!(matches!(
-            runtime.restore(&state),
-            Err(RestoreError::InvalidHandleIndex {
-                field: "out_signals.path_index",
-                ..
-            })
-        ));
-
-        let mut state = runtime.snapshot();
-        state.data.out_emits[0].command_index = u16::MAX;
-        assert!(matches!(
-            runtime.restore(&state),
-            Err(RestoreError::InvalidHandleIndex {
-                field: "out_emits.command_index",
-                ..
-            })
+            Err(RestoreError::InvalidRng)
         ));
     }
 
     #[test]
-    fn restore_rebuilds_valid_signal_and_emit_handles() {
+    fn restore_clears_ephemeral_outbox_effects() {
         let source = outbox_runtime();
         let state = source.snapshot();
         let mut destination = outbox_runtime();
         destination.restore(&state).unwrap();
-        let signal = destination.outbox().signals()[0];
-        let emit = destination.outbox().emits()[0];
-        assert_eq!(destination.path_name(signal.path), Ok("snapshot.value"));
-        assert_eq!(destination.cmd_name(emit.cmd), Ok("snapshot.command"));
+        assert!(destination.outbox().signals().is_empty());
+        assert!(destination.outbox().emits().is_empty());
     }
 }
