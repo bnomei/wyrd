@@ -6,6 +6,13 @@ All notable public changes to Wyrd are documented here. The crates follow
 
 ## Unreleased
 
+### Added
+
+- Add durable, versioned `RuntimeState` checkpoints with Serde plus optional RON/JSON codecs,
+  fresh-runtime restore, and semantic inspection reports.
+- Add authored-name `RuntimePreset` startup values for Flags, Counters, and held SignalIn values.
+- Add a Tier D executable example covering checkpoint load boundaries and presets.
+
 ## 0.4.0 - 2026-07-14
 
 Version 0.4.0 is the first crates.io release after 0.2.0 and includes the repository-only 0.3
