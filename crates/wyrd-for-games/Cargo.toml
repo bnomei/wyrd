@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 rust-version.workspace = true
 description = "Engine-neutral signal-graph game logic for Wyrd"
 readme = "README.md"
@@ -11,6 +12,10 @@ documentation = "https://docs.rs/wyrd-for-games"
 keywords = ["game-development", "game-logic", "signal-graph", "dataflow", "no-std"]
 categories = ["game-development", "no-std"]
 autobenches = false
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = ["std", "signal-f32", "serde-ron", "serde-json", "schema"]
 
 [lib]
 name = "wyrd"

@@ -11,8 +11,8 @@ Install the core and adapter under their library target names:
 
 ```toml
 [dependencies]
-wyrd = { package = "wyrd-for-games", version = "0.3.0" }
-wyrd_bevy = { package = "wyrd-for-games-bevy", version = "0.3.0" }
+wyrd = { package = "wyrd-for-games", version = "0.4.0" }
+wyrd_bevy = { package = "wyrd-for-games-bevy", version = "0.4.0" }
 ```
 
 `Runtime::bind` consumes the validated `Weave`; the adapter does not retain a
@@ -30,7 +30,7 @@ WyrdSet::Apply   → read outbox → mutate Components → optional Messages
 `WyrdWorld` can hold several independently bound `WyrdInstance`s. The plugin looms every active
 instance, so the host chooses whether to keep a runtime per currently simulated chamber or remove
 and stash inactive rooms. Instances do not share Threads; persist cross-room progress in the host
-and sample it into the next room's senses. See [vision and scope](../../docs/concepts/vision-and-scope.md)
+and sample it into the next room's senses. See [vision and scope](https://github.com/bnomei/wyrd/blob/v0.4.0/docs/concepts/vision-and-scope.md)
 for the room/world boundary.
 
 ## Typed recipes

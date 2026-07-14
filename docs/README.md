@@ -17,7 +17,7 @@ starts with the reader's job, while rustdoc and the source remain the exact API 
 
 ## Documentation boundaries
 
-The tracked pages in this directory describe the released 0.2 code. Local `docs/` research and
+The tracked pages in this directory describe the 0.4 source line. Local `docs/` research and
 planning material remains intentionally ignored: it may contain candidate APIs, raw investigation,
 or historical measurements. Do not treat it as a public or current contract.
 

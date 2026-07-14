@@ -1,11 +1,40 @@
 # Changelog
 
+All notable public changes to Wyrd are documented here. The crates follow
+[Cargo SemVer](https://doc.rust-lang.org/cargo/reference/semver.html); while versions are below
+1.0, a minor release may contain breaking public-API changes.
+
 ## Unreleased
+
+## 0.4.0 - 2026-07-14
+
+Version 0.4.0 is the first crates.io release after 0.2.0 and includes the repository-only 0.3
+milestones described below.
+
+### Added
+
+- Add opaque, versioned `RuntimeState` continuation snapshots with executable fingerprints,
+  transactional restore validation, and reusable `snapshot_into` buffers.
+
+### Changed
 
 - Replace the executable `wyrd::cookbook` API with human-readable, doctest-backed lessons under
   `wyrd::examples`, organized as an ordered Tier A through Tier D learning path.
 
-## 0.3.0 and 0.3.1 - 2026-07-12
+### Performance
+
+- Reduce immutable graph metadata retained by a bound runtime and cap emit-outbox reservation.
+
+### Compatibility
+
+- Establish 0.4.0 as the published public Rust API baseline for automated compatibility checks
+  before later releases. Serialized graph definitions remain a versioned compatibility boundary
+  rather than a stable cross-minor file format.
+
+## 0.3.0 - 2026-07-12
+
+The repository's `v0.3.1` tag did not change the Cargo package version and was not published to
+crates.io. It is not a separate crate release.
 
 ### Breaking changes
 

@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 rust-version = "1.95"
 description = "Thin Bevy adapter for Wyrd Weaves (sample → loom → apply). signal-f32 only."
 readme = "README.md"
@@ -11,6 +12,9 @@ documentation = "https://docs.rs/wyrd-for-games-bevy"
 keywords = ["bevy", "game-development", "signal-graph", "ecs", "game-logic"]
 categories = ["game-development"]
 autobenches = false
+
+[package.metadata.docs.rs]
+features = ["bevy_log"]
 
 [lib]
 name = "wyrd_bevy"
@@ -24,7 +28,7 @@ bevy_log = ["bevy/bevy_log"]
 # Match engine-neutral hosts: pin Bevy, no default renderer stack.
 bevy = { version = "0.19", default-features = false }
 # Bevy path is float-native — dual-check i32 on the engine CI, not here.
-wyrd = { package = "wyrd-for-games", path = "../wyrd-for-games", version = "0.3.0", default-features = false, features = ["std", "signal-f32"] }
+wyrd = { package = "wyrd-for-games", path = "../wyrd-for-games", version = "0.4.0", default-features = false, features = ["std", "signal-f32"] }
 
 [dev-dependencies]
 # Drop-in Divan compatibility layer that lets CodSpeed instrument this suite.

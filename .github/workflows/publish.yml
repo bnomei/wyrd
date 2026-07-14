@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Validate package contents or publish version 0.3.0.
+        description: Validate package contents or publish the workspace version.
         required: true
         default: dry-run
         type: choice
@@ -25,10 +25,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.95
-      - name: Inspect wyrd-for-games package contents
-        run: cargo package -p wyrd-for-games --locked --list
-      - name: Inspect wyrd-for-games-bevy package contents
-        run: cargo package -p wyrd-for-games-bevy --locked --list
+      - name: Create and verify wyrd-for-games package
+        run: cargo package -p wyrd-for-games --locked
+      - name: Create wyrd-for-games-bevy package
+        run: cargo package -p wyrd-for-games-bevy --locked --no-verify
+      - name: Verify packaged Bevy adapter against packaged core
+        run: |
+          core_version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "wyrd-for-games") | .version')"
+          bevy_version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "wyrd-for-games-bevy") | .version')"
+          check_root="target/package-check"
+
+          rm -rf "${check_root}"
+          mkdir -p "${check_root}/core" "${check_root}/bevy"
+          tar -xzf "target/package/wyrd-for-games-${core_version}.crate" \
+            -C "${check_root}/core" --strip-components=1
+          tar -xzf "target/package/wyrd-for-games-bevy-${bevy_version}.crate" \
+            -C "${check_root}/bevy" --strip-components=1
+
+          printf '\n[workspace]\n\n[patch.crates-io]\nwyrd-for-games = { path = "../core" }\n' \
+            >> "${check_root}/bevy/Cargo.toml"
+          cargo check \
+            --manifest-path "${check_root}/bevy/Cargo.toml" \
+            --target-dir target \
+            --all-targets \
+            --features bevy_log
       - name: Test wyrd-for-games examples as published
         run: |
           cargo test -p wyrd-for-games \
@@ -36,12 +58,54 @@ jobs:
             --no-default-features \
             --features "std,signal-f32,serde-ron,serde-json,schema" \
             --locked
-      - name: Build public rustdoc without warnings
+      - name: Build wyrd-for-games rustdoc as published
         env:
-          RUSTDOCFLAGS: -Dwarnings
-        run: cargo doc --workspace --no-deps
+          RUSTDOCFLAGS: -D warnings -W missing-docs
+        run: |
+          cargo doc -p wyrd-for-games \
+            --no-deps \
+            --no-default-features \
+            --features "std,signal-f32,serde-ron,serde-json,schema" \
+            --locked
+      - name: Build wyrd-for-games-bevy rustdoc as published
+        env:
+          RUSTDOCFLAGS: -D warnings -W missing-docs
+        run: |
+          cargo doc -p wyrd-for-games-bevy \
+            --no-deps \
+            --features bevy_log \
+            --locked
+      - name: Check wyrd-for-games API compatibility (signal-f32, codecs, schema)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: wyrd-for-games
+          feature-group: only-explicit-features
+          features: std, signal-f32, serde-ron, serde-json, schema
+          rust-toolchain: manual
+      - name: Check wyrd-for-games API compatibility (signal-i32, codecs, schema)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: wyrd-for-games
+          feature-group: only-explicit-features
+          features: std, signal-i32, serde-ron, serde-json, schema
+          rust-toolchain: manual
+      - name: Check wyrd-for-games-bevy API compatibility (bevy_log)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: wyrd-for-games-bevy
+          feature-group: only-explicit-features
+          features: bevy_log
+          rust-toolchain: manual
       - name: Dry-run publish wyrd-for-games
-        run: cargo publish -p wyrd-for-games --locked --dry-run
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "wyrd-for-games") | .version')"
+          if curl --fail --silent \
+            "https://crates.io/api/v1/crates/wyrd-for-games/${version}" >/dev/null; then
+            echo "wyrd-for-games ${version} already exists; package validation remains complete."
+          else
+            cargo publish -p wyrd-for-games --locked --dry-run
+          fi
 
   publish:
     name: Publish in dependency order
@@ -55,20 +119,63 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.95
-      - name: Publish wyrd-for-games
-        run: cargo publish -p wyrd-for-games --locked
-      - name: Wait for wyrd-for-games 0.3.0 on crates.io
+      - name: Verify release tag matches the package version
+        id: release
         run: |
-          for attempt in {1..30}; do
+          core_version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "wyrd-for-games") | .version')"
+          bevy_version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "wyrd-for-games-bevy") | .version')"
+          if [[ "${core_version}" != "${bevy_version}" ]]; then
+            echo "Release requires synchronized package versions; core=${core_version}, bevy=${bevy_version}."
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_TYPE}" != "tag" || "${GITHUB_REF_NAME}" != "v${core_version}" ]]; then
+            echo "Publish from tag v${core_version}; current ref is ${GITHUB_REF_TYPE} ${GITHUB_REF_NAME}."
+            exit 1
+          fi
+          echo "core_version=${core_version}" >> "${GITHUB_OUTPUT}"
+          echo "bevy_version=${bevy_version}" >> "${GITHUB_OUTPUT}"
+      - name: Publish wyrd-for-games
+        env:
+          VERSION: ${{ steps.release.outputs.core_version }}
+        run: |
+          if curl --fail --silent \
+            "https://crates.io/api/v1/crates/wyrd-for-games/${VERSION}" >/dev/null; then
+            echo "wyrd-for-games ${VERSION} already exists; skipping publish."
+          else
+            cargo publish -p wyrd-for-games --locked
+          fi
+      - name: Wait for wyrd-for-games on crates.io
+        env:
+          VERSION: ${{ steps.release.outputs.core_version }}
+        run: |
+          for _ in {1..30}; do
             if curl --fail --silent --show-error \
-              https://crates.io/api/v1/crates/wyrd-for-games/0.3.0 >/dev/null; then
+              "https://crates.io/api/v1/crates/wyrd-for-games/${VERSION}" >/dev/null; then
               exit 0
             fi
             sleep 10
           done
-          echo "wyrd-for-games 0.3.0 did not become available on crates.io in five minutes."
+          echo "wyrd-for-games ${VERSION} did not become available on crates.io in five minutes."
           exit 1
       - name: Dry-run publish wyrd-for-games-bevy
-        run: cargo publish -p wyrd-for-games-bevy --locked --dry-run
+        env:
+          VERSION: ${{ steps.release.outputs.bevy_version }}
+        run: |
+          if curl --fail --silent \
+            "https://crates.io/api/v1/crates/wyrd-for-games-bevy/${VERSION}" >/dev/null; then
+            echo "wyrd-for-games-bevy ${VERSION} already exists; skipping dry-run."
+          else
+            cargo publish -p wyrd-for-games-bevy --locked --dry-run
+          fi
       - name: Publish wyrd-for-games-bevy
-        run: cargo publish -p wyrd-for-games-bevy --locked
+        env:
+          VERSION: ${{ steps.release.outputs.bevy_version }}
+        run: |
+          if curl --fail --silent \
+            "https://crates.io/api/v1/crates/wyrd-for-games-bevy/${VERSION}" >/dev/null; then
+            echo "wyrd-for-games-bevy ${VERSION} already exists; skipping publish."
+          else
+            cargo publish -p wyrd-for-games-bevy --locked
+          fi

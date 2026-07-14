@@ -6,6 +6,7 @@
 //! never Weave Threads. f32 signal path only.
 
 #![allow(clippy::result_large_err)] // Preserve contextual public BindError payloads.
+#![warn(missing_docs)]
 
 use bevy::prelude::*;
 use core::any::type_name;

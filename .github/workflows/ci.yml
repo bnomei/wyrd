@@ -204,3 +204,24 @@ jobs:
             --no-deps \
             --features bevy_log \
             --locked
+      - name: Check wyrd-for-games API compatibility (signal-f32, codecs, schema)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: wyrd-for-games
+          feature-group: only-explicit-features
+          features: std, signal-f32, serde-ron, serde-json, schema
+          rust-toolchain: manual
+      - name: Check wyrd-for-games API compatibility (signal-i32, codecs, schema)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: wyrd-for-games
+          feature-group: only-explicit-features
+          features: std, signal-i32, serde-ron, serde-json, schema
+          rust-toolchain: manual
+      - name: Check wyrd-for-games-bevy API compatibility (bevy_log)
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: wyrd-for-games-bevy
+          feature-group: only-explicit-features
+          features: bevy_log
+          rust-toolchain: manual
