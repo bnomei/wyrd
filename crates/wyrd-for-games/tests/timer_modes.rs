@@ -1,8 +1,11 @@
 //! Timer PulseHold + FedCountdown (step 1.1).
 
+mod common;
+
+use common::signal_out_truthy;
 use wyrd::SignalDomain;
 use wyrd::Weave;
-use wyrd::{cookbook::helpers::signal_out_truthy, BindOpts, Runtime};
+use wyrd::{BindOpts, Runtime};
 use wyrd::{HostTime, KnotKind, TimerMode, ONE, ZERO};
 
 fn loom_tick(rt: &mut Runtime, tick: u64, sense: &str, val: wyrd::Signal) {

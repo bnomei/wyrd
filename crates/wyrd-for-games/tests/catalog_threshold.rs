@@ -1,8 +1,11 @@
 //! Threshold: gate with optional hysteresis and edge pulses.
 
+mod common;
+
+use common::signal_out_value;
 use wyrd::SignalDomain;
-use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 use wyrd::{from_count, is_truthy, HostTime, KnotKind, ONE, ZERO};
+use wyrd::{BindOpts, Runtime};
 use wyrd::{ValidationError, Weave};
 
 fn wire_threshold(kind: KnotKind, domain: SignalDomain) -> (Weave, Runtime) {

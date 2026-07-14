@@ -4,8 +4,6 @@ docs/*
 !docs/concepts/
 !docs/concepts/vision-and-scope.md
 !docs/concepts/performance-model.md
-!docs/examples/
-!docs/examples/README.md
 
 # Rust
 /target/

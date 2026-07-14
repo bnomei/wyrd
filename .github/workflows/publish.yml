@@ -29,6 +29,13 @@ jobs:
         run: cargo package -p wyrd-for-games --locked --list
       - name: Inspect wyrd-for-games-bevy package contents
         run: cargo package -p wyrd-for-games-bevy --locked --list
+      - name: Test wyrd-for-games examples as published
+        run: |
+          cargo test -p wyrd-for-games \
+            --doc \
+            --no-default-features \
+            --features "std,signal-f32,serde-ron,serde-json,schema" \
+            --locked
       - name: Build public rustdoc without warnings
         env:
           RUSTDOCFLAGS: -Dwarnings

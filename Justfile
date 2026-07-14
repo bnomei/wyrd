@@ -43,22 +43,25 @@ test-bevy:
     cargo test -p wyrd-for-games-bevy
     cargo build -p wyrd-for-games-bevy --example and_door
 
+test-docs:
+    cargo test -p wyrd-for-games --doc --no-default-features --features "std,signal-f32,serde-ron,serde-json,schema" --locked
+
 msrv-no-std:
     cargo +1.75 check -p wyrd-for-games --no-default-features --features "alloc,signal-f32"
     cargo +1.75 check -p wyrd-for-games --no-default-features --features "alloc,signal-i32"
 
 coverage:
-    cargo llvm-cov --workspace --exclude wyrd-for-games-bevy --lcov --output-path lcov-f32.info
-    bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src
+    cargo llvm-cov --workspace --exclude wyrd-for-games-bevy --ignore-filename-regex '(^|/)crates/wyrd-for-games/src/examples/' --lcov --output-path lcov-f32.info
+    bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src '(^|/)crates/wyrd-for-games/src/examples/'
     cargo llvm-cov clean --workspace
-    cargo llvm-cov -p wyrd-for-games --no-default-features --features "std,signal-i32" --lcov --output-path lcov-i32.info
-    bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src
+    cargo llvm-cov -p wyrd-for-games --no-default-features --features "std,signal-i32" --ignore-filename-regex '(^|/)crates/wyrd-for-games/src/examples/' --lcov --output-path lcov-i32.info
+    bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src '(^|/)crates/wyrd-for-games/src/examples/'
     cargo llvm-cov clean --workspace
-    cargo llvm-cov -p wyrd-for-games --no-default-features --features "std,signal-f32,serde-ron" --summary-only
-    bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src
+    cargo llvm-cov -p wyrd-for-games --no-default-features --features "std,signal-f32,serde-ron" --ignore-filename-regex '(^|/)crates/wyrd-for-games/src/examples/' --summary-only
+    bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src '(^|/)crates/wyrd-for-games/src/examples/'
     cargo llvm-cov clean --workspace
-    cargo llvm-cov -p wyrd-for-games --no-default-features --features "std,signal-f32,serde-json" --summary-only
-    bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src
+    cargo llvm-cov -p wyrd-for-games --no-default-features --features "std,signal-f32,serde-json" --ignore-filename-regex '(^|/)crates/wyrd-for-games/src/examples/' --summary-only
+    bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src '(^|/)crates/wyrd-for-games/src/examples/'
     cargo llvm-cov clean --workspace
     cargo llvm-cov -p wyrd-for-games-bevy --lcov --output-path lcov-bevy.info
     bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games-bevy/src
@@ -66,6 +69,7 @@ coverage:
 publish-readiness:
     cargo package -p wyrd-for-games --locked --list
     cargo package -p wyrd-for-games-bevy --locked --list
+    just test-docs
     RUSTDOCFLAGS=-Dwarnings cargo doc --workspace --no-deps
 
 ci-all:

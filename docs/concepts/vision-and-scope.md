@@ -27,9 +27,9 @@ relic placed ─┘                                  │
                                                                             "world.request_transition"
 ```
 
-The [Tier D chamber recipe](../../crates/wyrd-for-games/README.md) implements that
-shape end to end. It also emits a continuous `"shrine.bridge.target"` level. The graph selects a
-target; the host performs the actual movement, collision, and animation.
+The [`d01_shrine_chamber` lesson](https://docs.rs/wyrd-for-games/latest/wyrd/examples/tier_d/d01_shrine_chamber/)
+implements that shape end to end. It also emits a continuous `"shrine.bridge.target"` level. The
+graph selects a target; the host performs the actual movement, collision, and animation.
 
 ## What Wyrd owns—and what it deliberately does not
 
@@ -92,7 +92,7 @@ surprising cycle.
 
 ## Continue with a runnable shape
 
-The [examples index](../examples/README.md) maps common puzzle intentions to the executable
-cookbook. Start with the smallest matching mechanism, then use Tier D to see how multiple
-mechanisms form a chamber. For the reason Wyrd binds once before the hot loop, read the
-[performance model](performance-model.md).
+The [tiered examples](https://docs.rs/wyrd-for-games/latest/wyrd/examples/) map common puzzle
+intentions to executable lessons. Start with the smallest matching mechanism, then use Tier D to
+see how multiple mechanisms form a chamber. For the reason Wyrd binds once before the hot loop,
+read the [performance model](performance-model.md).

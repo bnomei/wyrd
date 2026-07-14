@@ -30,9 +30,11 @@ pub const ONE: Signal = 1.0;
 #[cfg(feature = "signal-i32")]
 pub const FRAC_BITS: u32 = 16;
 
+/// Canonical false / off level for the Q16.16 signal path.
 #[cfg(feature = "signal-i32")]
 pub const ZERO: Signal = 0;
 
+/// Canonical true / on level for the Q16.16 signal path.
 #[cfg(feature = "signal-i32")]
 pub const ONE: Signal = 1 << FRAC_BITS;
 
@@ -212,7 +214,7 @@ mod tests {
             assert_eq!(sat_add(i32::MAX, 1), i32::MAX);
             assert_eq!(sat_sub(i32::MIN, 1), i32::MIN);
             let big = mul(i32::MAX, i32::MAX);
-            assert!(big <= i32::MAX);
+            assert_eq!(big, i32::MAX);
             let d = div(i32::MAX, 1);
             let _ = d;
             let neg = from_level(-0.25);

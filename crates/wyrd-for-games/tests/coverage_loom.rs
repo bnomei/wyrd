@@ -1,8 +1,11 @@
 //! Regression coverage for loom paths not represented by the smaller catalog tests.
 
+mod common;
+
+use common::signal_out_value;
 use wyrd::{
-    cookbook::helpers::signal_out_value, from_count, from_level, BindOpts, CalcOp, HostTime,
-    KnotKind, Runtime, Seed, Signal, SignalDomain, Weave, ONE, ZERO,
+    from_count, from_level, BindOpts, CalcOp, HostTime, KnotKind, Runtime, Seed, Signal,
+    SignalDomain, Weave, ONE, ZERO,
 };
 
 fn loom_conversion(from: SignalDomain, to: SignalDomain, value: Signal) -> Signal {

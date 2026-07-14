@@ -1,11 +1,11 @@
 //! Compare rhs_const, Calc, RisingFromZero (step 1.4).
 
+mod common;
+
+use common::{signal_out_truthy, signal_out_value};
 use wyrd::SignalDomain;
 use wyrd::Weave;
-use wyrd::{
-    cookbook::helpers::{signal_out_truthy, signal_out_value},
-    BindOpts, Runtime,
-};
+use wyrd::{BindOpts, Runtime};
 use wyrd::{CalcOp, CompareOp, HostTime, KnotKind, ONE, ZERO};
 
 #[test]

@@ -1,8 +1,11 @@
 //! Integration: hello invert + and_door host loop (v2 dense ids).
 
+mod common;
+
+use common::signal_out_value;
 use wyrd::SignalDomain;
 use wyrd::Weave;
-use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
+use wyrd::{BindOpts, Runtime};
 use wyrd::{HostTime, KnotKind, ONE, ZERO};
 
 #[test]

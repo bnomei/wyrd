@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Replace the executable `wyrd::cookbook` API with human-readable, doctest-backed lessons under
+  `wyrd::examples`, organized as an ordered Tier A through Tier D learning path.
+
 ## 0.3.0 and 0.3.1 - 2026-07-12
 
 ### Breaking changes

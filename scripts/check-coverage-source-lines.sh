@@ -7,13 +7,18 @@
 # relevant physical-line contract for this gate.
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <source-directory>" >&2
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "usage: $0 <source-directory> [ignore-filename-regex]" >&2
   exit 2
 fi
 
 source_root="$(cd "$1" && pwd)/"
-uncovered="$(cargo llvm-cov report --show-missing-lines | awk -v root="$source_root" '
+report_args=(report --show-missing-lines)
+if [[ -n "${2:-}" ]]; then
+  report_args+=(--ignore-filename-regex "$2")
+fi
+
+uncovered="$(cargo llvm-cov "${report_args[@]}" | awk -v root="$source_root" '
   /^Uncovered Lines:$/ { in_uncovered = 1; next }
   in_uncovered && index($0, root) == 1 { print }
 ')"

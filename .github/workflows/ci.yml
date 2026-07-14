@@ -120,29 +120,37 @@ jobs:
       - name: Coverage f32 core suite (source lines 100%)
         run: |
           cargo llvm-cov --workspace --exclude wyrd-for-games-bevy \
+            --ignore-filename-regex '(^|/)crates/wyrd-for-games/src/examples/' \
             --lcov --output-path lcov-f32.info
-          bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src
+          bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src \
+            '(^|/)crates/wyrd-for-games/src/examples/'
       - name: Coverage i32 core suite (source lines 100%)
         run: |
           cargo llvm-cov clean --workspace
           cargo llvm-cov -p wyrd-for-games \
             --no-default-features --features "std,signal-i32" \
+            --ignore-filename-regex '(^|/)crates/wyrd-for-games/src/examples/' \
             --lcov --output-path lcov-i32.info
-          bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src
+          bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src \
+            '(^|/)crates/wyrd-for-games/src/examples/'
       - name: Coverage serde-ron f32 (source lines 100%)
         run: |
           cargo llvm-cov clean --workspace
           cargo llvm-cov -p wyrd-for-games \
             --no-default-features --features "std,signal-f32,serde-ron" \
+            --ignore-filename-regex '(^|/)crates/wyrd-for-games/src/examples/' \
             --summary-only
-          bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src
+          bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src \
+            '(^|/)crates/wyrd-for-games/src/examples/'
       - name: Coverage serde-json f32 (source lines 100%)
         run: |
           cargo llvm-cov clean --workspace
           cargo llvm-cov -p wyrd-for-games \
             --no-default-features --features "std,signal-f32,serde-json" \
+            --ignore-filename-regex '(^|/)crates/wyrd-for-games/src/examples/' \
             --summary-only
-          bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src
+          bash scripts/check-coverage-source-lines.sh crates/wyrd-for-games/src \
+            '(^|/)crates/wyrd-for-games/src/examples/'
       - name: Coverage bevy f32 (source lines 100%)
         run: |
           cargo llvm-cov clean --workspace
@@ -172,7 +180,27 @@ jobs:
         run: cargo package -p wyrd-for-games --locked --list
       - name: Inspect published wyrd-for-games-bevy files
         run: cargo package -p wyrd-for-games-bevy --locked --list
-      - name: Build public rustdoc without warnings
+      - name: Test wyrd-for-games examples as published
+        run: |
+          cargo test -p wyrd-for-games \
+            --doc \
+            --no-default-features \
+            --features "std,signal-f32,serde-ron,serde-json,schema" \
+            --locked
+      - name: Build wyrd-for-games rustdoc as published
         env:
-          RUSTDOCFLAGS: -Dwarnings
-        run: cargo doc --workspace --no-deps
+          RUSTDOCFLAGS: -D warnings -W missing-docs
+        run: |
+          cargo doc -p wyrd-for-games \
+            --no-deps \
+            --no-default-features \
+            --features "std,signal-f32,serde-ron,serde-json,schema" \
+            --locked
+      - name: Build wyrd-for-games-bevy rustdoc as published
+        env:
+          RUSTDOCFLAGS: -D warnings -W missing-docs
+        run: |
+          cargo doc -p wyrd-for-games-bevy \
+            --no-deps \
+            --features bevy_log \
+            --locked

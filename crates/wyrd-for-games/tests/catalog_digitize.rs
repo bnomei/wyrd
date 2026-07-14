@@ -1,8 +1,11 @@
 //! Digitize: quantize into steps over a range.
 
+mod common;
+
+use common::signal_out_value;
 use wyrd::SignalDomain;
-use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
 use wyrd::{from_count, HostTime, KnotKind, ONE, ZERO};
+use wyrd::{BindOpts, Runtime};
 use wyrd::{ValidationError, Weave};
 
 #[test]

@@ -1,4 +1,4 @@
-//! Runtime-facing errors: bind failures, bad dense handles, cookbook wrappers.
+//! Runtime-facing errors: bind failures, bad dense handles, and scenarios.
 
 use core::fmt;
 
@@ -447,77 +447,6 @@ impl std::error::Error for ScenarioError {
     }
 }
 
-/// Error returned by executable cookbook recipes.
-#[derive(Clone, Debug, PartialEq)]
-#[non_exhaustive]
-pub enum CookbookError {
-    /// Graph build failed before validation.
-    Build(BuildError),
-    /// Structural validation failed.
-    Validation(ValidationError),
-    /// Bind into a dense runtime failed.
-    Bind(BindError),
-    /// Dense handle misuse after bind.
-    Handle(HandleError),
-    /// Typed scenario setup, execution, or expectation failed.
-    Scenario(ScenarioError),
-}
-
-impl From<BuildError> for CookbookError {
-    fn from(value: BuildError) -> Self {
-        Self::Build(value)
-    }
-}
-
-impl From<ValidationError> for CookbookError {
-    fn from(value: ValidationError) -> Self {
-        Self::Validation(value)
-    }
-}
-
-impl From<BindError> for CookbookError {
-    fn from(value: BindError) -> Self {
-        Self::Bind(value)
-    }
-}
-
-impl From<HandleError> for CookbookError {
-    fn from(value: HandleError) -> Self {
-        Self::Handle(value)
-    }
-}
-
-impl From<ScenarioError> for CookbookError {
-    fn from(value: ScenarioError) -> Self {
-        Self::Scenario(value)
-    }
-}
-
-impl fmt::Display for CookbookError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Build(source) => write!(f, "cookbook graph build failed: {source}"),
-            Self::Validation(source) => write!(f, "cookbook validation failed: {source}"),
-            Self::Bind(source) => write!(f, "cookbook bind failed: {source}"),
-            Self::Handle(source) => write!(f, "cookbook handle failed: {source}"),
-            Self::Scenario(source) => write!(f, "cookbook scenario failed: {source}"),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for CookbookError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Build(source) => Some(source),
-            Self::Validation(source) => Some(source),
-            Self::Bind(source) => Some(source),
-            Self::Handle(source) => Some(source),
-            Self::Scenario(source) => Some(source),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -637,26 +566,6 @@ mod tests {
         );
         assert!(handles.iter().all(|error| Error::source(error).is_none()));
 
-        let cookbook_errors = [
-            CookbookError::from(BuildError::ForeignHandle),
-            CookbookError::from(validation),
-            CookbookError::from(bind_errors[0].clone()),
-            CookbookError::from(handles[0]),
-        ];
-        let diagnostics: Vec<String> = cookbook_errors.iter().map(ToString::to_string).collect();
-        assert_eq!(
-            diagnostics,
-            [
-                "cookbook graph build failed: handle belongs to a different weave builder",
-                "cookbook validation failed: weave 'empty' has no knots",
-                "cookbook bind failed: cannot bind weave 'invalid': weave 'empty' has no knots",
-                "cookbook handle failed: sense handle belongs to a different runtime",
-            ]
-        );
-        assert!(cookbook_errors
-            .iter()
-            .all(|error| Error::source(error).is_some()));
-
         let endpoints = [
             (RecipeEndpoint::SignalIn, "SignalIn"),
             (RecipeEndpoint::SignalOut, "SignalOut"),
@@ -750,12 +659,5 @@ mod tests {
         assert!(scenario_errors[2..]
             .iter()
             .all(|error| Error::source(error).is_none()));
-
-        let scenario_cookbook = CookbookError::from(scenario_errors[0].clone());
-        assert_eq!(
-            scenario_cookbook.to_string(),
-            "cookbook scenario failed: cannot start scenario: cannot build recipe: handle belongs to a different weave builder"
-        );
-        assert!(Error::source(&scenario_cookbook).is_some());
     }
 }

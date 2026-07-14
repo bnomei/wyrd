@@ -9,10 +9,10 @@ mod common;
 use common::{
     activity_lanes, bind_emit_storm, chain_map, chain_not, emit_storm_weave, map_general_cycle,
     mul_div_cycle, parallel_delays, parallel_digitize, parallel_sqrt, sense_bank, sense_density,
+    shrine_chamber_weave,
 };
 use divan::counter::ItemsCount;
 use divan::{black_box, Bencher};
-use wyrd::cookbook::tier_d::d01_shrine_chamber_weave;
 use wyrd::{
     from_count, from_level, tick_once, BindOpts, CmdId, HandleError, Host, HostPathId, HostTime,
     Outbox, PortWriter, Runtime, SenseId, Signal, ONE, ZERO,
@@ -374,8 +374,8 @@ fn shrine_host(rt: &Runtime) -> ShrineHost {
 }
 
 #[divan::bench]
-fn tier_d_sample_loom_apply(bencher: Bencher) {
-    let weave = d01_shrine_chamber_weave().unwrap();
+fn shrine_chamber_sample_loom_apply(bencher: Bencher) {
+    let weave = shrine_chamber_weave();
     let mut rt = Runtime::bind(weave, BindOpts::default()).unwrap();
     let mut host = shrine_host(&rt);
     for _ in 0..4 {

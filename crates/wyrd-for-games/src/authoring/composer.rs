@@ -101,11 +101,11 @@ impl<D: WireDomain> Wire<D> {
     }
 }
 
-/// Boolean wire alias used by cookbook-style helpers.
+/// Boolean wire alias used by composition examples and helpers.
 pub type BoolWire = Wire<Bool>;
-/// Level wire alias used by cookbook-style helpers.
+/// Level wire alias used by composition examples and helpers.
 pub type LevelWire = Wire<Level>;
-/// Count wire alias used by cookbook-style helpers.
+/// Count wire alias used by composition examples and helpers.
 pub type CountWire = Wire<Count>;
 
 /// Dynamic graph composer scoped to one generated [`Weave`].

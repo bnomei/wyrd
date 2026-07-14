@@ -29,7 +29,7 @@ fn composer_matches_equivalent_declarative_weave() {
 }
 
 #[test]
-fn composer_supports_branching_and_cookbook_semantics() {
+fn composer_supports_branching_and_example_semantics() {
     let weave = Weave::compose("cooldown", |composer| {
         let button = composer.bool_input("button")?;
         let edge = composer.rising("edge", &button)?;
@@ -94,7 +94,7 @@ fn composer_preserves_structured_builder_and_validation_errors() {
 }
 
 #[test]
-fn composer_helpers_cover_cookbook_operations_and_pattern_inclusion() {
+fn composer_helpers_cover_common_operations_and_pattern_inclusion() {
     let pulse = pattern! {
         id: "pulse";
         knots { constant = KnotKind::constant_bool(true); }

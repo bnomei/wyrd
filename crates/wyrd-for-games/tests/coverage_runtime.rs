@@ -1,12 +1,10 @@
 //! Runtime binding, interning, and diagnostic behavior not covered by the
 //! per-rune loom catalog tests.
 
-use std::error::Error;
-
 use wyrd::graph::KnotHandle;
 use wyrd::{
-    from_count, from_level, BindOpts, CalcOp, CookbookError, HandleError, HostTime, KnotKind,
-    PortSlot, Runtime, SignalDomain, TimerMode, Weave, ONE, ZERO,
+    from_count, from_level, BindError, BindOpts, Budget, CalcOp, HandleError, HostTime, KnotKind,
+    PortSlot, Runtime, SignalDomain, TimerMode, ValidationError, Weave, ONE, ZERO,
 };
 
 fn connect(
@@ -245,71 +243,6 @@ fn bind_precomputes_variant_plans_and_reuses_interned_ids() {
 }
 
 #[test]
-fn runtime_errors_remain_actionable_through_cookbook_wrappers() {
-    let mut valid = Weave::builder("budget-error").expect("valid weave id");
-    valid
-        .knot("constant", KnotKind::constant(ONE, SignalDomain::Bool))
-        .expect("unique knot");
-    let mut options = BindOpts::default();
-    options.budget.max_knots = 0;
-    let bind_error = match Runtime::bind(valid.build().expect("valid graph"), options) {
-        Ok(_) => panic!("zero knot budget must reject the graph"),
-        Err(error) => error,
-    };
-    assert!(format!("{bind_error}").contains("cannot bind weave 'budget-error'"));
-    assert!(Error::source(&bind_error).is_some());
-
-    let cookbook_bind = CookbookError::from(bind_error);
-    assert!(format!("{cookbook_bind}").contains("cookbook bind failed"));
-    assert!(Error::source(&cookbook_bind).is_some());
-
-    let mut build = Weave::builder("build-error").expect("valid weave id");
-    let constant = build
-        .knot("constant", KnotKind::constant(ONE, SignalDomain::Bool))
-        .expect("unique knot");
-    let build_error = match build.output(&constant, "missing") {
-        Ok(_) => panic!("unknown output must fail"),
-        Err(error) => error,
-    };
-    let cookbook_build = CookbookError::from(build_error);
-    assert!(format!("{cookbook_build}").contains("cookbook graph build failed"));
-    assert!(Error::source(&cookbook_build).is_some());
-
-    let mut invalid = Weave::builder("validation-error").expect("valid weave id");
-    invalid
-        .knot("unsupported", KnotKind::And { arity: 5 })
-        .expect("builder records knot before validation");
-    let validation_error = match invalid.build() {
-        Ok(_) => panic!("unsupported arity must not validate"),
-        Err(error) => error,
-    };
-    let cookbook_validation = CookbookError::from(validation_error);
-    assert!(format!("{cookbook_validation}").contains("cookbook validation failed"));
-    assert!(Error::source(&cookbook_validation).is_some());
-
-    let mut local = runtime_with_duplicate_interns();
-    let foreign = runtime_with_duplicate_interns();
-    let foreign_sense = foreign.sense_id("level").expect("foreign sense");
-    let handle_error = local
-        .port_writer()
-        .set_sense(foreign_sense, ZERO)
-        .expect_err("foreign sense must be rejected");
-    assert_eq!(
-        handle_error,
-        HandleError::ForeignRuntime { handle: "sense" }
-    );
-    assert_eq!(
-        format!("{handle_error}"),
-        "sense handle belongs to a different runtime"
-    );
-    assert!(Error::source(&handle_error).is_none());
-
-    let cookbook_handle = CookbookError::from(handle_error);
-    assert!(format!("{cookbook_handle}").contains("cookbook handle failed"));
-    assert!(Error::source(&cookbook_handle).is_some());
-}
-
-#[test]
 fn both_timer_modes_bind_into_runtime_dispatch() {
     for (id, mode, input) in [
         ("pulse", TimerMode::PulseHold, "start"),
@@ -329,5 +262,42 @@ fn both_timer_modes_bind_into_runtime_dispatch() {
         runtime.begin_frame(HostTime { tick: 0 });
         runtime.loom();
         assert_eq!(runtime.kind_tag_count(), 2);
+    }
+}
+
+#[test]
+fn bind_wraps_budget_validation_with_the_weave_id() {
+    let mut builder = Weave::builder("over-budget").expect("valid weave id");
+    builder
+        .knot("source", KnotKind::constant(ONE, SignalDomain::Bool))
+        .expect("unique knot");
+    let weave = builder.build().expect("structurally valid graph");
+
+    let result = Runtime::bind(
+        weave,
+        BindOpts {
+            budget: Budget {
+                max_knots: 0,
+                ..Budget::default()
+            },
+            ..BindOpts::default()
+        },
+    );
+
+    match result {
+        Err(BindError::InvalidWeave { weave_id, source }) => {
+            assert_eq!(weave_id, "over-budget");
+            assert_eq!(
+                source,
+                ValidationError::BudgetExceeded {
+                    metric: "knots",
+                    actual: 1,
+                    limit: 0,
+                    at_knot: None,
+                }
+            );
+        }
+        Err(other) => panic!("expected invalid-weave bind error, got {other}"),
+        Ok(_) => panic!("over-budget weave unexpectedly bound"),
     }
 }

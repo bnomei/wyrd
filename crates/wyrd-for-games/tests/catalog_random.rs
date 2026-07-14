@@ -1,7 +1,10 @@
 //! Seeded Random knot.
 
+mod common;
+
+use common::signal_out_value;
 use wyrd::SignalDomain;
-use wyrd::{cookbook::helpers::signal_out_value, BindOpts, Runtime};
+use wyrd::{BindOpts, Runtime};
 use wyrd::{HostTime, KnotKind, Seed, ONE, ZERO};
 use wyrd::{ValidationError, Weave};
 
@@ -76,7 +79,7 @@ fn gate_rising_samples_once() {
     }
     #[cfg(feature = "signal-i32")]
     {
-        assert!(v1 >= ZERO && v1 <= ONE);
+        assert!((ZERO..=ONE).contains(&v1));
     }
 
     rt.begin_frame(HostTime { tick: 2 });
@@ -138,7 +141,7 @@ fn random_with_min_max_ports() {
     }
     #[cfg(feature = "signal-i32")]
     {
-        assert!(v >= ZERO && v <= ONE);
+        assert!((ZERO..=ONE).contains(&v));
     }
 }
 

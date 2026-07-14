@@ -3,6 +3,9 @@
 //! Author an immutable [`Weave`], bind it to dense ids with [`Runtime`], then
 //! sample host senses and settle it once per frame. Use [`core`], [`graph`],
 //! and [`runtime`] when an explicit layer namespace is clearer.
+//!
+//! Start with the ordered, executable [`examples`], beginning at
+//! [`examples::tier_a::a01_hello_invert`].
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -23,6 +26,8 @@ pub mod __private {
 mod authoring;
 mod foundation;
 mod runtime_impl;
+
+pub mod examples;
 
 /// Shared signal, id, port, and knot-catalog vocabulary.
 pub mod core {
@@ -58,12 +63,11 @@ pub mod graph {
     pub use schemars::{schema_for, JsonSchema};
 }
 
-/// Runtime binding, host integration, output collection, and cookbook recipes.
+/// Runtime binding, host integration, and output collection.
 pub mod runtime {
-    pub use crate::runtime_impl::cookbook;
     pub use crate::runtime_impl::{
-        append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, CookbookError,
-        Emit, HandleError, Host, HostCommand, HostPathId, KnotHandle, NullHost, Outbox, PortWriter,
+        append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, Emit,
+        HandleError, Host, HostCommand, HostPathId, KnotHandle, NullHost, Outbox, PortWriter,
         Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeResolveError, RestoreError,
         Runtime, RuntimeState, Scenario, ScenarioError, ScriptedHost, SenseId, SignalOutSample,
         RUNTIME_STATE_FORMAT_VERSION,
@@ -96,11 +100,10 @@ pub use authoring::{from_ron, to_ron, RonCodecError};
 #[cfg(feature = "serde-json")]
 pub use authoring::{from_json, to_json, JsonCodecError};
 
-pub use runtime_impl::cookbook;
 pub use runtime_impl::{
-    append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, CookbookError,
-    Emit, EmitCommandManifest, HandleError, Host, HostCommand, HostPathId, NullHost, Outbox,
-    PortWriter, Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeManifest,
-    RecipeResolveError, RestoreError, Runtime, RuntimeState, Scenario, ScenarioError, ScriptedHost,
-    SenseId, SignalInManifest, SignalOutManifest, SignalOutSample, RUNTIME_STATE_FORMAT_VERSION,
+    append_commands, outbox_to_commands, tick_once, BindError, BindOpts, CmdId, Emit,
+    EmitCommandManifest, HandleError, Host, HostCommand, HostPathId, NullHost, Outbox, PortWriter,
+    Recipe, RecipeEndpoint, RecipeError, RecipeInstance, RecipeManifest, RecipeResolveError,
+    RestoreError, Runtime, RuntimeState, Scenario, ScenarioError, ScriptedHost, SenseId,
+    SignalInManifest, SignalOutManifest, SignalOutSample, RUNTIME_STATE_FORMAT_VERSION,
 };

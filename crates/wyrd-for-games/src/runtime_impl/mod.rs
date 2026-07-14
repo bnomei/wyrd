@@ -6,11 +6,10 @@
 //! host applies [`Outbox`] (`SignalOut` / `EmitCommand`). No engine types cross
 //! this boundary — dense `SenseId` / `HostPathId` / `CmdId` only on the hot path.
 //!
-//! Tutorial recipes live in [`cookbook`] (Tier A → B → C); they are pedagogy,
-//! not hot-path API.
+//! Executable learning material lives in [`crate::examples`] rather than the
+//! runtime API.
 
 pub(crate) mod bind;
-pub mod cookbook;
 pub(crate) mod error;
 pub(crate) mod handles;
 pub(crate) mod host;
@@ -23,8 +22,8 @@ pub(crate) mod scenario;
 
 pub use bind::{BindOpts, Runtime};
 pub use error::{
-    BindError, CookbookError, HandleError, RecipeEndpoint, RecipeError, RecipeResolveError,
-    RestoreError, ScenarioError,
+    BindError, HandleError, RecipeEndpoint, RecipeError, RecipeResolveError, RestoreError,
+    ScenarioError,
 };
 pub use handles::{CmdId, HostPathId, KnotHandle, SenseId};
 pub use host::{

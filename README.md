@@ -53,7 +53,7 @@ That keeps a puzzle rule portable between engines and makes world ownership expl
 - Learn the intended scope, multi-room handoff, and the Zelda-/Game Builder Garage-inspired
   composition model in the [vision and scope guide](docs/concepts/vision-and-scope.md).
 - Choose a tested puzzle shape—including the chamber-scale capstone—in the
-  [executable examples index](docs/examples/README.md).
+  [tiered `wyrd::examples` lessons](https://docs.rs/wyrd-for-games/latest/wyrd/examples/).
 - Read the [performance model](docs/concepts/performance-model.md) before tuning a per-frame
   integration.
 
@@ -97,15 +97,17 @@ application, the core API looks like this:
 ```rust
 use std::error::Error;
 
-use wyrd::{is_truthy, weave, BindOpts, HostTime, KnotKind, Runtime, ONE};
+use wyrd::{
+    is_truthy, weave, BindOpts, HostTime, KnotKind, Runtime, SignalDomain, ONE,
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let weave = weave! {
         id: "hello";
         knots {
-            source = KnotKind::signal_in();
+            source = KnotKind::signal_in(SignalDomain::Bool);
             invert = KnotKind::not();
-            sink = KnotKind::signal_out("debug.inverted");
+            sink = KnotKind::signal_out("debug.inverted", SignalDomain::Bool);
         }
         threads {
             source.out -> invert.in;
@@ -200,7 +202,9 @@ Use `WeaveDef` and `PatternDef` for editable or serialized data. Converting a de
 immutable `Weave` or `Pattern` performs structural validation. The optional RON and JSON codecs
 also validate while loading.
 
-See the [`wyrd` guide](crates/wyrd-for-games/README.md) for complete authoring examples.
+See the [`wyrd` package guide](crates/wyrd-for-games/README.md) for the public API and authoring
+overview, then follow the [tiered examples](https://docs.rs/wyrd-for-games/latest/wyrd/examples/)
+for complete, compile-checked lessons.
 
 ## Integrate with Bevy
 
@@ -234,29 +238,29 @@ The example samples two plate states, settles an `And` knot, applies `SignalOut(
 host-owned `Door` component, and emits confirmations when the component changes. See the
 [`wyrd_bevy` guide](crates/wyrd-for-games-bevy/README.md) for the exact ownership boundary.
 
-## Learn through executable recipes
+## Learn through tiered examples
 
-[`wyrd::cookbook`](crates/wyrd-for-games/README.md) provides 21 recipes used by both
-rustdoc and integration tests.
+[`wyrd::examples`](https://docs.rs/wyrd-for-games/latest/wyrd/examples/) presents 22 ordered,
+human-readable lessons. Each lesson is a complete Rustdoc example checked as a doctest; the core
+API example in this README remains the intentionally duplicated quickstart.
 
-| Tier | Focus | Recipes |
+| Tier | Focus | Lessons |
 | --- | --- | --- |
 | **A** | Foundations | Not, two-input And, bind/sample/loom, `tick_once`, validation failure |
 | **B** | Reusable Weaves | Monostable Pattern, two-plate door, Flag, Counter threshold, Delay |
-| **C** | Game-logic patterns | Latches, timers, cooldowns, Threshold, Map, Digitize, OnStart, Emit, Or |
+| **C** | Game-logic patterns | Latches, timers, cooldowns, Threshold, Map, Digitize, OnStart, Emit, Or, typed Composer |
 | **D** | Chamber-scale composition | Multi-object latch, moving-host target, and one-shot room-transition request |
 
-Run the complete ladder:
+Check the complete ladder with the same features used by docs.rs:
 
 ```bash
-cargo test -p wyrd-for-games --test tutorial_ladder
-cargo test -p wyrd-for-games --doc
+cargo test -p wyrd-for-games --doc --no-default-features \
+  --features "std,signal-f32,serde-ron,serde-json,schema" --locked
 ```
 
-For a narrative index rather than a flat recipe list, see [choose a puzzle
-shape](docs/examples/README.md). The Tier D capstone is deliberately engine-neutral: it proves
-the rule circuit while leaving spatial queries, movement, persistence, and room loading to the
-host.
+Start at Tier A and work forward, or choose the smallest lesson matching the rule you need. The
+Tier D capstone is deliberately engine-neutral: it proves the rule circuit while leaving spatial
+queries, movement, persistence, and room loading to the host.
 
 ## Features and numeric paths
 
@@ -322,10 +326,10 @@ and line-coverage gates.
 
 ## Reference and next steps
 
-- [`wyrd` authoring, runtime, and cookbook](crates/wyrd-for-games/README.md)
+- [`wyrd` authoring, runtime, and tiered examples](crates/wyrd-for-games/README.md)
 - [`wyrd_bevy` integration boundary](crates/wyrd-for-games-bevy/README.md)
 - [Vision, scope, and game-scale composition](docs/concepts/vision-and-scope.md)
-- [Executable puzzle-shape index](docs/examples/README.md)
+- [Tiered executable examples](https://docs.rs/wyrd-for-games/latest/wyrd/examples/)
 - [Performance model and measurement guidance](docs/concepts/performance-model.md)
 - [`wyrd` API reference](https://docs.rs/wyrd-for-games)
 - [`wyrd_bevy` API reference](https://docs.rs/wyrd-for-games-bevy)

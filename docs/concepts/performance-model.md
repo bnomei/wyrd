@@ -70,7 +70,8 @@ Run the checked behaviour first:
 
 ```bash
 cargo test -p wyrd-for-games --test zero_alloc_loom
-cargo test -p wyrd-for-games --test tutorial_ladder d01_shrine_chamber
+cargo test -p wyrd-for-games --doc --no-default-features \
+  --features "std,signal-f32,serde-ron,serde-json,schema" --locked
 ```
 
 Then run the benchmark families that match the question:
