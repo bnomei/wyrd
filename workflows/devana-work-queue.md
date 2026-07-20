@@ -5,7 +5,7 @@ description: Validate and fix open Devana issues, producing one focused pull req
 on:
   workflow_dispatch:
   schedule: every 30m
-  skip-if-no-match: "is:issue is:open label:devana"
+  skip-if-no-match: 'is:issue is:open label:bug in:title "[devana]"'
   permissions:
     issues: read
     pull-requests: read
@@ -39,7 +39,7 @@ tools:
 safe-outputs:
   create-pull-request:
     title-prefix: "[devana] "
-    labels: [devana]
+    labels: [bug]
     draft: true
     max: 3
     protected-files: fallback-to-issue
@@ -48,7 +48,7 @@ safe-outputs:
     max: 3
   close-issue:
     target: "*"
-    required-labels: [devana]
+    required-labels: [bug]
     max: 3
 
 timeout-minutes: 60
@@ -60,18 +60,20 @@ tracker-id: devana-work-queue
 
 # Devana Work Queue
 
-Work through the open issues labeled `devana` in `${{ github.repository }}`.
-Each issue contains a report produced by the Devana bug-hunt skill. Reports are
-candidates, not proof that the current code is still defective.
+Work through the open issues in `${{ github.repository }}` that carry the
+standard `bug` label and the `[devana]` title prefix. Each issue contains a
+report produced by the Devana bug-hunt skill. Reports are candidates, not proof
+that the current code is still defective.
 
 ## Select work
 
-1. Search for all open issues carrying the exact `devana` label, oldest first.
+1. Search for all open issues carrying the `bug` label and the `[devana]` title
+   prefix, oldest first.
 2. Exclude an issue when an open pull request already references or closes it.
 3. Select at most three issues whose fixes are independent and are not expected
    to modify overlapping files. Select fewer when independence is uncertain.
-4. Never work on an issue merely because its title contains `[devana]`; the
-   label is the authority for this queue.
+4. Never work on an issue unless both the `bug` label and the `[devana]` title
+   prefix are present.
 
 ## Work each selected report
 

@@ -56,7 +56,7 @@ tools:
 safe-outputs:
   create-issue:
     title-prefix: "[devana] "
-    labels: [devana]
+    labels: [bug]
     max: 20
 
 timeout-minutes: 60
