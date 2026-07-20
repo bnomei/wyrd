@@ -12,9 +12,9 @@ on:
 
 permissions:
   actions: read
-  contents: read
-  issues: read
-  pull-requests: read
+  contents: write
+  issues: write
+  pull-requests: write
   copilot-requests: write
 
 network:
