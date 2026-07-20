@@ -52,10 +52,10 @@ safe-outputs:
     max: 3
     protected-files: fallback-to-issue
   add-comment:
-    target: "*"
+    target: 'is:issue is:open label:bug in:title "[devana]"'
     max: 3
   close-issue:
-    target: "*"
+    target: 'is:issue is:open label:bug in:title "[devana]"'
     required-labels: [bug]
     max: 3
 
