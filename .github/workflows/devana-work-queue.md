@@ -9,9 +9,9 @@ on:
 
 permissions:
   actions: read
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
+  issues: read
+  pull-requests: read
   copilot-requests: write
 
 network:
@@ -49,10 +49,10 @@ safe-outputs:
     max: 3
     protected-files: fallback-to-issue
   add-comment:
-    target: 'is:issue is:open label:bug in:title "[devana]"'
+    target: "*"
     max: 3
   close-issue:
-    target: 'is:issue is:open label:bug in:title "[devana]"'
+    target: "*"
     required-labels: [bug]
     max: 3
 

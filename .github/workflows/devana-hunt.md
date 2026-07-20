@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: read
-  issues: write
+  issues: read
   copilot-requests: write
 
 runtimes:

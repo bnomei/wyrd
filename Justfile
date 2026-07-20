@@ -46,6 +46,12 @@ test-bevy:
 test-docs:
     cargo test -p wyrd-for-games --doc --no-default-features --features "std,signal-f32,serde-ron,serde-json,schema" --locked
 
+compile-workflows:
+    gh aw compile
+
+publish-core:
+    cargo publish -p wyrd-for-games --locked
+
 msrv-no-std:
     cargo +1.75 check -p wyrd-for-games --no-default-features --features "alloc,signal-f32"
     cargo +1.75 check -p wyrd-for-games --no-default-features --features "alloc,signal-i32"
