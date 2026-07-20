@@ -30,7 +30,15 @@ network:
 
 tools:
   edit:
-  bash: [":*"]
+  bash:
+    - "cargo:*"
+    - "just:*"
+    - "rg"
+    - "git:blame"
+    - "git:diff"
+    - "git:log"
+    - "git:show"
+    - "git:status"
   github:
     mode: gh-proxy
     min-integrity: approved
