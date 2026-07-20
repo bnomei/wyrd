@@ -17,6 +17,7 @@ permissions:
 network:
   allowed:
     - defaults
+    - gh-aw
     - dotnet
     - github
     - go

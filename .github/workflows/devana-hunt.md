@@ -18,6 +18,7 @@ runtimes:
 network:
   allowed:
     - defaults
+    - gh-aw
     - github
     - node
 
