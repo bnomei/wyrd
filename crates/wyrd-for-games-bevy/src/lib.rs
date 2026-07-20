@@ -476,9 +476,9 @@ impl Plugin for WyrdPlugin {
 /// Loom is infallible after a successful bind (validate already ran).
 pub fn loom_all(mut world: ResMut<WyrdWorld>) {
     for (_, inst) in world.iter_mut() {
-        inst.tick = inst.tick.wrapping_add(1);
         inst.runtime.begin_frame(HostTime { tick: inst.tick });
         inst.runtime.loom();
+        inst.tick = inst.tick.wrapping_add(1);
     }
 }
 
