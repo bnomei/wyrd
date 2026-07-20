@@ -6,9 +6,6 @@ on:
   workflow_dispatch:
   schedule: every 30m
   skip-if-no-match: 'is:issue is:open label:bug in:title "[devana]"'
-  permissions:
-    issues: read
-    pull-requests: read
 
 permissions:
   actions: read
