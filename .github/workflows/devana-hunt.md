@@ -32,6 +32,12 @@ pre-agent-steps:
         --copy \
         --yes
       test -f .agents/skills/devana-bug-hunt/SKILL.md
+  - name: Prepare Devana report directory
+    working-directory: ${{ github.workspace }}
+    run: |
+      set -euo pipefail
+      rm -rf .devana
+      mkdir -p .devana
 
 tools:
   edit:
@@ -46,6 +52,7 @@ tools:
     - "git:status"
     - "head"
     - "ls"
+    - "mkdir"
     - "pwd"
     - "rg"
     - "sed"
